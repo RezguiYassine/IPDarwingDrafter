@@ -52,7 +52,7 @@ ONEDRIVE_FOLDER_URL="https://hawlandshutde-my.sharepoint.com/:f:/g/personal/rey2
 # Optional: a per-file direct download URL (set this to skip the manual step).
 # To generate one in SharePoint: open the folder, click sketchcleannet.pth,
 # then "..." → "Copy link" → set permissions → append "?download=1" to the URL.
-DIRECT_DOWNLOAD_URL=""
+DIRECT_DOWNLOAD_URL="https://hawlandshutde-my.sharepoint.com/:u:/g/personal/rey21950_az_haw-landshut_de/IQDKTxEjVJbnQLn6ZLOkpf2oAf0q9wUvBD1gfhYst_nS2T8?e=PlKpSA"
 
 echo
 echo "── Model weights ────────────────────────────────────────────────────"
