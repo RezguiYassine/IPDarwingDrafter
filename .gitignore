@@ -1,0 +1,55 @@
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.so
+.Python
+.pytest_cache/
+
+# ─── Virtual environments ────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ─── IDE & editor ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+.DS_Store
+
+# ─── Pipeline runtime outputs ────────────────────────────────────────────────
+output/
+**/output/
+*.log
+
+# ─── Model weights (managed via setup.sh) ────────────────────────────────────
+# We ship the small ones (puhachov_keypoints.pth ~22 MB, free2cad_v3_best.pth ~3 MB)
+# but exclude the big one (sketchcleannet.pth ~124 MB, downloaded by setup.sh).
+models/sketchcleannet.pth
+models/sketchcleannet_last.pth
+models/*_ep[0-9]*.pth
+models/free2cad_best.pth
+
+# Free2CAD research checkpoints + tensorboard
+**/weights/free2cad/free2cad_ep*.pth
+**/weights/free2cad/free2cad_v3_ep*.pth
+**/weights/free2cad/free2cad_latest.pth
+**/weights/free2cad/free2cad_v3_latest.pth
+**/tb_logs/
+**/tb_logs_v3/
+
+# ─── Training data (large, not for git) ──────────────────────────────────────
+**/data/free2cad_training/
+**/data/free2cad_training_v3/
+**/data/abc_dataset/
+**/data/deepcad/
+**/SketchCleanNet_Data/
+**/SketchCleanNet_Data*.zip
+*.tar
+*.tar.gz
+*.zip
+
+# Cloned third-party reference repos (re-clone via setup.sh / research README)
+**/research/repos/

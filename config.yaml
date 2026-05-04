@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# IP DrawingDrafter — Vectorization Pipeline Configuration
+# Single source of truth for all four stages.
+#
+# All paths are RELATIVE to the project root. Run scripts from the project
+# root (e.g.  python stage1_preprocessing/stage1_preprocess.py ...) so the
+# relative paths resolve correctly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── SketchCleanNet (Stage 1) ─────────────────────────────────────────────────
+sketchcleannet:
+  # Path to pretrained weights (.pth file).
+  # Not shipped in the repo (>100 MB). Run setup.sh to download, or set the
+  # path manually. Leave empty ("") to use the classical cleaning fallback.
+  weights: "models/sketchcleannet.pth"
+  device:  "cpu"          # "cuda" or "cpu"
+
+# ── Puhachov stroke-extraction CNN (Stage 2) ─────────────────────────────────
+puhachov:
+  weights: "models/puhachov_keypoints.pth"
+  device:  "cpu"
+  keypoint_threshold: 0.50
+  nms_radius:          5
+
+# ── Free2CAD primitive-fitting Transformer (Stage 3 — RESEARCH ONLY) ─────────
+# The production Stage 3 uses RANSAC and does NOT load these weights.
+# This config block is consumed only by stage3_primitivesfitting/research/
+# (training + Free2CAD-based inference). See docs/archive/free2cad_handoff.md.
+free2cad:
+  weights:   "models/free2cad_v3_best.pth"
+  device:    "cuda"
+  repo_path: "stage3_primitivesfitting/research/repos/Free2CAD/networkTraining"
+
+# ── Stage 1 — Preprocessing ───────────────────────────────────────────────────
+stage1:
+  # Skeleton quality threshold [0.0 – 1.0].
+  # Sketches whose quality score falls below this are flagged for manual review.
+  quality_threshold: 0.70
+
+  # Classical cleaning parameters (used when SketchCleanNet weights unavailable)
+  classical:
+    blur_kernel:    3       # Gaussian blur kernel size (odd int, 1 = off)
+    adaptive_block: 35      # Adaptive threshold block size (odd int, >= 3)
+    adaptive_C:     10      # Adaptive threshold constant C
+    blend_alpha:    0.6     # Otsu weight in Otsu+Adaptive blend [0.0 – 1.0]
+    morph_kernel:   2       # Morphological opening kernel size (pixels)
+    min_cc_size:    30      # Minimum connected component area to keep (pixels)
+
+# ── Stage 2 — Stroke Extraction ───────────────────────────────────────────────
+stage2:
+  isolation_threshold: 0.05   # Flag if >5% of foreground pixels are orphaned
+
+# ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
+stage3:
+  confidence_threshold: 0.60  # Primitive confidence below this = flag
+
+# ── Datasets (Free2CAD training pipeline — research only, not shipped) ───────
+# These directories are gitignored. Populate them with setup.sh / your own
+# generator before training. See docs/archive/free2cad_handoff.md.
+data:
+  training_dir: "stage3_primitivesfitting/research/data/free2cad_training"
+  abc_step_dir: "stage3_primitivesfitting/research/data/abc_dataset/step_files"
+  deepcad_dir:  "stage3_primitivesfitting/research/data/deepcad"
+  weights_dir:  "models"
+
+# ── Free2CAD training defaults (research only) ───────────────────────────────
+training:
+  epochs:      100
+  batch_size:  32
+  lr:          0.0001
+  max_strokes: 20
+  max_pts:     32
+  n_samples:   30000
+  noise_std:   0.005
+  splits:      "0.85,0.10,0.05"
+
+# ── Global pipeline settings ──────────────────────────────────────────────────
+pipeline:
+  workers:    4            # Parallel workers (0/1 = no parallelism)
+  resume:     true         # Skip sketches that already have complete outputs
+  log_level: "INFO"        # DEBUG | INFO | WARNING | ERROR

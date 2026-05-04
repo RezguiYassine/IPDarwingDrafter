@@ -1,0 +1,27 @@
+# Core pipeline dependencies (Stages 1–4).
+# Versions are minimums known to work; newer should also work.
+
+# --- Image I/O & classical processing ---
+numpy>=1.24
+opencv-python>=4.8
+scikit-image>=0.21
+scipy>=1.10
+Pillow>=10.0
+
+# --- Graph processing (Stage 2) ---
+networkx>=3.0
+
+# --- Deep learning (Stage 1 SketchCleanNet, Stage 3 research) ---
+torch>=2.0
+torchvision>=0.15
+
+# --- Vector export (Stage 4) ---
+ezdxf>=1.4
+svgwrite>=1.4
+
+# --- Config & misc ---
+PyYAML>=6.0
+tqdm>=4.65
+
+# --- Optional: visualization & training-time only ---
+matplotlib>=3.7

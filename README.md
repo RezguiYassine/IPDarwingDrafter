@@ -1,0 +1,220 @@
+# IP DrawingDrafter — AP3 Vectorization Pipeline
+
+> Hand-drawn engineering sketch → editable vector files (SVG / DXF).
+> HAW Landshut · IP DrawingDrafter project · AP3.
+
+This repository implements the four-stage vectorization pipeline of the
+IP DrawingDrafter project. It takes a raster image of a hand-drawn
+engineering sketch as input and produces clean, ISO 128–styled vector
+files (SVG and DXF) that can be opened in any CAD application.
+
+```
+   raster PNG               cleaned + skeleton           stroke graph
+       │                          │                          │
+       ▼                          ▼                          ▼
+┌──────────────┐         ┌──────────────────┐       ┌──────────────────┐
+│   Stage 1    │  ─────▶ │     Stage 2      │ ────▶ │     Stage 3      │
+│ Preprocessing│         │ Stroke Extraction│       │ Primitive Fitting│
+└──────────────┘         └──────────────────┘       └──────────────────┘
+                                                            │
+                                                            ▼
+                                                   ┌──────────────────┐
+                                                   │     Stage 4      │
+                                                   │     Export       │
+                                                   │  (SVG, DXF)      │
+                                                   └──────────────────┘
+```
+
+| Stage | In                  | Out                         | Tech                       |
+|------:|---------------------|-----------------------------|----------------------------|
+| 1     | Raw raster (PNG)    | Cleaned image + 1-px skeleton | SketchCleanNet (or classical fallback) |
+| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder |
+| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / polyline) |
+| 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered) |
+
+---
+
+## Quick start
+
+### 1. Clone & install
+
+```bash
+git clone <this-repo-url> Vectorization
+cd Vectorization
+bash setup.sh
+source .venv/bin/activate
+```
+
+`setup.sh` creates a virtualenv, installs requirements, and prints
+instructions for downloading the one big model weight that doesn't ship in
+the repository (see [Model weights](#model-weights) below).
+
+### 2. Run the pipeline on a sample
+
+```bash
+# Stage 1 — clean + skeletonize
+python stage1_preprocessing/stage1_preprocess.py \
+    data/samples/Picture1.png
+
+# Stage 2 — build stroke graph from the skeleton
+python stage2_strokeextraction/stage2_stroke_extract.py \
+    output/cleaned/Picture1_skeleton.png
+
+# Stage 3 — fit geometric primitives via RANSAC
+python stage3_primitivesfitting/stage3_primitive_fit.py \
+    output/graphs/Picture1_skeleton_graph.json
+
+# Stage 4 — export to SVG + DXF (ISO 128 patent style)
+python stage4_export/stage4_export.py \
+    output/primitives/Picture1_skeleton_primitives.json \
+    --format both --dxf-mode patent
+```
+
+Everything lands under `output/`:
+
+```
+output/
+├── cleaned/      ← Stage 1 (cleaned PNG + skeleton PNG)
+├── graphs/       ← Stage 2 (stroke graph JSON)
+├── primitives/   ← Stage 3 (primitives JSON)
+└── vectors/      ← Stage 4 (final .svg / .dxf)
+```
+
+---
+
+## Repository layout
+
+```
+Vectorization/
+├── README.md                        ← this file
+├── LICENSE                          ← Apache 2.0
+├── config.yaml                      ← single source of truth for all stages
+├── requirements.txt
+├── setup.sh                         ← one-shot install + weight download
+│
+├── stage1_preprocessing/
+│   ├── stage1_preprocess.py
+│   └── research/                    ← optional: re-train SketchCleanNet
+│       ├── train_sketchcleannet.py
+│       └── README.md
+│
+├── stage2_strokeextraction/
+│   ├── stage2_stroke_extract.py
+│   ├── visualize_graph.py
+│   └── …
+│
+├── stage3_primitivesfitting/
+│   ├── stage3_primitive_fit.py      ← production (RANSAC)
+│   └── research/                    ← optional: Free2CAD experiment (retired)
+│       ├── stage3_primitive_fit_free2cad.py
+│       ├── train_free2cad_v3.py
+│       ├── generate_sketches_v3.py
+│       └── README.md
+│
+├── stage4_export/
+│   └── stage4_export.py
+│
+├── docs/                            ← per-stage architectural notes
+│   ├── pipeline_overview.md
+│   ├── stage1_preprocess.md
+│   ├── stage2_stroke_extract.md
+│   ├── stage3_primitive_fit.md
+│   ├── stage4_export.md
+│   └── archive/                     ← historical: Free2CAD investigation
+│
+├── data/
+│   └── samples/                     ← a couple of example PNGs
+│
+├── models/                          ← weights (some shipped, some downloaded)
+│   └── README.md
+│
+└── output/                          ← (gitignored) all pipeline outputs
+```
+
+The four stage scripts are intentionally **decoupled**: each one reads its
+input from disk, writes its output to disk, and has no Python imports
+between stages. You can run any stage standalone, swap a stage's
+implementation, or insert a new stage between two existing ones.
+
+---
+
+## Model weights
+
+Three model weights are referenced by the pipeline:
+
+| Weight                       | Size  | Used by              | Status                      |
+|------------------------------|------:|----------------------|-----------------------------|
+| `puhachov_keypoints.pth`     | 22 MB | Stage 2              | shipped in `models/`        |
+| `free2cad_v3_best.pth`       | 3 MB  | Stage 3 *(research)* | shipped in `models/`        |
+| `sketchcleannet.pth`         | 124 MB | Stage 1             | **must be downloaded** (>100 MB GitHub limit) |
+
+`setup.sh` will print the OneDrive folder URL where `sketchcleannet.pth`
+is hosted. If you skip the download, Stage 1 automatically falls back to
+its **classical cleaning mode** (Otsu + adaptive threshold + morphology) —
+the pipeline still produces valid output, with somewhat noisier
+skeletonization on photographed or shaded sketches.
+
+See [`models/README.md`](models/README.md) for details.
+
+---
+
+## Configuration
+
+All four stages read from the single [`config.yaml`](config.yaml) at the
+project root. All paths in it are relative to the project root, so the
+config works on any clone without editing.
+
+The most common knobs:
+
+| Key                                | Default                       | Effect                                          |
+|------------------------------------|-------------------------------|-------------------------------------------------|
+| `sketchcleannet.weights`           | `models/sketchcleannet.pth`   | empty `""` ⇒ force classical cleaning mode     |
+| `sketchcleannet.device`            | `cpu`                         | `cuda` for GPU                                  |
+| `puhachov.device`                  | `cpu`                         | `cuda` for GPU                                  |
+| `stage1.quality_threshold`         | `0.70`                        | sketches below this are flagged for review      |
+| `stage3.confidence_threshold`      | `0.60`                        | primitives below this are flagged for review    |
+
+---
+
+## Per-stage documentation
+
+Each stage has its own architecture document:
+
+- **Pipeline overview** — [`docs/pipeline_overview.md`](docs/pipeline_overview.md)
+- **Stage 1** — [`docs/stage1_preprocess.md`](docs/stage1_preprocess.md)
+- **Stage 2** — [`docs/stage2_stroke_extract.md`](docs/stage2_stroke_extract.md)
+- **Stage 3** — [`docs/stage3_primitive_fit.md`](docs/stage3_primitive_fit.md)
+- **Stage 4** — [`docs/stage4_export.md`](docs/stage4_export.md)
+
+Historical notes (Free2CAD experiment, training methodology, results) live
+in [`docs/archive/`](docs/archive/).
+
+---
+
+## Research extensions
+
+Two stages have a `research/` subdirectory with optional code for
+re-training the underlying ML model. These are **not** required to run the
+pipeline:
+
+- [`stage1_preprocessing/research/`](stage1_preprocessing/research/README.md)
+  — re-train SketchCleanNet on new data.
+- [`stage3_primitivesfitting/research/`](stage3_primitivesfitting/research/README.md)
+  — Free2CAD Transformer experiment (retired; preserved for reference).
+
+---
+
+## License
+
+Apache License, Version 2.0 — see [`LICENSE`](LICENSE) for the full text.
+This permits commercial use, modification, and redistribution, and
+includes a patent grant.
+
+---
+
+## Acknowledgements
+
+- **SketchCleanNet** — Simo-Serra et al., *"Mastering Sketching"*, ACM TOG 2018.
+- **Puhachov keypoint CNN** — Puhachov et al., keypoint extraction for line drawings.
+- **Free2CAD** — Li et al., Transformer-based stroke-to-CAD primitive fitting.
+- HAW Landshut — IP DrawingDrafter project (AP3).
