@@ -132,7 +132,7 @@ class SketchCleanNet:
             for y in range(0, pH - self.TILE_SIZE + 1, step):
                 for x in range(0, pW - self.TILE_SIZE + 1, step):
                     patch = padded[y:y + self.TILE_SIZE, x:x + self.TILE_SIZE]
-                    tensor = (torch.from_numpy(patch).float() / 255.0
+                    tensor = ((torch.from_numpy(patch).float() / 255.0)
                               .unsqueeze(0).unsqueeze(0)
                               .to(self._device))
                     pred = self._model(tensor).squeeze().cpu().numpy()
