@@ -41,13 +41,33 @@ files (SVG and DXF) that can be opened in any CAD application.
 ```bash
 git clone <this-repo-url> Vectorization
 cd Vectorization
+```
+
+**Linux / macOS:**
+
+```bash
 bash setup.sh
 source .venv/bin/activate
 ```
 
-`setup.sh` creates a virtualenv, installs requirements, and prints
-instructions for downloading the one big model weight that doesn't ship in
-the repository (see [Model weights](#model-weights) below).
+**Windows (Command Prompt):**
+
+```bat
+setup.bat
+.venv\Scripts\activate.bat
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.\setup.bat
+.venv\Scripts\Activate.ps1
+```
+
+The setup script creates a virtualenv, installs requirements, and downloads
+the one large model weight (`sketchcleannet.pth`, 124 MB) that doesn't ship
+in the repository — see [Model weights](#model-weights) below. It is
+idempotent: safe to re-run.
 
 ### 2. Run the pipeline on a sample
 
