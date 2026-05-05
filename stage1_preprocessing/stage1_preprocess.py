@@ -90,8 +90,17 @@ class SketchCleanNet:
             import torch
             import torch.nn as nn
 
+            # Fall back to CPU if CUDA was requested but is not available.
+            if device == "cuda" and not torch.cuda.is_available():
+                logger.warning(
+                    "CUDA requested but not available — loading SketchCleanNet on CPU."
+                )
+                device = "cpu"
+
             model = _UNet()
-            state = torch.load(weights_file, map_location=device)
+            state = torch.load(
+                weights_file, map_location=device, weights_only=False
+            )
             # Handle both raw state_dict and checkpoint dicts
             state_dict = state.get("model_state_dict", state.get("state_dict", state))
             model.load_state_dict(state_dict)
@@ -132,9 +141,8 @@ class SketchCleanNet:
             for y in range(0, pH - self.TILE_SIZE + 1, step):
                 for x in range(0, pW - self.TILE_SIZE + 1, step):
                     patch = padded[y:y + self.TILE_SIZE, x:x + self.TILE_SIZE]
-                    tensor = ((torch.from_numpy(patch).float() / 255.0)
-                              .unsqueeze(0).unsqueeze(0)
-                              .to(self._device))
+                    tensor = (torch.from_numpy(patch).float() / 255.0
+                              ).unsqueeze(0).unsqueeze(0).to(self._device)
                     pred = self._model(tensor).squeeze().cpu().numpy()
                     output [y:y + self.TILE_SIZE, x:x + self.TILE_SIZE] += pred * ramp
                     weights[y:y + self.TILE_SIZE, x:x + self.TILE_SIZE] += ramp
@@ -306,6 +314,39 @@ def _compute_skeleton_quality(skeleton: np.ndarray) -> float:
     return thin_pixels / total_pixels
 
 
+# ─── Binarization (for soft SketchCleanNet output) ───────────────────────────
+
+def _binarize(gray: np.ndarray, min_cc_size: int = 30) -> np.ndarray:
+    """
+    Convert a soft grayscale image (SketchCleanNet output) to strict binary.
+
+    SketchCleanNet outputs near-continuous grayscale values — strokes are dark,
+    background is light but rarely exactly 255. A plain `> 0` threshold would
+    treat near-white background noise as foreground and produce ghost skeleton
+    strokes. Otsu finds the true stroke/background boundary automatically.
+
+    No morphological opening is applied here: SketchCleanNet already removed
+    noise, and its output strokes are only 1-2px wide — an opening kernel would
+    erase them entirely. Only a connected-component size filter is used to drop
+    residual specks that Otsu lets through.
+
+    Steps:
+      1. Invert so strokes = bright (Otsu maximises between-class variance on
+         a bright foreground).
+      2. Otsu global threshold.
+      3. Connected-component filter — drops blobs smaller than min_cc_size px.
+    """
+    inverted = cv2.bitwise_not(gray)
+    _, binary = cv2.threshold(inverted, 0, 255,
+                              cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
+    filtered = np.zeros_like(binary)
+    for lbl in range(1, n):
+        if stats[lbl, cv2.CC_STAT_AREA] >= min_cc_size:
+            filtered[labels == lbl] = 255
+    return filtered
+
+
 # ─── Thinning ─────────────────────────────────────────────────────────────────
 
 def _thin_to_skeleton(binary_image: np.ndarray) -> np.ndarray:
@@ -388,13 +429,22 @@ def run(
     # ── Save cleaned raster ───────────────────────────────────────────────────
     cv2.imwrite(str(cleaned_path), cleaned_img)
 
+    # ── Binarize SketchCleanNet output before skeletonization ────────────────
+    # Classical cleaning already produces strict binary (0/255).
+    # SketchCleanNet outputs soft grayscale — Otsu + morphological cleanup
+    # converts it to binary so the skeletonizer sees only real strokes.
+    if model_used == "sketchcleannet":
+        skeleton_input = _binarize(cleaned_img)
+    else:
+        skeleton_input = cleaned_img
+
     # ── Thin to 1px skeleton ──────────────────────────────────────────────────
-    skeleton = _thin_to_skeleton(cleaned_img)
+    skeleton = _thin_to_skeleton(skeleton_input)
     cv2.imwrite(str(skeleton_path), skeleton)
 
     # ── Compute quality signal ────────────────────────────────────────────────
     quality   = _compute_skeleton_quality(skeleton)
-    threshold = config.get("stage1", {}).get("quality_threshold", 0.70)
+    threshold = config.get("stage1", {}).get("quality_threshold", 0.7)
     flagged   = quality < threshold
 
     elapsed = time.perf_counter() - t_start
@@ -458,13 +508,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Stage 1 — Preprocessing: clean a single sketch image."
     )
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
     parser.add_argument("input",   type=Path, help="Input grayscale PNG")
-    parser.add_argument("--output",type=Path, default=PROJECT_ROOT / "output",
-                        help="Output root directory (default: <project>/output)")
-    parser.add_argument("--config",type=Path, default=PROJECT_ROOT / "config.yaml",
-                        help="Pipeline config file (default: <project>/config.yaml)")
+    parser.add_argument("--output",type=Path, default=Path("output"),
+                        help="Output root directory (default: ./output)")
+    parser.add_argument("--config",type=Path, default=Path("config.yaml"),
+                        help="Pipeline config file (default: config.yaml)")
     parser.add_argument("--id",    type=str,  default=None,
                         help="Sketch ID (default: input filename stem)")
     args = parser.parse_args()
@@ -474,6 +522,14 @@ if __name__ == "__main__":
     if args.config.exists():
         with open(args.config) as f:
             cfg = yaml.safe_load(f) or {}
+        # Resolve relative weight paths relative to the config file's directory,
+        # so the script works regardless of the current working directory.
+        config_dir = args.config.resolve().parent
+        for section in ("sketchcleannet",):
+            if section in cfg:
+                w = cfg[section].get("weights", "")
+                if w and not Path(w).is_absolute():
+                    cfg[section]["weights"] = str(config_dir / w)
 
     sketch_id = args.id or args.input.stem
 
