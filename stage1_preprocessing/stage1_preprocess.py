@@ -123,23 +123,41 @@ class SketchCleanNet:
         import torch
 
         H, W = image_gray.shape
-        # Pad image so it tiles evenly
-        pad_h = (self.TILE_SIZE - H % self.TILE_SIZE) % self.TILE_SIZE
-        pad_w = (self.TILE_SIZE - W % self.TILE_SIZE) % self.TILE_SIZE
-        padded = np.pad(image_gray, ((0, pad_h), (0, pad_w)), mode="reflect")
+        step = self.TILE_SIZE - self.OVERLAP
+
+        # Pad to at least TILE_SIZE so a single tile always fits, even on
+        # tiny inputs. Reflective padding avoids edge-darkening at the model
+        # input. We don't pad to a multiple of TILE_SIZE: the tile-start
+        # generator below guarantees full coverage regardless.
+        pH = max(self.TILE_SIZE, H)
+        pW = max(self.TILE_SIZE, W)
+        padded = np.pad(image_gray, ((0, pH - H), (0, pW - W)), mode="reflect")
 
         output  = np.zeros_like(padded, dtype=np.float32)
         weights = np.zeros_like(padded, dtype=np.float32)
 
-        step = self.TILE_SIZE - self.OVERLAP
-        pH, pW = padded.shape
-
         # Build a 2D weight ramp: edges blend smoothly, centre has full weight
-        ramp  = _cosine_weight_ramp(self.TILE_SIZE)
+        ramp = _cosine_weight_ramp(self.TILE_SIZE)
+
+        # Tile-start generator: regular `step` grid, plus a forced final tile
+        # flush against the far edge whenever the regular grid misses it.
+        # Without this, an input whose dims don't fit the regular grid leaves
+        # a strip of pixels uncovered → np.divide(..., where=...) returns
+        # uninitialised memory there, which Otsu binarisation later picks up
+        # as ghost ink (visible as a horizontal noise band at the bottom of
+        # the cleaned image, e.g. on 992×747 inputs).
+        def _tile_starts(total: int, tile: int, stride: int) -> list[int]:
+            starts = list(range(0, total - tile + 1, stride))
+            if not starts or starts[-1] + tile < total:
+                starts.append(total - tile)
+            return starts
+
+        y_starts = _tile_starts(pH, self.TILE_SIZE, step)
+        x_starts = _tile_starts(pW, self.TILE_SIZE, step)
 
         with torch.no_grad():
-            for y in range(0, pH - self.TILE_SIZE + 1, step):
-                for x in range(0, pW - self.TILE_SIZE + 1, step):
+            for y in y_starts:
+                for x in x_starts:
                     patch = padded[y:y + self.TILE_SIZE, x:x + self.TILE_SIZE]
                     tensor = (torch.from_numpy(patch).float() / 255.0
                               ).unsqueeze(0).unsqueeze(0).to(self._device)
@@ -147,7 +165,11 @@ class SketchCleanNet:
                     output [y:y + self.TILE_SIZE, x:x + self.TILE_SIZE] += pred * ramp
                     weights[y:y + self.TILE_SIZE, x:x + self.TILE_SIZE] += ramp
 
-        blended = np.divide(output, weights, where=weights > 0)
+        # `out=` is required: without it, np.divide leaves uninitialised
+        # memory wherever weights==0 (cf. NumPy 2 deprecation warning).
+        blended = np.divide(output, weights,
+                            out=np.zeros_like(output),
+                            where=weights > 0)
         result  = (np.clip(blended, 0, 1) * 255).astype(np.uint8)
         return result[:H, :W]
 
