@@ -144,12 +144,26 @@ class PuhachovKeypointDetector:
         H, W = skeleton.shape
         # Normalise to [0, 1] float tensor (1, 1, H, W)
         img = skeleton.astype(np.float32) / 255.0
+
+        # The stacked-hourglass architecture downsamples by 64× (stem /4 × depth-4
+        # hourglass /16). Inputs whose dims are not multiples of 64 cause an
+        # encoder/decoder shape mismatch on the upsampling skip-connection (e.g.
+        # 23 vs 22 at dim 3). Pad to the next multiple, then crop back.
+        STRIDE = 64
+        pad_h = (STRIDE - H % STRIDE) % STRIDE
+        pad_w = (STRIDE - W % STRIDE) % STRIDE
+        if pad_h or pad_w:
+            img = np.pad(img, ((0, pad_h), (0, pad_w)), mode="constant")
+
         tensor = torch.from_numpy(img).unsqueeze(0).unsqueeze(0).to(self._device)
 
         with torch.no_grad():
-            heatmaps = self._model(tensor)          # (1, 3, H, W)
+            heatmaps = self._model(tensor)          # (1, 3, H_pad, W_pad)
             heatmaps = torch.sigmoid(heatmaps)
-            heatmaps = heatmaps.squeeze(0).cpu().numpy()   # (3, H, W)
+            heatmaps = heatmaps.squeeze(0).cpu().numpy()   # (3, H_pad, W_pad)
+
+        # Crop padding back off
+        heatmaps = heatmaps[:, :H, :W]
 
         # Channel 0 = endpoints, 1 = junctions, 2 = corners
         channel_types = [KP_ENDPOINT, KP_JUNCTION, KP_CORNER]
