@@ -228,6 +228,15 @@ def _export_svg(data: dict, out_path: Path) -> int:
                     **stroke_kw,
                 ))
 
+            elif ptype == "ellipse":
+                cx, cy = prim["center"]
+                a, b   = float(prim["a"]), float(prim["b"])
+                angle  = float(prim.get("angle", 0.0))   # degrees
+                el = dwg.ellipse(center=(cx, cy), r=(a, b), **stroke_kw)
+                if angle:
+                    el["transform"] = f"rotate({angle} {cx} {cy})"
+                dwg.add(el)
+
             else:
                 logger.warning(f"SVG: skipping unknown primitive type '{ptype}'")
                 continue
@@ -307,6 +316,17 @@ def _export_dxf_basic(data: dict, out_path: Path) -> int:
                     continue
                 flipped = [_flip_y_point(p, H) for p in pts]
                 msp.add_lwpolyline(flipped)
+
+            elif ptype == "ellipse":
+                c        = _flip_y_point(prim["center"], H)
+                a, b     = float(prim["a"]), float(prim["b"])
+                # DXF defines the ellipse by its major-axis endpoint relative to
+                # the centre. Stage 3's angle is in image-space degrees (Y-down);
+                # the Y-flip negates it.
+                angle    = math.radians(-float(prim.get("angle", 0.0)))
+                major_end = (a * math.cos(angle), a * math.sin(angle))
+                ratio    = max(min(b / a, 1.0), 1e-6) if a > 0 else 1.0
+                msp.add_ellipse(center=c, major_axis=major_end, ratio=ratio)
 
             else:
                 logger.warning(f"DXF basic: skipping unknown type '{ptype}'")
@@ -424,6 +444,17 @@ def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
                     continue
                 flipped = [_flip_y_point(p, H) for p in pts]
                 msp.add_lwpolyline(flipped, dxfattribs=attribs)
+
+            elif ptype == "ellipse":
+                c        = _flip_y_point(prim["center"], H)
+                a, b     = float(prim["a"]), float(prim["b"])
+                angle    = math.radians(-float(prim.get("angle", 0.0)))
+                major_end = (a * math.cos(angle), a * math.sin(angle))
+                ratio    = max(min(b / a, 1.0), 1e-6) if a > 0 else 1.0
+                msp.add_ellipse(
+                    center=c, major_axis=major_end, ratio=ratio,
+                    dxfattribs=attribs,
+                )
 
             else:
                 logger.warning(f"DXF patent: skipping unknown type '{ptype}'")

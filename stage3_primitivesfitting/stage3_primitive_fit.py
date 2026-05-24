@@ -75,6 +75,7 @@ _MIN_PTS_ARC     = 5
 _MIN_PTS_ELLIPSE = 6
 
 _CONF_THRESH_LINE    = 0.75
+_CONF_THRESH_CIRCLE  = 0.65
 _CONF_THRESH_ARC     = 0.65
 _CONF_THRESH_ELLIPSE = 0.55
 
@@ -325,16 +326,38 @@ def fit_edge_ransac(edge: dict) -> dict:
                 "points": [[float(p[0]), float(p[1])] for p in pts],
                 "confidence": 0.0}
 
-    # ── Priority 1: Circle (closed only) ────────────────────────────────────
-    if is_closed and len(pts) >= _MIN_PTS_CIRCLE:
-        try:
-            r = _fit_circle_ransac(pts)
-            r["edge_id"] = edge_id
-            return r
-        except ValueError:
-            pass
+    # ── Closed-loop branch: circle → ellipse → polyline ──────────────────────
+    # Open-edge cascade (line / arc / …) doesn't apply: a forced line or arc
+    # fit through a closed contour is structurally nonsense. Before the fix
+    # any closed edge — including irregular outlines — was emitted as a
+    # circle regardless of fit quality, producing visible phantom circles in
+    # the SVG (66% of all circles in the pilot had confidence < 0.60).
+    if is_closed:
+        if len(pts) >= _MIN_PTS_CIRCLE:
+            try:
+                r = _fit_circle_ransac(pts)
+                r["edge_id"] = edge_id
+                if r["confidence"] >= _CONF_THRESH_CIRCLE:
+                    return r
+            except ValueError:
+                pass
+        if len(pts) >= _MIN_PTS_ELLIPSE:
+            try:
+                r = _fit_ellipse_ransac(pts)
+                r["edge_id"] = edge_id
+                if r["confidence"] >= _CONF_THRESH_ELLIPSE:
+                    return r
+            except ValueError:
+                pass
+        raw_poly = edge.get("smooth_pts") or edge["pixels"]
+        return {
+            "edge_id":    edge_id,
+            "type":       "polyline",
+            "points":     [[float(p[0]), float(p[1])] for p in raw_poly],
+            "confidence": 0.3,
+        }
 
-    # ── Priority 2: Line ─────────────────────────────────────────────────────
+    # ── Open-edge cascade: line → arc → ellipse → best-candidate → polyline ─
     line_result = None
     if len(pts) >= _MIN_PTS_LINE:
         try:

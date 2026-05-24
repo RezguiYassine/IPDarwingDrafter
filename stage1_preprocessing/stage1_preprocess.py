@@ -336,6 +336,24 @@ def _compute_skeleton_quality(skeleton: np.ndarray) -> float:
     return thin_pixels / total_pixels
 
 
+# ─── Input characterisation ──────────────────────────────────────────────────
+
+def _is_already_binary(img: np.ndarray) -> bool:
+    """
+    True if the input image is already a clean 1-bit raster (only two distinct
+    pixel values, typically 0 and 255). Such inputs — patent-office TIFFs,
+    SVG rasterisations, OCR-preprocessed scans — must NOT be passed through
+    SketchCleanNet: the U-Net re-emits crisp strokes as a soft gradient that
+    Otsu fragments into hundreds of sub-stroke components, which the
+    connected-component size filter then deletes (≈68% of foreground
+    pixels lost on the partner patent corpus).
+    """
+    if img.size == 0:
+        return False
+    # Sampling a single np.unique() call on a large image is O(N); cheap.
+    return len(np.unique(img)) <= 2
+
+
 # ─── Binarization (for soft SketchCleanNet output) ───────────────────────────
 
 def _binarize(gray: np.ndarray, min_cc_size: int = 30) -> np.ndarray:
@@ -431,7 +449,33 @@ def run(
     logger.info(f"[{sketch_id}] Stage 1 — input {image.shape[1]}×{image.shape[0]}px")
 
     # ── Clean ─────────────────────────────────────────────────────────────────
-    if model is not None:
+    # Branch on input characteristics:
+    #
+    #   passthrough_binary — input is already pure 1-bit (e.g. patent-office
+    #     TIF, SVG raster). Running the U-Net on such inputs is harmful: it
+    #     re-emits crisp strokes as a soft gradient that Otsu then fragments
+    #     into hundreds of tiny components, which the size filter then deletes.
+    #     Confirmed on the partner patent corpus: 67% of foreground pixels
+    #     were lost this way. So we just pass the image through unchanged.
+    #
+    #   sketchcleannet — model loaded and input has continuous grayscale
+    #     (photographed/scanned hand sketches). The model's intended use case.
+    #
+    #   classical / classical_fallback — no model, or model crashed.
+    if _is_already_binary(image):
+        # Normalise polarity to the rest of the pipeline's convention:
+        # strokes = 255, background = 0. Patent TIFs come ink-black/paper-
+        # white (strokes=0); SVG rasterisations may come either way. Strokes
+        # are the minority class in any normal drawing — invert if needed.
+        n_zero  = int((image == 0).sum())
+        n_white = int((image == 255).sum())
+        if n_zero < n_white:               # strokes are at 0 → invert
+            cleaned_img = cv2.bitwise_not(image)
+        else:                              # strokes already at 255
+            cleaned_img = image
+        model_used = "passthrough_binary"
+        logger.info(f"[{sketch_id}] Input already binary — bypassing cleaning")
+    elif model is not None:
         try:
             cleaned_img = model.clean(image)
             model_used  = "sketchcleannet"
@@ -452,9 +496,10 @@ def run(
     cv2.imwrite(str(cleaned_path), cleaned_img)
 
     # ── Binarize SketchCleanNet output before skeletonization ────────────────
-    # Classical cleaning already produces strict binary (0/255).
-    # SketchCleanNet outputs soft grayscale — Otsu + morphological cleanup
-    # converts it to binary so the skeletonizer sees only real strokes.
+    # The U-Net outputs soft grayscale; Otsu + CC-size filter convert it back
+    # to strict binary so the skeletonizer sees only real strokes. Every other
+    # path (passthrough, classical, classical_fallback) is already binary and
+    # is fed straight to the thinner.
     if model_used == "sketchcleannet":
         skeleton_input = _binarize(cleaned_img)
     else:

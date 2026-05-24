@@ -51,5 +51,10 @@ models/free2cad_best.pth
 *.tar.gz
 *.zip
 
+# ─── Evaluation corpora (partner-supplied, large) ────────────────────────────
+# Patent dataset from HAW industry partner: ~13 GB of TIF figures plus XML
+# bibliographic metadata. Never push — both for licensing and for size.
+data/PatentData/
+
 # Cloned third-party reference repos (re-clone via setup.sh / research README)
 **/research/repos/
