@@ -51,10 +51,18 @@ models/free2cad_best.pth
 *.tar.gz
 *.zip
 
-# ─── Evaluation corpora (partner-supplied, large) ────────────────────────────
+# ─── Evaluation corpora (partner-supplied / external, large) ────────────────
 # Patent dataset from HAW industry partner: ~13 GB of TIF figures plus XML
 # bibliographic metadata. Never push — both for licensing and for size.
 data/PatentData/
+# Drawing2CAD (arXiv 2508.18733 — ACM MM 2025): ~9.4 GB of synthetic SVG
+# orthographic projections paired with CAD command sequences. Used as a
+# ground-truth benchmark by tools/d2c_eval.py. Re-download from the paper's
+# Google Drive folder.
+data/Drawing2CAD/
+# FloorPlanCAD: external floor-plan vectorization dataset. Re-download from
+# the original release if needed.
+data/FloorPlanCAD/
 
 # Cloned third-party reference repos (re-clone via setup.sh / research README)
 **/research/repos/
