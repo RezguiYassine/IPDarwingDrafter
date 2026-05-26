@@ -300,6 +300,41 @@ def _fit_ellipse_ransac(pts: np.ndarray) -> dict:
     }
 
 
+# ── Closed-loop pixel reordering ──────────────────────────────────────────────
+
+def _reorder_loop_pixels(pixels) -> np.ndarray:
+    """
+    Reorder a closed-loop's pixel list into topological traversal order.
+
+    Stage 2 stores closed-loop pixels in scanline-like order (each column
+    sweep contains both the top and bottom edges of the loop at that X).
+    The circle/ellipse fits are insensitive to order, but the polyline
+    fallback emits a wildly zigzagging shape if fed scanline-ordered points
+    (confirmed on Drawing2CAD samples — a clean hexagon outline rendered
+    as a single 397-point polyline criss-crossing the interior).
+
+    Greedy nearest-neighbour walk from the first pixel. O(N²) — fine for
+    loops with up to a few thousand pixels.
+    """
+    n = len(pixels)
+    if n < 3:
+        return np.asarray(pixels, dtype=np.float64)
+    pts    = np.asarray(pixels, dtype=np.float64)
+    used   = np.zeros(n, dtype=bool)
+    order  = [0]
+    used[0] = True
+    last   = pts[0]
+    for _ in range(n - 1):
+        diff      = pts - last
+        d2        = np.einsum("ij,ij->i", diff, diff)
+        d2[used]  = np.inf
+        nxt       = int(d2.argmin())
+        order.append(nxt)
+        used[nxt] = True
+        last      = pts[nxt]
+    return pts[order]
+
+
 # ── Priority selector ─────────────────────────────────────────────────────────
 
 def fit_edge_ransac(edge: dict) -> dict:
@@ -314,7 +349,10 @@ def fit_edge_ransac(edge: dict) -> dict:
     is_closed = edge.get("is_closed", False)
 
     if is_closed:
-        pts = np.array(edge["pixels"], dtype=np.float64)
+        # Reorder pixels into topological loop traversal (Stage 2 emits
+        # them scanline-ordered for closed loops; the polyline fallback
+        # would otherwise zigzag through the interior).
+        pts = _reorder_loop_pixels(edge["pixels"])
     else:
         raw = edge.get("smooth_pts") or []
         pts = (np.array(raw, dtype=np.float64) if raw
@@ -349,11 +387,17 @@ def fit_edge_ransac(edge: dict) -> dict:
                     return r
             except ValueError:
                 pass
-        raw_poly = edge.get("smooth_pts") or edge["pixels"]
+        # Use topologically-ordered pts (smooth_pts is unreliable here
+        # because it is a non-periodic cubic spline through scanline-ordered
+        # raw pixels). Append the first point so the polyline visually
+        # closes the loop.
+        poly_points = [[float(p[0]), float(p[1])] for p in pts]
+        if poly_points and poly_points[0] != poly_points[-1]:
+            poly_points.append(poly_points[0])
         return {
             "edge_id":    edge_id,
             "type":       "polyline",
-            "points":     [[float(p[0]), float(p[1])] for p in raw_poly],
+            "points":     poly_points,
             "confidence": 0.3,
         }
 
