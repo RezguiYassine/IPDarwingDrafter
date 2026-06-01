@@ -28,7 +28,7 @@ files (SVG and DXF) that can be opened in any CAD application.
 | Stage | In                  | Out                         | Tech                       |
 |------:|---------------------|-----------------------------|----------------------------|
 | 1     | Raw raster (PNG)    | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
-| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder |
+| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder; skeleton downsampled to ≤1024 px for CNN, coordinates scaled back |
 | 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / polyline) |
 | 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered) |
 
@@ -287,17 +287,18 @@ printed at the end of each run:
 ──────────────────────────────────────────────────────
 ```
 
-### Baseline results (1 000 test-set samples, Front view, stroke-width fix applied)
+### Drawing2CAD baseline results (1 000 test-set samples, Front view, stroke-width fix applied)
 
 | Metric | Value | Notes |
 |--------|------:|-------|
 | Chamfer sym — mean | 4.71 px | headline; pulled up by a tail of outliers |
 | Chamfer sym — median | 1.00 px | typical sample is within 1 px of GT skeleton |
+| Chamfer sym — p75 | 1.19 px | |
 | Chamfer sym — p95 | 34.5 px | ~5 % of samples have poorly placed strokes |
 | Pixel IoU | 0.62 | up from 0.42 before stroke-width fix |
+| Skeleton IoU | 0.52 | |
 | Recall | 0.80 | up from 0.44 before stroke-width fix |
 | Precision | 0.70 | |
-| Stage 2 time (mean) | 48 s | dominant bottleneck — Puhachov CNN on CPU |
 
 > **Note on stroke-width handling.** Stage 1 estimates the original ink thickness
 > via distance transform and stores it in `Stage1Result.mean_stroke_width`. The
@@ -305,6 +306,17 @@ printed at the end of each run:
 > Stage 4 renders SVG strokes at the correct visual thickness for metric
 > comparison. The patent production path (`batch_run.py`) omits this — it keeps
 > ISO 128 standard lineweights, which is correct for CAD output.
+
+### PatentData corpus results (1 000 samples — pre-downsampling baseline)
+
+| Metric | Value | Notes |
+|--------|------:|-------|
+| Stage 2 time — mean | 84.7 s | Puhachov CNN on full-size 1400–2700 px images |
+| Median primitives / sketch | 1 617 | expected 20–200; caused by ~350× over-segmentation |
+| Stage 2 nodes — median | 272 k | before downsampling fix |
+
+These numbers were recorded before the Stage 2 skeleton downsampling fix. Re-run
+`python -m tools.batch_run --limit 1000 --stratified --no-resume` to update them.
 
 ---
 
@@ -316,13 +328,15 @@ printed at the end of each run:
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
 - **Stage 2** — Puhachov keypoint model inference; topological closed-loop
-  reordering before graph export
+  reordering before graph export; **skeleton downsampling** (long edge capped
+  to ≤1024 px before CNN, coordinates scaled back) eliminates ~350× patent
+  over-segmentation (272k nodes → 789 nodes; 84.7 s → 2.2 s per sketch)
 - **Stage 3** — RANSAC primitive fitter (line / circle / arc / ellipse / polyline);
   geometric arc guard prevents straight skeletons being fit as high-radius arcs;
   Free2CAD Transformer evaluated and retired (6× slower, no accuracy gain — see
   [`docs/archive/`](docs/archive/))
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF with Bezugszeichen
-  (EPO Rule 46); SVG stroke-width driven by measured source thickness for eval
+  (EPO Rule 46); SVG stroke-width driven by measured source thickness for D2C eval
 - **Batch evaluation driver** (`tools/batch_run.py`) — resumable, multi-worker,
   SQLite results
 - **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — rasterize → pipeline →
@@ -331,21 +345,21 @@ printed at the end of each run:
 
 ### Next steps
 
-1. **Speed up Stage 2** — the Puhachov CNN accounts for ~99 % of per-sketch
-   runtime (48 s on CPU). Switch `puhachov.device` to `cuda` in `config.yaml`
-   if a GPU is available, or investigate batched inference.
+1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) with the Stage 2
+   downsampling fix to record updated primitive counts and per-stage timings.
 
-2. **Investigate zero-output samples** — six test samples produce no primitives
+2. **Investigate zero-output samples** — six D2C test samples produce no primitives
    (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
    skeleton on these and tune the binarization threshold if so.
 
-3. **Re-run the full 1 000-sample D2C eval** with the stroke-width fix applied
-   (`--no-resume`) to record the updated baseline in the database.
-
-4. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
+3. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
    1 px, indicating a small fraction of samples with badly placed strokes.
    Profile these to determine whether the failure is in Stage 1 (skeleton
    quality), Stage 2 (missed strokes), or Stage 3 (bad primitive fit).
+
+4. **Speed up Stage 2 further** — with downsampling the CNN is no longer the
+   bottleneck on typical patent images. Switch `puhachov.device` to `cuda` in
+   `config.yaml` if a GPU is available to cut the remaining inference time.
 
 ---
 
