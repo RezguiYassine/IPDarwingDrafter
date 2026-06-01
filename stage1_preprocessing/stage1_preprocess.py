@@ -46,6 +46,7 @@ class Stage1Result:
     processing_time_s: float
     model_used: str             # "sketchcleannet" | "classical"
     flagged: bool               # True if skeleton_quality < threshold
+    mean_stroke_width: float = 1.0  # estimated original stroke width in pixels
 
 
 # ─── SketchCleanNet model wrapper ────────────────────────────────────────────
@@ -296,6 +297,25 @@ def _classical_clean(image_gray: np.ndarray, config: dict) -> np.ndarray:
     return filtered
 
 
+# ─── Stroke width estimation ─────────────────────────────────────────────────
+
+def _estimate_stroke_width(binary: np.ndarray, skeleton: np.ndarray) -> float:
+    """
+    Estimate mean stroke width (pixels) via distance transform.
+
+    At each skeleton pixel (centerline) the distance to the nearest background
+    pixel equals the local stroke half-width. Mean of 2× those values gives the
+    mean stroke width. Result is clamped to [1, 50] px.
+    """
+    skel_mask = skeleton > 0
+    if not skel_mask.any():
+        return 1.0
+    ink_u8 = (binary > 0).astype(np.uint8)
+    dt = cv2.distanceTransform(ink_u8, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+    mean_w = 2.0 * float(dt[skel_mask].mean())
+    return float(np.clip(mean_w, 1.0, 50.0))
+
+
 # ─── Skeleton quality metric ──────────────────────────────────────────────────
 
 def _compute_skeleton_quality(skeleton: np.ndarray) -> float:
@@ -514,6 +534,8 @@ def run(
     threshold = config.get("stage1", {}).get("quality_threshold", 0.7)
     flagged   = quality < threshold
 
+    stroke_width = _estimate_stroke_width(skeleton_input, skeleton)
+
     elapsed = time.perf_counter() - t_start
 
     if flagged:
@@ -528,13 +550,14 @@ def run(
         )
 
     return Stage1Result(
-        sketch_id        = sketch_id,
-        cleaned_path     = cleaned_path,
-        skeleton_path    = skeleton_path,
-        skeleton_quality = quality,
-        processing_time_s= elapsed,
-        model_used       = model_used,
-        flagged          = flagged,
+        sketch_id         = sketch_id,
+        cleaned_path      = cleaned_path,
+        skeleton_path     = skeleton_path,
+        skeleton_quality  = quality,
+        processing_time_s = elapsed,
+        model_used        = model_used,
+        flagged           = flagged,
+        mean_stroke_width = stroke_width,
     )
 
 

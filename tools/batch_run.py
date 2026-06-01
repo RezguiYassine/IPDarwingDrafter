@@ -35,7 +35,7 @@ import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
 
 import yaml
 from tqdm import tqdm
@@ -147,6 +147,8 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         s3 = stage3_primitive_fit.run(
             graph_path=s2.graph_path, output_dir=output_dir,
             sketch_id=sketch_id, config=_WORKER_CFG,
+            # stroke_width intentionally omitted: patent SVG output uses ISO 128
+            # lineweights, not the original scan's ink thickness.
         )
         row.update({
             "s3_time":         s3.processing_time_s,

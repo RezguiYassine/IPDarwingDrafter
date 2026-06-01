@@ -79,6 +79,20 @@ _CONF_THRESH_CIRCLE  = 0.65
 _CONF_THRESH_ARC     = 0.65
 _CONF_THRESH_ELLIPSE = 0.55
 
+# Geometric guard: when an arc wins the cascade, fall back to the line fit
+# if the actual skeleton bulges by less than 5% of its chord length AND the
+# line fit at least somewhat matched (conf >= 0.50). RANSAC can always
+# fit a high-radius arc through a slightly-noisy straight skeleton; the
+# result visually looks like a line, which is what the user reported as
+# "straight lines becoming curves in the SVG".
+_ARC_MIN_SAGITTA_RATIO = 0.05
+_ARC_MIN_SAGITTA_PX    = 2.5   # absolute floor: arc must bow ≥ 2.5 px to
+                               # count, regardless of chord length (catches
+                               # short noisy "straight" skeletons whose
+                               # sagitta/chord exceeds the ratio simply
+                               # because the chord is small)
+_LINE_FALLBACK_CONF    = 0.50
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # RANSAC FALLBACK — pure NumPy / SciPy
@@ -335,6 +349,40 @@ def _reorder_loop_pixels(pixels) -> np.ndarray:
     return pts[order]
 
 
+# ── Geometric guard helper ────────────────────────────────────────────────────
+
+def _refit_arc_as_line(edge: dict, edge_id) -> dict | None:
+    """
+    If the raw-pixel skeleton of `edge` is essentially straight (small bulge
+    relative to its chord length AND small absolute bulge), refit it as a
+    line on raw pixels and return the line primitive. Otherwise return None.
+
+    Called whenever the cascade is about to emit an arc, to catch cases where
+    RANSAC threaded a high-radius arc through a noisy straight skeleton.
+    """
+    raw_pts = np.array(edge["pixels"], dtype=np.float64)
+    if len(raw_pts) < 2:
+        return None
+    chord_vec = raw_pts[-1] - raw_pts[0]
+    chord_len = float(np.linalg.norm(chord_vec))
+    if chord_len <= 5:
+        return None
+    normal  = np.array([-chord_vec[1], chord_vec[0]]) / chord_len
+    sagitta = float(np.abs(((raw_pts - raw_pts[0]) @ normal)).max())
+    # Edge is essentially straight if its bulge is small relative to chord
+    # length OR small in absolute terms.
+    if (sagitta / chord_len) >= _ARC_MIN_SAGITTA_RATIO and sagitta >= _ARC_MIN_SAGITTA_PX:
+        return None
+    try:
+        raw_line = _fit_line_ransac(raw_pts)
+    except ValueError:
+        return None
+    if raw_line["confidence"] < _LINE_FALLBACK_CONF:
+        return None
+    raw_line["edge_id"] = edge_id
+    return raw_line
+
+
 # ── Priority selector ─────────────────────────────────────────────────────────
 
 def fit_edge_ransac(edge: dict) -> dict:
@@ -342,8 +390,14 @@ def fit_edge_ransac(edge: dict) -> dict:
     Fit one edge with the priority order:
       circle (closed) → line → arc → ellipse → polyline
 
-    Uses edge["pixels"] for closed loops — smooth_pts ordering for closed
-    contours follows coordinate sort, not arc angle, causing unreliable splines.
+    For open edges the cascade fits on smooth_pts (Stage 2's spline-
+    interpolated coords), which generally improves fit confidence on noisy
+    skeletons. Two refinements compensate for smoothing's downsides:
+      * closed loops use raw pixels (spline ordering of closed contours is
+        unreliable);
+      * the arc path applies a geometric guard against straight edges that
+        only "look" curved because the spline introduced fake curvature
+        (see _ARC_MIN_SAGITTA_RATIO).
     """
     edge_id   = edge["id"]
     is_closed = edge.get("is_closed", False)
@@ -420,6 +474,9 @@ def fit_edge_ransac(edge: dict) -> dict:
             r = _fit_arc_ransac(pts)
             r["edge_id"] = edge_id
             if r["confidence"] >= _CONF_THRESH_ARC:
+                line_fallback = _refit_arc_as_line(edge, edge_id)
+                if line_fallback is not None:
+                    return line_fallback
                 return r
             arc_result = r
         except ValueError:
@@ -442,6 +499,13 @@ def fit_edge_ransac(edge: dict) -> dict:
             if best is None or candidate["confidence"] > best["confidence"]:
                 best = candidate
     if best is not None and best["confidence"] > 0.2:
+        # Same geometric guard as the arc-passes-threshold branch above —
+        # the best-of fallback can also wrongly emit a "best-effort" arc
+        # over a straight skeleton (arc confidence between 0.20 and 0.65).
+        if best.get("type") == "arc":
+            line_fallback = _refit_arc_as_line(edge, edge_id)
+            if line_fallback is not None:
+                return line_fallback
         return best
 
     raw_poly = edge.get("smooth_pts") or edge["pixels"]
@@ -458,7 +522,7 @@ def fit_edge_ransac(edge: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run(graph_path: Path, output_dir: Path, sketch_id: str,
-        config: dict) -> Stage3Result:
+        config: dict, stroke_width: float = None) -> Stage3Result:
     """
     Fit primitives to all edges in one stroke graph.
 
@@ -472,6 +536,10 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         Unique identifier for this sketch.
     config : dict
         Parsed config.yaml — only `stage3.confidence_threshold` is read.
+    stroke_width : float | None
+        Estimated original stroke width in pixels (from Stage 1). When
+        provided it is embedded in the JSON so Stage 4 can produce an SVG
+        whose stroke-width matches the source sketch.
     """
     t_start = time.perf_counter()
 
@@ -520,6 +588,8 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     doc = {"sketch_id": sketch_id}
     if image_size is not None:
         doc["image_size"] = image_size
+    if stroke_width is not None:
+        doc["stroke_width"] = round(float(stroke_width), 2)
     doc["primitives"]  = primitives
     doc["annotations"] = []   # filled by AP6.4 (Bezugszeichen) when available
     doc = _to_python(doc)

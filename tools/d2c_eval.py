@@ -34,7 +34,6 @@ import datetime as _dt
 import io
 import json
 import logging
-import os
 import random
 import sqlite3
 import sys
@@ -249,6 +248,7 @@ def _process_one(job: tuple) -> dict:
         s3 = stage3_primitive_fit.run(
             graph_path=s2.graph_path, output_dir=work_dir,
             sketch_id=sketch_id, config=_WORKER_CFG,
+            stroke_width=s1.mean_stroke_width,
         )
         row["s3_time"]      = s3.processing_time_s
         row["n_prims_out"]  = s3.n_primitives
@@ -444,15 +444,62 @@ def main() -> int:
             insert_row(conn, row)
             if row["status"] == "ok":
                 n_ok += 1
+                ch = row.get("chamfer_sym")
                 bar.set_postfix(ok=n_ok, err=n_err,
-                                iou=f"{row.get('iou_pixel', 0):.2f}",
-                                skel=f"{row.get('iou_skeleton', 0):.2f}")
+                                ch=f"{ch:.1f}" if ch is not None else "—")
             else:
                 n_err += 1
                 bar.set_postfix(ok=n_ok, err=n_err)
 
-    print(f"\nDone. ok={n_ok} err={n_err}")
+    _print_summary(db_path, n_ok, n_err)
     return 0
+
+
+def _print_summary(db_path: Path, n_ok: int, n_err: int) -> None:
+    """Print a results table with Chamfer distance as the headline metric."""
+    W = 54
+    sep = "─" * W
+
+    with sqlite3.connect(db_path) as conn:
+        def col(sql: str):
+            r = conn.execute(sql).fetchone()
+            return r[0] if r else None
+
+        ch_vals = [r[0] for r in conn.execute(
+            "SELECT chamfer_sym FROM d2c_results "
+            "WHERE status='ok' AND chamfer_sym IS NOT NULL "
+            "ORDER BY chamfer_sym"
+        ).fetchall()]
+        iou_px  = col("SELECT avg(iou_pixel)       FROM d2c_results WHERE status='ok'")
+        iou_sk  = col("SELECT avg(iou_skeleton)    FROM d2c_results WHERE status='ok'")
+        recall  = col("SELECT avg(recall_pixel)    FROM d2c_results WHERE status='ok'")
+        prec    = col("SELECT avg(precision_pixel) FROM d2c_results WHERE status='ok'")
+        n_total = col("SELECT count(*) FROM d2c_results") or 0
+
+    def pct(vals, p):
+        if not vals:
+            return None
+        return vals[int(len(vals) * p / 100)]
+
+    ch_mean = sum(ch_vals) / len(ch_vals) if ch_vals else None
+    ch_p50  = pct(ch_vals, 50)
+    ch_p75  = pct(ch_vals, 75)
+    ch_p95  = pct(ch_vals, 95)
+
+    def fmt(v, decimals=2):
+        return f"{v:.{decimals}f}" if v is not None else "—"
+
+    print(f"\n{sep}")
+    print(f"  Drawing2CAD eval — {n_ok}/{n_total} ok  {n_err} errors")
+    print(sep)
+    print(f"  Chamfer distance on skeletons (px, lower = better)")
+    print(f"    mean   {fmt(ch_mean):>8}    p75  {fmt(ch_p75):>8}")
+    print(f"    median {fmt(ch_p50):>8}    p95  {fmt(ch_p95):>8}")
+    print(sep)
+    print(f"  Secondary (pixel IoU)")
+    print(f"    iou_pixel  {fmt(iou_px):>6}    iou_skel  {fmt(iou_sk):>6}")
+    print(f"    recall     {fmt(recall):>6}    precision {fmt(prec):>6}")
+    print(f"{sep}\n")
 
 
 if __name__ == "__main__":

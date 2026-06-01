@@ -54,7 +54,7 @@ import json
 import logging
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -167,12 +167,17 @@ def _arc_endpoints(cx: float, cy: float, r: float,
     return (sx, sy), (ex, ey)
 
 
-def _export_svg(data: dict, out_path: Path) -> int:
+def _export_svg(data: dict, out_path: Path,
+                default_sw: Optional[float] = None) -> int:
     """
     Write SVG file. Returns the count of primitives successfully written.
 
     SVG keeps image coordinates as-is (Y-down) so previews line up with
     the source sketch without any extra transform.
+
+    default_sw : measured stroke width in pixels from Stage 1. When provided
+        it overrides the ISO 128 lineweight calculation so the output SVG
+        matches the source sketch's ink thickness.
     """
     W, H = data["image_size"]
     dwg = svgwrite.Drawing(
@@ -189,7 +194,10 @@ def _export_svg(data: dict, out_path: Path) -> int:
     for prim in data["primitives"]:
         try:
             style    = _primitive_style(prim)
-            sw       = _svg_stroke_width(style)
+            if default_sw is not None:
+                sw = max(1.0, min(float(default_sw), 30.0))
+            else:
+                sw = _svg_stroke_width(style)
             dash     = _svg_dasharray(style)
             stroke_kw = {"stroke": "black", "stroke_width": sw, "fill": "none"}
             if dash:
@@ -537,7 +545,7 @@ def run(
 
     if "svg" in formats:
         svg_path = vec_dir / f"{sid}.svg"
-        n_svg = _export_svg(data, svg_path)
+        n_svg = _export_svg(data, svg_path, default_sw=data.get("stroke_width"))
         result.svg_path = svg_path
         n_out_max = max(n_out_max, n_svg)
         logger.info(f"[{sid}] SVG  → {svg_path}  ({n_svg}/{n_in} primitives)")
