@@ -199,6 +199,7 @@ The most common knobs:
 | `sketchcleannet.weights`           | `models/sketchcleannet.pth`   | empty `""` ⇒ force classical cleaning mode     |
 | `sketchcleannet.device`            | `cpu`                         | `cuda` for GPU                                  |
 | `puhachov.device`                  | `cpu`                         | `cuda` for GPU                                  |
+| `stage2.max_skeleton_side`         | `1024`                        | cap skeleton long edge before CNN (0 = disable) |
 | `stage1.quality_threshold`         | `0.70`                        | sketches below this are flagged for review      |
 | `stage3.confidence_threshold`      | `0.60`                        | primitives below this are flagged for review    |
 
@@ -337,7 +338,8 @@ post-fix run after the ≤1024 px skeleton cap was introduced.
 - **Stage 2** — Puhachov keypoint model inference; topological closed-loop
   reordering before graph export; **skeleton downsampling** (long edge capped
   to ≤1024 px before CNN, coordinates scaled back) eliminates ~350× patent
-  over-segmentation (272k nodes → 789 nodes; 84.7 s → 2.2 s per sketch)
+  over-segmentation (272k → ~1950 median nodes; 84.7 s → 5 s median per sketch
+  across 1000-sample corpus)
 - **Stage 3** — RANSAC primitive fitter (line / circle / arc / ellipse / polyline);
   geometric arc guard prevents straight skeletons being fit as high-radius arcs;
   Free2CAD Transformer evaluated and retired (6× slower, no accuracy gain — see
@@ -356,14 +358,14 @@ post-fix run after the ≤1024 px skeleton cap was introduced.
    (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
    skeleton on these and tune the binarization threshold if so.
 
-3. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
+2. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
    1 px, indicating a small fraction of samples with badly placed strokes.
    Profile these to determine whether the failure is in Stage 1 (skeleton
    quality), Stage 2 (missed strokes), or Stage 3 (bad primitive fit).
 
-4. **Speed up Stage 2 further** — with downsampling the CNN is no longer the
+3. **Speed up Stage 2 further** — with downsampling the CNN is no longer the
    bottleneck on typical patent images. Switch `puhachov.device` to `cuda` in
-   `config.yaml` if a GPU is available to cut the remaining inference time.
+   `config.yaml` if a GPU is available to cut the remaining ~5–10 s inference time.
 
 ---
 
