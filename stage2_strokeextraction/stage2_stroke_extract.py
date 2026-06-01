@@ -779,29 +779,48 @@ def run(
     logger.info(f"[{sketch_id}] Stage 2 — skeleton {W}×{H}px, "
                 f"{int((skeleton > 0).sum())} foreground px")
 
-    # ── Layer 1: Keypoint detection ───────────────────────────────────────
     cfg_kp = config.get("stage2", {})
+
+    # ── Downsample skeleton if it exceeds max_skeleton_side ───────────────
+    # Large patent TIFs (1400-2700 px) cause the Puhachov CNN to detect
+    # thousands of spurious junction points. Normalising the long edge to
+    # ≤1024 px matches the resolution the model was tuned for, then all
+    # coordinates are scaled back to original space after tracing.
+    max_side = cfg_kp.get("max_skeleton_side", 1024)
+    scale = 1.0
+    if max_side and max(H, W) > max_side:
+        scale = max_side / max(H, W)
+        new_W = int(round(W * scale))
+        new_H = int(round(H * scale))
+        skeleton_work = cv2.resize(skeleton, (new_W, new_H),
+                                   interpolation=cv2.INTER_NEAREST)
+        logger.info(f"[{sketch_id}] Downsampled {W}×{H} → {new_W}×{new_H} "
+                    f"(scale={scale:.3f})")
+    else:
+        skeleton_work = skeleton
+
+    # ── Layer 1: Keypoint detection ───────────────────────────────────────
     conf_thresh = cfg_kp.get("keypoint_threshold",   0.50)
     nms_radius  = cfg_kp.get("nms_radius",           5)
 
     if model is not None:
         try:
-            keypoints = model.detect(skeleton, conf_thresh, nms_radius)
+            keypoints = model.detect(skeleton_work, conf_thresh, nms_radius)
             kp_source = "cnn"
             logger.info(f"[{sketch_id}] CNN detected {len(keypoints)} keypoints")
         except Exception as exc:
             logger.warning(f"[{sketch_id}] CNN keypoint detection failed "
                            f"({exc}), using classical fallback")
-            keypoints = _classical_keypoints(skeleton)
+            keypoints = _classical_keypoints(skeleton_work)
             kp_source = "classical_fallback"
     else:
-        keypoints = _classical_keypoints(skeleton)
+        keypoints = _classical_keypoints(skeleton_work)
         kp_source = "classical"
         logger.info(f"[{sketch_id}] Classical CN: {len(keypoints)} keypoints")
 
     # ── Layer 2: Topology extraction ──────────────────────────────────────
     max_radius = cfg_kp.get("max_search_radius", 60)
-    nodes, edges = _extract_topology(skeleton, keypoints, max_radius)
+    nodes, edges = _extract_topology(skeleton_work, keypoints, max_radius)
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
@@ -809,11 +828,28 @@ def run(
     spline_s    = cfg_kp.get("spline_smoothing",  2.0)
     edges = _smooth_edges(edges, rdp_eps, spline_s)
 
-    # ── Confidence signal ─────────────────────────────────────────────────
-    iso_ratio = _compute_isolation_ratio(skeleton, edges)
+    # ── Confidence signal (computed before scale-back, in working space) ──
+    iso_ratio = _compute_isolation_ratio(skeleton_work, edges)
     threshold = cfg_kp.get("isolation_threshold",
                             config.get("stage2", {}).get("isolation_threshold", 0.05))
     flagged = iso_ratio > threshold
+
+    # ── Scale coordinates back to original resolution ─────────────────────
+    if scale < 1.0:
+        inv = 1.0 / scale
+        for node in nodes:
+            node["x"] = int(round(node["x"] * inv))
+            node["y"] = int(round(node["y"] * inv))
+        for edge in edges:
+            edge["pixels"] = [
+                [int(round(p[0] * inv)), int(round(p[1] * inv))]
+                for p in edge["pixels"]
+            ]
+            if edge["smooth_pts"]:
+                edge["smooth_pts"] = [
+                    [p[0] * inv, p[1] * inv]
+                    for p in edge["smooth_pts"]
+                ]
 
     # ── Serialise graph ───────────────────────────────────────────────────
     def _to_python(obj):
@@ -830,7 +866,7 @@ def run(
 
     graph_doc = _to_python({
         "sketch_id":   sketch_id,
-        "image_shape": [H, W],
+        "image_shape": [H, W],   # always original resolution
         "nodes": nodes,
         "edges": edges,
     })
