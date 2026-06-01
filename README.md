@@ -307,16 +307,23 @@ printed at the end of each run:
 > comparison. The patent production path (`batch_run.py`) omits this — it keeps
 > ISO 128 standard lineweights, which is correct for CAD output.
 
-### PatentData corpus results (1 000 samples — pre-downsampling baseline)
+### PatentData corpus results (1 000 stratified samples, 4 workers)
 
-| Metric | Value | Notes |
-|--------|------:|-------|
-| Stage 2 time — mean | 84.7 s | Puhachov CNN on full-size 1400–2700 px images |
-| Median primitives / sketch | 1 617 | expected 20–200; caused by ~350× over-segmentation |
-| Stage 2 nodes — median | 272 k | before downsampling fix |
+Two runs are shown: the original run (before Stage 2 downsampling) and the
+post-fix run after the ≤1024 px skeleton cap was introduced.
 
-These numbers were recorded before the Stage 2 skeleton downsampling fix. Re-run
-`python -m tools.batch_run --limit 1000 --stratified --no-resume` to update them.
+| Metric | Before fix | After fix | Improvement |
+|--------|----------:|----------:|-------------|
+| Stage 2 time — mean | 84.7 s | 10.52 s | 8× faster |
+| Stage 2 time — median | ≫84 s | 5.05 s | — |
+| Stage 2 time — p95 | — | 32.4 s | — |
+| Stage 2 nodes — median | ~272 k (1 sample) | 1 950 | ~140× fewer |
+| Primitives / sketch — median | 1 617 | 984 | 1.6× fewer |
+| Total time / sketch — mean | — | 11.12 s | — |
+| Success rate | — | 100 % (1000/1000) | |
+
+> The remaining ~10 s / sketch is dominated by Stage 2. Switch
+> `puhachov.device` to `cuda` in `config.yaml` for GPU acceleration.
 
 ---
 
@@ -345,10 +352,7 @@ These numbers were recorded before the Stage 2 skeleton downsampling fix. Re-run
 
 ### Next steps
 
-1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) with the Stage 2
-   downsampling fix to record updated primitive counts and per-stage timings.
-
-2. **Investigate zero-output samples** — six D2C test samples produce no primitives
+1. **Investigate zero-output samples** — six D2C test samples produce no primitives
    (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
    skeleton on these and tune the binarization threshold if so.
 
