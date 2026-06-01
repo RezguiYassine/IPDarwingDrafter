@@ -49,10 +49,6 @@ stage1:
 # ── Stage 2 — Stroke Extraction ───────────────────────────────────────────────
 stage2:
   isolation_threshold: 0.05   # Flag if >5% of foreground pixels are orphaned
-  max_skeleton_side: 1024     # Downsample skeleton so long edge ≤ this before
-                              # running the Puhachov CNN. Coordinates are scaled
-                              # back to original resolution after tracing.
-                              # Set to 0 to disable downsampling.
 
 # ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
 stage3:
