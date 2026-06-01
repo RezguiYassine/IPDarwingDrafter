@@ -780,9 +780,18 @@ def run(
                 f"{int((skeleton > 0).sum())} foreground px")
 
     # ── Layer 1: Keypoint detection ───────────────────────────────────────
-    cfg_kp = config.get("stage2", {})
-    conf_thresh = cfg_kp.get("keypoint_threshold",   0.50)
-    nms_radius  = cfg_kp.get("nms_radius",           5)
+    cfg_kp      = config.get("stage2", {})
+    conf_thresh = cfg_kp.get("keypoint_threshold", 0.50)
+    nms_radius  = cfg_kp.get("nms_radius",         5)
+
+    # Scale NMS radius up for images larger than the model's training resolution
+    # so that spurious duplicate junctions are suppressed on high-res patent TIFs
+    # without any loss of geometric accuracy (full-resolution CNN still runs).
+    ref_res = cfg_kp.get("nms_reference_resolution", 512)
+    if ref_res and max(H, W) > ref_res:
+        nms_radius = max(nms_radius, int(round(nms_radius * max(H, W) / ref_res)))
+        logger.debug(f"[{sketch_id}] Adaptive NMS radius: {nms_radius} "
+                     f"(image {max(H,W)}px vs ref {ref_res}px)")
 
     if model is not None:
         try:

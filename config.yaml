@@ -49,6 +49,12 @@ stage1:
 # ── Stage 2 — Stroke Extraction ───────────────────────────────────────────────
 stage2:
   isolation_threshold: 0.05   # Flag if >5% of foreground pixels are orphaned
+  nms_reference_resolution: 512  # Resolution the Puhachov model was tuned for.
+                                  # NMS radius is scaled as:
+                                  #   effective = nms_radius × max(H,W) / this value
+                                  # so junction suppression stays proportional on
+                                  # large patent TIFs (1400–2700 px). Set to 0 to
+                                  # use the raw nms_radius from the puhachov block.
 
 # ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
 stage3:
