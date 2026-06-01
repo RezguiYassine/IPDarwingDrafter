@@ -28,7 +28,7 @@ files (SVG and DXF) that can be opened in any CAD application.
 | Stage | In                  | Out                         | Tech                       |
 |------:|---------------------|-----------------------------|----------------------------|
 | 1     | Raw raster (PNG)    | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
-| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder; skeleton downsampled to ≤1024 px for CNN, coordinates scaled back |
+| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder; adaptive NMS radius scaled to image size |
 | 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / polyline) |
 | 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered) |
 
@@ -199,7 +199,7 @@ The most common knobs:
 | `sketchcleannet.weights`           | `models/sketchcleannet.pth`   | empty `""` ⇒ force classical cleaning mode     |
 | `sketchcleannet.device`            | `cpu`                         | `cuda` for GPU                                  |
 | `puhachov.device`                  | `cpu`                         | `cuda` for GPU                                  |
-| `stage2.max_skeleton_side`         | `1024`                        | cap skeleton long edge before CNN (0 = disable) |
+| `stage2.nms_reference_resolution`  | `512`                         | training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
 | `stage1.quality_threshold`         | `0.70`                        | sketches below this are flagged for review      |
 | `stage3.confidence_threshold`      | `0.60`                        | primitives below this are flagged for review    |
 
@@ -310,21 +310,23 @@ printed at the end of each run:
 
 ### PatentData corpus results (1 000 stratified samples, 4 workers)
 
-Two runs are shown: the original run (before Stage 2 downsampling) and the
-post-fix run after the ≤1024 px skeleton cap was introduced.
+| Metric | Baseline (no fix) | Notes |
+|--------|------------------:|-------|
+| Stage 2 time — mean | 84.7 s | Puhachov CNN on full-size 1400–2700 px images |
+| Stage 2 nodes — median | ~272 k | ~350× over-segmentation at high resolution |
+| Primitives / sketch — median | 1 617 | expected 20–200 for typical patent drawings |
 
-| Metric | Before fix | After fix | Improvement |
-|--------|----------:|----------:|-------------|
-| Stage 2 time — mean | 84.7 s | 10.52 s | 8× faster |
-| Stage 2 time — median | ≫84 s | 5.05 s | — |
-| Stage 2 time — p95 | — | 32.4 s | — |
-| Stage 2 nodes — median | ~272 k (1 sample) | 1 950 | ~140× fewer |
-| Primitives / sketch — median | 1 617 | 984 | 1.6× fewer |
-| Total time / sketch — mean | — | 11.12 s | — |
-| Success rate | — | 100 % (1000/1000) | |
+The over-segmentation root cause: the CNN's NMS radius (5 px) was fixed regardless
+of image size. On 2500 px patent TIFs that is proportionally 5× too small compared
+to the ~512 px images the model was trained on, so thousands of duplicate junctions
+survive suppression.
 
-> The remaining ~10 s / sketch is dominated by Stage 2. Switch
-> `puhachov.device` to `cuda` in `config.yaml` for GPU acceleration.
+**Current fix — adaptive NMS radius** (see [Project status](#project-status)):
+the radius is scaled as `nms_radius × max(H,W) / 512` so suppression remains
+geometrically consistent at any input resolution. The CNN still runs at full
+resolution; only the duplicate-suppression window is widened.
+Re-run `python -m tools.batch_run --limit 1000 --stratified --no-resume` to
+record updated numbers.
 
 ---
 
@@ -336,10 +338,10 @@ post-fix run after the ≤1024 px skeleton cap was introduced.
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
 - **Stage 2** — Puhachov keypoint model inference; topological closed-loop
-  reordering before graph export; **skeleton downsampling** (long edge capped
-  to ≤1024 px before CNN, coordinates scaled back) eliminates ~350× patent
-  over-segmentation (272k → ~1950 median nodes; 84.7 s → 5 s median per sketch
-  across 1000-sample corpus)
+  reordering before graph export; **adaptive NMS radius** (scales as
+  `nms_radius × max(H,W) / reference_resolution`) keeps junction suppression
+  proportional on large patent TIFs without any loss of geometric accuracy —
+  CNN still runs at full resolution
 - **Stage 3** — RANSAC primitive fitter (line / circle / arc / ellipse / polyline);
   geometric arc guard prevents straight skeletons being fit as high-radius arcs;
   Free2CAD Transformer evaluated and retired (6× slower, no accuracy gain — see
@@ -354,18 +356,21 @@ post-fix run after the ≤1024 px skeleton cap was introduced.
 
 ### Next steps
 
-1. **Investigate zero-output samples** — six D2C test samples produce no primitives
+1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
+   effect of the adaptive NMS radius on primitive counts and per-stage timings.
+
+2. **Investigate zero-output samples** — six D2C test samples produce no primitives
    (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
    skeleton on these and tune the binarization threshold if so.
 
-2. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
+3. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
    1 px, indicating a small fraction of samples with badly placed strokes.
    Profile these to determine whether the failure is in Stage 1 (skeleton
    quality), Stage 2 (missed strokes), or Stage 3 (bad primitive fit).
 
-3. **Speed up Stage 2 further** — with downsampling the CNN is no longer the
-   bottleneck on typical patent images. Switch `puhachov.device` to `cuda` in
-   `config.yaml` if a GPU is available to cut the remaining ~5–10 s inference time.
+4. **Speed up Stage 2** — the Puhachov CNN is the dominant runtime cost on large
+   patent TIFs. Switch `puhachov.device` to `cuda` in `config.yaml` if a GPU is
+   available.
 
 ---
 
