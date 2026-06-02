@@ -49,6 +49,15 @@ stage1:
 # ── Stage 2 — Stroke Extraction ───────────────────────────────────────────────
 stage2:
   isolation_threshold: 0.05   # Flag if >5% of foreground pixels are orphaned
+  spline_overshoot_limit: 5.0 # Max px a B-spline may exceed the raw pixel bbox.
+                               # scipy splprep can oscillate by tens of pixels on
+                               # long near-straight edges (end-effect / Runge
+                               # phenomenon). Exceeding this limit causes the
+                               # spline to be discarded in favour of RDP points.
+  min_closed_loop_pixels: 80  # Closed-loop edges shorter than this (in skeleton
+                               # pixels) are treated as noise (ink blobs, dust)
+                               # and removed before Stage 3. Prevents tiny loops
+                               # from being fitted as spurious small circles.
   nms_reference_resolution: 512  # Resolution the Puhachov model was tuned for.
                                   # NMS radius is scaled as:
                                   #   effective = nms_radius × max(H,W) / this value

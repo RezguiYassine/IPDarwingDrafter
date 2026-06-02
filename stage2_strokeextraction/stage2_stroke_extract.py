@@ -621,6 +621,7 @@ def _smooth_edges(
     rdp_epsilon: float = 1.5,
     spline_smoothing: float = 2.0,
     min_smooth_pts: int = 4,
+    spline_overshoot_limit: float = 5.0,
 ) -> list[dict]:
     """
     For each edge, apply:
@@ -628,6 +629,12 @@ def _smooth_edges(
       2. B-spline fitting (scipy splprep) for sub-pixel smooth coordinates
 
     Results stored in edge["smooth_pts"] as [[x, y], ...].
+
+    The spline is validated against the raw pixel bounding box: if any
+    smooth point lies more than spline_overshoot_limit px outside the
+    raw-pixel bbox the spline is discarded and RDP-simplified points are
+    used instead. This prevents scipy splprep end-effect oscillations from
+    introducing false curvature on long, nearly-straight edges.
     """
     for edge in edges:
         pixels = edge["pixels"]
@@ -636,6 +643,8 @@ def _smooth_edges(
             continue
 
         pts = np.array(pixels, dtype=np.float64)  # (N, 2)
+        x_min, y_min = pts[:, 0].min(), pts[:, 1].min()
+        x_max, y_max = pts[:, 0].max(), pts[:, 1].max()
 
         # Step 1: RDP simplification
         simplified = rdp(pts, epsilon=rdp_epsilon)
@@ -643,11 +652,11 @@ def _smooth_edges(
             edge["smooth_pts"] = pixels
             continue
 
+        rdp_pts = [[float(p[0]), float(p[1])] for p in simplified]
+
         # Step 2: B-spline fitting (needs at least min_smooth_pts points)
         if len(simplified) < min_smooth_pts:
-            # Not enough points for spline — use simplified directly
-            edge["smooth_pts"] = [[float(p[0]), float(p[1])]
-                                   for p in simplified]
+            edge["smooth_pts"] = rdp_pts
             continue
 
         try:
@@ -665,13 +674,28 @@ def _smooth_edges(
             u_new  = np.linspace(0, 1, n_eval)
             x_new, y_new = splev(u_new, tck)
 
+            # Guard: reject the spline if it overshoots the raw pixel bbox.
+            # scipy splprep can oscillate badly on long near-straight edges
+            # (end-effect / Runge phenomenon), introducing tens of pixels of
+            # false curvature. Falling back to RDP points is always safe.
+            lim = spline_overshoot_limit
+            if (x_new.min() < x_min - lim or x_new.max() > x_max + lim or
+                    y_new.min() < y_min - lim or y_new.max() > y_max + lim):
+                logger.debug(
+                    f"Spline overshoot on edge {edge['id']} "
+                    f"(bbox x=[{x_min:.0f},{x_max:.0f}] y=[{y_min:.0f},{y_max:.0f}] "
+                    f"spline x=[{x_new.min():.0f},{x_new.max():.0f}] "
+                    f"y=[{y_new.min():.0f},{y_new.max():.0f}]) — using RDP fallback"
+                )
+                edge["smooth_pts"] = rdp_pts
+                continue
+
             edge["smooth_pts"] = [
                 [float(xi), float(yi)] for xi, yi in zip(x_new, y_new)
             ]
         except Exception as exc:
             logger.debug(f"Spline fitting failed for edge {edge['id']}: {exc}")
-            edge["smooth_pts"] = [[float(p[0]), float(p[1])]
-                                   for p in simplified]
+            edge["smooth_pts"] = rdp_pts
 
     return edges
 
@@ -814,9 +838,24 @@ def run(
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
-    rdp_eps     = cfg_kp.get("rdp_epsilon",       1.5)
-    spline_s    = cfg_kp.get("spline_smoothing",  2.0)
-    edges = _smooth_edges(edges, rdp_eps, spline_s)
+    rdp_eps        = cfg_kp.get("rdp_epsilon",          1.5)
+    spline_s       = cfg_kp.get("spline_smoothing",     2.0)
+    overshoot_lim  = cfg_kp.get("spline_overshoot_limit", 5.0)
+    edges = _smooth_edges(edges, rdp_eps, spline_s,
+                          spline_overshoot_limit=overshoot_lim)
+
+    # ── Filter noise closed loops ─────────────────────────────────────────
+    # Tiny closed loops (perimeter < threshold) are skeleton noise (ink blobs,
+    # dust) not real drawing features. Remove them before graph export so they
+    # don't produce spurious circle primitives in Stage 3.
+    min_loop_px = cfg_kp.get("min_closed_loop_pixels", 80)
+    noise_loops = [e for e in edges
+                   if e.get("is_closed") and len(e["pixels"]) < min_loop_px]
+    if noise_loops:
+        noise_ids = {e["id"] for e in noise_loops}
+        edges = [e for e in edges if e["id"] not in noise_ids]
+        logger.debug(f"[{sketch_id}] Removed {len(noise_loops)} noise closed loop(s) "
+                     f"(< {min_loop_px} px): edge ids {sorted(noise_ids)}")
 
     # ── Confidence signal ─────────────────────────────────────────────────
     iso_ratio = _compute_isolation_ratio(skeleton, edges)
