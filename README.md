@@ -28,9 +28,9 @@ files (SVG and DXF) that can be opened in any CAD application.
 | Stage | In                  | Out                         | Tech                       |
 |------:|---------------------|-----------------------------|----------------------------|
 | 1     | Raw raster (PNG)    | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
-| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder; adaptive NMS radius scaled to image size |
-| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / polyline) |
-| 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered) |
+| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder; adaptive NMS radius; B-spline overshoot guard; noise closed-loop filter |
+| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline) |
+| 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered); polygon primitive rendered as closed shape |
 
 ---
 
@@ -200,6 +200,8 @@ The most common knobs:
 | `sketchcleannet.device`            | `cpu`                         | `cuda` for GPU                                  |
 | `puhachov.device`                  | `cpu`                         | `cuda` for GPU                                  |
 | `stage2.nms_reference_resolution`  | `512`                         | training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
+| `stage2.spline_overshoot_limit`    | `5.0`                         | max px a B-spline may exceed the raw pixel bbox; prevents scipy end-effect oscillations turning straight edges into curves |
+| `stage2.min_closed_loop_pixels`    | `80`                          | closed loops shorter than this are treated as noise and removed before Stage 3 |
 | `stage1.quality_threshold`         | `0.70`                        | sketches below this are flagged for review      |
 | `stage3.confidence_threshold`      | `0.60`                        | primitives below this are flagged for review    |
 
@@ -338,16 +340,21 @@ record updated numbers.
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
 - **Stage 2** — Puhachov keypoint model inference; topological closed-loop
-  reordering before graph export; **adaptive NMS radius** (scales as
-  `nms_radius × max(H,W) / reference_resolution`) keeps junction suppression
-  proportional on large patent TIFs without any loss of geometric accuracy —
-  CNN still runs at full resolution
-- **Stage 3** — RANSAC primitive fitter (line / circle / arc / ellipse / polyline);
-  geometric arc guard prevents straight skeletons being fit as high-radius arcs;
-  Free2CAD Transformer evaluated and retired (6× slower, no accuracy gain — see
-  [`docs/archive/`](docs/archive/))
+  reordering; **adaptive NMS radius** (scales with image size) keeps junction
+  suppression proportional on large patent TIFs; **B-spline overshoot guard**
+  prevents scipy end-effect oscillations from turning straight skeleton edges
+  into curves (was the main cause of lines → wiggly polylines in SVG output);
+  **noise closed-loop filter** removes sub-80-px skeleton blobs before Stage 3
+  (was the cause of spurious small circles in SVG output)
+- **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon** /
+  polyline); **closed polygon fitter** fits rectangular and other angular closed
+  loops as clean N-vertex polygons instead of raw 300-pt pixel traces (was the
+  cause of rectangles rendering as round-cornered polylines); geometric arc guard
+  prevents straight skeletons being fit as high-radius arcs; Free2CAD Transformer
+  evaluated and retired (6× slower, no accuracy gain — see [`docs/archive/`](docs/archive/))
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF with Bezugszeichen
-  (EPO Rule 46); SVG stroke-width driven by measured source thickness for D2C eval
+  (EPO Rule 46); SVG stroke-width driven by measured source thickness for D2C eval;
+  **polygon** primitive exported as `<polygon>` in SVG and closed `lwpolyline` in DXF
 - **Batch evaluation driver** (`tools/batch_run.py`) — resumable, multi-worker,
   SQLite results
 - **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — rasterize → pipeline →
@@ -357,7 +364,8 @@ record updated numbers.
 ### Next steps
 
 1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
-   effect of the adaptive NMS radius on primitive counts and per-stage timings.
+   combined effect of the B-spline fix, noise filter, and polygon fitter on
+   primitive counts and mean confidence across the corpus.
 
 2. **Investigate zero-output samples** — six D2C test samples produce no primitives
    (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
