@@ -236,6 +236,19 @@ def _export_svg(data: dict, out_path: Path,
                     **stroke_kw,
                 ))
 
+            elif ptype == "polygon":
+                pts = prim.get("points") or []
+                if len(pts) < 3:
+                    logger.warning(
+                        f"SVG: polygon with <3 points skipped (edge_id="
+                        f"{prim.get('edge_id', '?')})"
+                    )
+                    continue
+                dwg.add(dwg.polygon(
+                    points=[(float(p[0]), float(p[1])) for p in pts],
+                    **stroke_kw,
+                ))
+
             elif ptype == "ellipse":
                 cx, cy = prim["center"]
                 a, b   = float(prim["a"]), float(prim["b"])
@@ -324,6 +337,17 @@ def _export_dxf_basic(data: dict, out_path: Path) -> int:
                     continue
                 flipped = [_flip_y_point(p, H) for p in pts]
                 msp.add_lwpolyline(flipped)
+
+            elif ptype == "polygon":
+                pts = prim.get("points") or []
+                if len(pts) < 3:
+                    logger.warning(
+                        f"DXF basic: polygon with <3 points skipped (edge_id="
+                        f"{prim.get('edge_id', '?')})"
+                    )
+                    continue
+                flipped = [_flip_y_point(p, H) for p in pts]
+                msp.add_lwpolyline(flipped, close=True)
 
             elif ptype == "ellipse":
                 c        = _flip_y_point(prim["center"], H)
@@ -452,6 +476,17 @@ def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
                     continue
                 flipped = [_flip_y_point(p, H) for p in pts]
                 msp.add_lwpolyline(flipped, dxfattribs=attribs)
+
+            elif ptype == "polygon":
+                pts = prim.get("points") or []
+                if len(pts) < 3:
+                    logger.warning(
+                        f"DXF patent: polygon with <3 points skipped (edge_id="
+                        f"{prim.get('edge_id', '?')})"
+                    )
+                    continue
+                flipped = [_flip_y_point(p, H) for p in pts]
+                msp.add_lwpolyline(flipped, close=True, dxfattribs=attribs)
 
             elif ptype == "ellipse":
                 c        = _flip_y_point(prim["center"], H)

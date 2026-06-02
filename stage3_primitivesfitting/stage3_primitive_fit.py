@@ -44,6 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from rdp import rdp as _rdp
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,12 @@ _MIN_PTS_ELLIPSE = 6
 _CONF_THRESH_LINE    = 0.75
 _CONF_THRESH_CIRCLE  = 0.65
 _CONF_THRESH_ARC     = 0.65
-_CONF_THRESH_ELLIPSE = 0.55
+_CONF_THRESH_ELLIPSE  = 0.55
+_CONF_THRESH_POLYGON  = 0.40  # lenient: skeleton corners are naturally rounded
+
+_INLIER_DIST_POLYGON  = 3.0   # px — slightly wider than line/circle tolerance
+_MAX_RMS_POLYGON      = 4.0   # px — more lenient denominator for polygon conf
+_MAX_POLYGON_SIDES    = 12    # RDP won't be accepted above this vertex count
 
 # Geometric guard: when an arc wins the cascade, fall back to the line fit
 # if the actual skeleton bulges by less than 5% of its chord length AND the
@@ -314,6 +320,70 @@ def _fit_ellipse_ransac(pts: np.ndarray) -> dict:
     }
 
 
+# ── Closed polygon fitter ────────────────────────────────────────────────────
+
+def _fit_polygon_closed(pts: np.ndarray) -> dict | None:
+    """
+    Fit a closed polygon (RDP-simplified line-segment sequence) to the
+    topologically-ordered pixel loop. Intended for rectangular or otherwise
+    angular closed shapes whose skeleton has naturally rounded corners that
+    prevent a clean circle/ellipse fit.
+
+    Tries RDP with progressively larger epsilon until the vertex count is
+    ≤ _MAX_POLYGON_SIDES, then accepts the fit if the per-pixel distance to
+    the nearest polygon edge is good enough.
+
+    Returns a 'polygon' dict or None if no acceptable fit was found.
+    """
+    if len(pts) < 6:
+        return None
+
+    best_conf   = -1.0
+    best_verts  = None
+
+    for eps in (3.0, 5.0, 8.0, 12.0, 20.0):
+        verts = np.asarray(_rdp(pts, epsilon=eps), dtype=np.float64)
+        n_v   = len(verts)
+        if n_v < 3 or n_v > _MAX_POLYGON_SIDES:
+            continue
+
+        # Vectorised: for every raw pixel compute the min distance to any edge
+        # of the closed polygon (edges are verts[i] → verts[(i+1) % n_v]).
+        min_dists = np.full(len(pts), np.inf)
+        for i in range(n_v):
+            a  = verts[i]
+            b  = verts[(i + 1) % n_v]
+            ab = b - a
+            len_sq = float(np.dot(ab, ab))
+            if len_sq < 1e-12:
+                d = np.linalg.norm(pts - a, axis=1)
+            else:
+                t  = np.clip(((pts - a) @ ab) / len_sq, 0.0, 1.0)
+                proj = a + t[:, None] * ab
+                d  = np.linalg.norm(pts - proj, axis=1)
+            np.minimum(min_dists, d, out=min_dists)
+
+        inlier_ratio = float((min_dists <= _INLIER_DIST_POLYGON).mean())
+        rms          = float(np.sqrt((min_dists ** 2).mean()))
+        conf         = inlier_ratio * max(0.0, 1.0 - rms / _MAX_RMS_POLYGON)
+
+        if conf > best_conf:
+            best_conf  = conf
+            best_verts = verts
+
+        if n_v <= 4:
+            break  # can't simplify a quadrilateral further
+
+    if best_conf < _CONF_THRESH_POLYGON or best_verts is None:
+        return None
+
+    return {
+        "type":       "polygon",
+        "points":     [[float(p[0]), float(p[1])] for p in best_verts],
+        "confidence": best_conf,
+    }
+
+
 # ── Closed-loop pixel reordering ──────────────────────────────────────────────
 
 def _reorder_loop_pixels(pixels) -> np.ndarray:
@@ -388,7 +458,7 @@ def _refit_arc_as_line(edge: dict, edge_id) -> dict | None:
 def fit_edge_ransac(edge: dict) -> dict:
     """
     Fit one edge with the priority order:
-      circle (closed) → line → arc → ellipse → polyline
+      circle (closed) → ellipse (closed) → polygon (closed) → line → arc → ellipse → polyline
 
     For open edges the cascade fits on smooth_pts (Stage 2's spline-
     interpolated coords), which generally improves fit confidence on noisy
@@ -441,10 +511,14 @@ def fit_edge_ransac(edge: dict) -> dict:
                     return r
             except ValueError:
                 pass
-        # Use topologically-ordered pts (smooth_pts is unreliable here
-        # because it is a non-periodic cubic spline through scanline-ordered
-        # raw pixels). Append the first point so the polyline visually
-        # closes the loop.
+        # Try closed polygon (handles rectangles, hexagons, etc. whose
+        # skeleton corners are rounded and fool circle/ellipse fitters).
+        poly = _fit_polygon_closed(pts)
+        if poly is not None:
+            poly["edge_id"] = edge_id
+            return poly
+
+        # Final fallback: raw ordered pixel trace.
         poly_points = [[float(p[0]), float(p[1])] for p in pts]
         if poly_points and poly_points[0] != poly_points[-1]:
             poly_points.append(poly_points[0])
