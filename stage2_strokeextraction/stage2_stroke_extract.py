@@ -757,6 +757,32 @@ def load_model(config: dict) -> Optional[PuhachovKeypointDetector]:
         return None
 
 
+# ─── Noise-loop circularity guard ─────────────────────────────────────────
+
+def _is_circular_loop(pixels) -> bool:
+    """
+    Return True if the pixel sequence approximates a circle.
+
+    Used to distinguish genuine small circles (e.g. construction points in
+    clean CAD rasterizations) from irregular noise blobs in scanned patent
+    TIFs.  A real skeleton circle has pixels at a nearly uniform radius from
+    the centroid; a noise blob is irregular.
+
+    Criterion: RMS of radial deviations < 30 % of the mean radius.
+    """
+    pts = np.array(pixels, dtype=np.float64)
+    if len(pts) < 6:
+        return False
+    cx = pts[:, 0].mean()
+    cy = pts[:, 1].mean()
+    radii = np.hypot(pts[:, 0] - cx, pts[:, 1] - cy)
+    r_mean = radii.mean()
+    if r_mean < 1.0:
+        return False
+    rms = float(np.sqrt(((radii - r_mean) ** 2).mean()))
+    return rms < 0.30 * r_mean
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # PUBLIC STAGE FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════
@@ -845,17 +871,20 @@ def run(
                           spline_overshoot_limit=overshoot_lim)
 
     # ── Filter noise closed loops ─────────────────────────────────────────
-    # Tiny closed loops (perimeter < threshold) are skeleton noise (ink blobs,
-    # dust) not real drawing features. Remove them before graph export so they
-    # don't produce spurious circle primitives in Stage 3.
+    # Tiny closed loops that are NOT geometrically circular are skeleton noise
+    # (ink blobs, dust from scanned patent TIFs).  Genuine small circles
+    # (e.g. construction points in clean CAD rasterizations) have uniform
+    # radial distance from their centroid and are preserved via the
+    # _is_circular_loop circularity guard.
     min_loop_px = cfg_kp.get("min_closed_loop_pixels", 80)
     noise_loops = [e for e in edges
-                   if e.get("is_closed") and len(e["pixels"]) < min_loop_px]
+                   if e.get("is_closed") and len(e["pixels"]) < min_loop_px
+                   and not _is_circular_loop(e["pixels"])]
     if noise_loops:
         noise_ids = {e["id"] for e in noise_loops}
         edges = [e for e in edges if e["id"] not in noise_ids]
         logger.debug(f"[{sketch_id}] Removed {len(noise_loops)} noise closed loop(s) "
-                     f"(< {min_loop_px} px): edge ids {sorted(noise_ids)}")
+                     f"(< {min_loop_px} px, non-circular): edge ids {sorted(noise_ids)}")
 
     # ── Confidence signal ─────────────────────────────────────────────────
     iso_ratio = _compute_isolation_ratio(skeleton, edges)

@@ -351,15 +351,19 @@ record updated numbers.
   reordering; **adaptive NMS radius** (scales with image size) keeps junction
   suppression proportional on large patent TIFs; **B-spline overshoot guard**
   prevents scipy end-effect oscillations from turning straight skeleton edges
-  into curves (was the main cause of lines → wiggly polylines in SVG output);
-  **noise closed-loop filter** removes sub-80-px skeleton blobs before Stage 3
-  (was the cause of spurious small circles in SVG output)
+  into curves; **noise closed-loop filter** removes small non-circular skeleton
+  blobs before Stage 3 (prevents spurious circles in SVG while preserving
+  genuine small circles via a circularity guard — RMS of radial deviations
+  must exceed 30 % of mean radius before a loop is discarded as noise)
 - **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon** /
   polyline); **closed polygon fitter** fits rectangular and other angular closed
-  loops as clean N-vertex polygons instead of raw 300-pt pixel traces (was the
-  cause of rectangles rendering as round-cornered polylines); geometric arc guard
-  prevents straight skeletons being fit as high-radius arcs; Free2CAD Transformer
-  evaluated and retired (6× slower, no accuracy gain — see [`docs/archive/`](docs/archive/))
+  loops as clean N-vertex polygons; **sparse-smooth_pts guard** detects edges
+  where the B-spline overshot and Stage 2 fell back to raw RDP corner points —
+  those edges are emitted as polylines rather than arcs (was the cause of
+  rectangular open chains being fit as sweeping arcs); geometric arc guard
+  prevents straight skeletons being fit as high-radius arcs; Free2CAD
+  Transformer evaluated and retired (6× slower, no accuracy gain — see
+  [`docs/archive/`](docs/archive/))
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF with Bezugszeichen
   (EPO Rule 46); SVG stroke-width driven by measured source thickness for D2C eval;
   **polygon** primitive exported as `<polygon>` in SVG and closed `lwpolyline` in DXF
@@ -369,20 +373,28 @@ record updated numbers.
   compare; Chamfer distance as headline metric; pixel IoU / precision / recall
   as secondary
 
+### Bug-fix root-cause log
+
+| # | Symptom | Root cause | Fix |
+|---|---------|-----------|-----|
+| 1 | Lines → wiggly curves in SVG | `scipy splprep` Runge-phenomenon oscillations on long near-straight skeleton edges | Bounding-box overshoot guard: reject spline if any sample pixel exits the raw-pixel bbox by > 5 px; fall back to RDP-simplified points |
+| 2 | Spurious small circles in SVG | Sub-80-px closed skeleton loops from scan noise fit as circles by Stage 3 | Noise filter: remove small closed loops whose radial RMS > 30 % of mean radius (irregular blobs); genuine small circles (low RMS) are preserved |
+| 3 | Rectangles → round polylines | Right-angle skeleton corners prevent clean circle/ellipse fit → raw 300-pt pixel trace used | Closed polygon fitter: try RDP-simplified N-vertex polygon before polyline fallback |
+| 4 | Rectangular open chains → arcs | B-spline overshoot → RDP corner-point fallback (6 pts); all corners lie on circumscribed circle → arc RANSAC high confidence | Sparse-smooth_pts guard: if `len(smooth_pts) < max(10, 5 % of raw pixels)` skip arc, emit corner-polyline instead |
+| 5 | Small circles missing (zero output on 10/12 D2C samples) | `min_closed_loop_pixels=80` treated genuine small circles (radius ~7–13 px, perimeter ~43–82 px) as noise | Added circularity check to the noise filter: only remove loops whose skeleton is not geometrically circular |
+
 ### Next steps
 
-1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
-   combined effect of the B-spline fix, noise filter, and polygon fitter on
-   primitive counts and mean confidence across the patent corpus.
+1. **Re-run the full D2C evaluation** (`python -m tools.d2c_eval --no-resume`) to
+   record updated Chamfer/IoU numbers reflecting Bugs 4 & 5 fixes.
 
-2. **Investigate zero-output samples** — six D2C test samples produce no primitives
-   (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
-   skeleton on these and tune the binarization threshold if so.
+2. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
+   combined effect of all fixes on primitive counts and mean confidence.
 
-3. **Reduce the Chamfer p95 outliers** — the p95 is ~35 px while the median is
-   1 px, indicating a small fraction of samples with badly placed strokes.
-   Profile these to determine whether the failure is in Stage 1 (skeleton
-   quality), Stage 2 (missed strokes), or Stage 3 (bad primitive fit).
+3. **Sub-pixel circles (2 remaining zero-output D2C samples)** — `0021/00216435`
+   and `0091/00917500` contain a single circle so small (radius < 4 px) that the
+   skeletonization produces fewer than 6 pixels; no closed edge is formed. This
+   is a fundamental resolution limit, not a code bug.
 
 4. **Speed up Stage 2** — the Puhachov CNN is the dominant runtime cost on large
    patent TIFs. Switch `puhachov.device` to `cuda` in `config.yaml` if a GPU is

@@ -478,9 +478,20 @@ def fit_edge_ransac(edge: dict) -> dict:
         # would otherwise zigzag through the interior).
         pts = _reorder_loop_pixels(edge["pixels"])
     else:
-        raw = edge.get("smooth_pts") or []
+        raw            = edge.get("smooth_pts") or []
+        raw_pixels_list = edge.get("pixels", [])
         pts = (np.array(raw, dtype=np.float64) if raw
-               else np.array(edge["pixels"], dtype=np.float64))
+               else np.array(raw_pixels_list, dtype=np.float64))
+
+        # Detect Stage 2 RDP fallback: when the B-spline overshoots,
+        # Stage 2 substitutes RDP corner points as smooth_pts (~4–8 pts for
+        # angular edges).  On rectangular/polygonal open chains these sparse
+        # corner points all lie near the circumscribed circle, so arc RANSAC
+        # achieves artificially high confidence.  For those edges emit a
+        # polyline from the RDP corner points instead.
+        _spline_sparse = (bool(raw)
+                          and len(raw_pixels_list) >= 100
+                          and len(raw) < max(10, int(0.05 * len(raw_pixels_list))))
 
     # ── Degenerate guard ─────────────────────────────────────────────────────
     if len(pts) < 2:
@@ -551,7 +562,11 @@ def fit_edge_ransac(edge: dict) -> dict:
                 line_fallback = _refit_arc_as_line(edge, edge_id)
                 if line_fallback is not None:
                     return line_fallback
-                return r
+                # If smooth_pts are a sparse RDP fallback (angular corners),
+                # arc confidence is artificially inflated — skip and use
+                # the corner-polyline fallback instead.
+                if not _spline_sparse:
+                    return r
             arc_result = r
         except ValueError:
             pass
@@ -580,14 +595,21 @@ def fit_edge_ransac(edge: dict) -> dict:
             line_fallback = _refit_arc_as_line(edge, edge_id)
             if line_fallback is not None:
                 return line_fallback
-        return best
+            # Sparse RDP fallback edges → prefer the polyline below
+            if not _spline_sparse:
+                return best
+        else:
+            return best
 
     raw_poly = edge.get("smooth_pts") or edge["pixels"]
+    # For sparse RDP-fallback edges the raw_poly corners accurately represent
+    # the shape (rectangle, L-shape, etc.) — assign a decent confidence.
+    poly_conf = 0.65 if _spline_sparse else 0.3
     return {
         "edge_id":    edge_id,
         "type":       "polyline",
         "points":     [[float(p[0]), float(p[1])] for p in raw_poly],
-        "confidence": 0.3,
+        "confidence": poly_conf,
     }
 
 
