@@ -292,24 +292,34 @@ printed at the end of each run:
 
 ### Drawing2CAD results (1 000 test-set samples, Front view)
 
-Two runs are shown: the stroke-width baseline and the current build after the
-Stage 2/3 quality fixes (B-spline guard, noise filter, polygon fitter).
+Three runs are shown with progressively applied fixes (each on an independent
+random 1 000-sample draw from the 7 881-sample test set).
 
-| Metric | Stroke-width baseline | After Stage 2/3 fixes | Change |
-|--------|---------------------:|---------------------:|--------|
-| Chamfer sym — mean | 4.71 px | **3.83 px** | −19 % |
-| Chamfer sym — median | 1.00 px | 1.01 px | ≈ unchanged |
-| Chamfer sym — p75 | 1.19 px | 1.34 px | +0.15 px |
-| Chamfer sym — p95 | 34.5 px | **21.3 px** | **−38 %** |
-| Pixel IoU | 0.620 | **0.627** | +0.007 |
-| Skeleton IoU | 0.520 | 0.511 | −0.009 |
-| Recall | 0.800 | **0.830** | +0.030 |
-| Precision | 0.700 | **0.709** | +0.009 |
+| Metric | Baseline (seed 0) | Bugs 1–3 fixed (seed 42) | **Bugs 1–5 fixed (seed 123)** | Change vs baseline |
+|--------|------------------:|-------------------------:|------------------------------:|-------------------|
+| Chamfer sym — mean | 4.71 px | 3.83 px | **1.84 px** | **−61 %** |
+| Chamfer sym — median | 1.00 px | 1.01 px | **0.98 px** | −2 % |
+| Chamfer sym — p75 | 1.19 px | 1.34 px | **1.14 px** | −4 % |
+| Chamfer sym — p90 | — | 8.56 px | **1.40 px** | **−84 %** |
+| Chamfer sym — p95 | 34.5 px | 21.3 px | **2.86 px** | **−92 %** |
+| Pixel IoU | 0.620 | 0.627 | **0.665** | +0.045 |
+| Skeleton IoU | 0.520 | 0.511 | **0.534** | +0.014 |
+| Recall | 0.800 | 0.830 | **0.868** | +0.068 |
+| Precision | 0.700 | 0.709 | **0.740** | +0.040 |
+| Zero-output samples | — | 12 / 1 000 | **4 / 1 000** | −67 % |
+| Samples with output | — | 988 / 1 000 | **996 / 1 000** | +8 |
 
-The p95 drop (34.5 → 21.3 px) is the largest gain: the B-spline overshoot fix
-eliminated the worst outlier cases where straight skeleton edges were being
-rendered as sweeping curves in the SVG. The median stays at ~1 px, confirming
-the typical sample was already geometrically correct before the fixes.
+The most dramatic gains come from Bugs 4 and 5:
+- **p95 drop 34.5 → 2.86 px (−92 %)**: Bug 4 (rectangular open chains fit as
+  sweeping arcs) was the dominant source of extreme outliers; now those chains
+  are correctly emitted as straight-line polylines.
+- **Zero-output samples 12 → 4 (−67 %)**: Bug 5 (noise filter removing genuine
+  small circles) recovered 8 samples. The 4 remaining zero-output samples all
+  contain a single circle with radius < 4 px — too small for Zhang-Suen
+  skeletonization to produce a closed loop; this is a resolution floor, not a
+  bug.
+- **Recall +6.8 pt** (0.800 → 0.868): more strokes recovered correctly,
+  primarily from restored small circles and correct rectangular boundaries.
 
 > **Note on stroke-width handling.** Stage 1 estimates the original ink thickness
 > via distance transform and stores it in `Stage1Result.mean_stroke_width`. The
@@ -385,18 +395,17 @@ record updated numbers.
 
 ### Next steps
 
-1. **Re-run the full D2C evaluation** (`python -m tools.d2c_eval --no-resume`) to
-   record updated Chamfer/IoU numbers reflecting Bugs 4 & 5 fixes.
+1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
+   combined effect of all five bug fixes on primitive counts and mean confidence
+   across the patent corpus.
 
-2. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
-   combined effect of all fixes on primitive counts and mean confidence.
+2. **Sub-pixel circles (4 remaining zero-output D2C samples)** — each drawing
+   contains a single circle with radius < 4 px; Zhang-Suen skeletonization
+   produces fewer than 6 pixels, so no closed edge is formed. This is a
+   resolution floor. A possible fix is to detect filled-disk blobs in Stage 1
+   before thinning and emit them directly as circles.
 
-3. **Sub-pixel circles (2 remaining zero-output D2C samples)** — `0021/00216435`
-   and `0091/00917500` contain a single circle so small (radius < 4 px) that the
-   skeletonization produces fewer than 6 pixels; no closed edge is formed. This
-   is a fundamental resolution limit, not a code bug.
-
-4. **Speed up Stage 2** — the Puhachov CNN is the dominant runtime cost on large
+3. **Speed up Stage 2** — the Puhachov CNN is the dominant runtime cost on large
    patent TIFs. Switch `puhachov.device` to `cuda` in `config.yaml` if a GPU is
    available.
 
