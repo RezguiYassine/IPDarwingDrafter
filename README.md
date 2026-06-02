@@ -290,18 +290,26 @@ printed at the end of each run:
 ──────────────────────────────────────────────────────
 ```
 
-### Drawing2CAD baseline results (1 000 test-set samples, Front view, stroke-width fix applied)
+### Drawing2CAD results (1 000 test-set samples, Front view)
 
-| Metric | Value | Notes |
-|--------|------:|-------|
-| Chamfer sym — mean | 4.71 px | headline; pulled up by a tail of outliers |
-| Chamfer sym — median | 1.00 px | typical sample is within 1 px of GT skeleton |
-| Chamfer sym — p75 | 1.19 px | |
-| Chamfer sym — p95 | 34.5 px | ~5 % of samples have poorly placed strokes |
-| Pixel IoU | 0.62 | up from 0.42 before stroke-width fix |
-| Skeleton IoU | 0.52 | |
-| Recall | 0.80 | up from 0.44 before stroke-width fix |
-| Precision | 0.70 | |
+Two runs are shown: the stroke-width baseline and the current build after the
+Stage 2/3 quality fixes (B-spline guard, noise filter, polygon fitter).
+
+| Metric | Stroke-width baseline | After Stage 2/3 fixes | Change |
+|--------|---------------------:|---------------------:|--------|
+| Chamfer sym — mean | 4.71 px | **3.83 px** | −19 % |
+| Chamfer sym — median | 1.00 px | 1.01 px | ≈ unchanged |
+| Chamfer sym — p75 | 1.19 px | 1.34 px | +0.15 px |
+| Chamfer sym — p95 | 34.5 px | **21.3 px** | **−38 %** |
+| Pixel IoU | 0.620 | **0.627** | +0.007 |
+| Skeleton IoU | 0.520 | 0.511 | −0.009 |
+| Recall | 0.800 | **0.830** | +0.030 |
+| Precision | 0.700 | **0.709** | +0.009 |
+
+The p95 drop (34.5 → 21.3 px) is the largest gain: the B-spline overshoot fix
+eliminated the worst outlier cases where straight skeleton edges were being
+rendered as sweeping curves in the SVG. The median stays at ~1 px, confirming
+the typical sample was already geometrically correct before the fixes.
 
 > **Note on stroke-width handling.** Stage 1 estimates the original ink thickness
 > via distance transform and stores it in `Stage1Result.mean_stroke_width`. The
@@ -365,7 +373,7 @@ record updated numbers.
 
 1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
    combined effect of the B-spline fix, noise filter, and polygon fitter on
-   primitive counts and mean confidence across the corpus.
+   primitive counts and mean confidence across the patent corpus.
 
 2. **Investigate zero-output samples** — six D2C test samples produce no primitives
    (empty stroke graph despite no crash). Check whether Stage 1 produces a blank
