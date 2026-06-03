@@ -26,6 +26,7 @@ Usage from project root:
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as _dt
 import logging
 import os
@@ -258,6 +259,9 @@ def main() -> int:
                              "a row in the DB.")
     parser.add_argument("--seed", type=int, default=42,
                         help="RNG seed for stratified sampling.")
+    parser.add_argument("--filter-manifest", type=Path, default=None,
+                        help="CSV produced by tools/filter_patent_data.py. "
+                             "TIFs with label='discard' are skipped.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -296,6 +300,21 @@ def main() -> int:
     if not sketches:
         logger.error("No sketches found under %s", args.patent_root)
         return 2
+
+    # ── Apply content-filter manifest ─────────────────────────────────────
+    if args.filter_manifest and args.filter_manifest.exists():
+        with open(args.filter_manifest, newline="") as fh:
+            discard_paths = {
+                row["path"]
+                for row in csv.DictReader(fh)
+                if row.get("label") == "discard"
+            }
+        before = len(sketches)
+        sketches = [s for s in sketches if str(s[2]) not in discard_paths]
+        logger.info(
+            "Filter manifest: skipped %d non-drawing TIFs, %d remain.",
+            before - len(sketches), len(sketches),
+        )
 
     # ── Skip already-processed (resume) ──────────────────────────────────
     if not args.no_resume:

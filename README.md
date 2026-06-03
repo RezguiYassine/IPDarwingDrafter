@@ -27,8 +27,8 @@ files (SVG and DXF) that can be opened in any CAD application.
 
 | Stage | In                  | Out                         | Tech                       |
 |------:|---------------------|-----------------------------|----------------------------|
-| 1     | Raw raster (PNG)    | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
-| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + graph builder; adaptive NMS radius; B-spline overshoot guard; noise closed-loop filter |
+| 1     | Raw raster (PNG/TIF) | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
+| 2     | 1-px skeleton       | Stroke graph (JSON)         | Puhachov keypoint CNN + CN-cluster skeleton tracing; resolution cap + re-skeletonize; adaptive NMS radius; B-spline overshoot guard; noise closed-loop filter |
 | 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline) |
 | 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered); polygon primitive rendered as closed shape |
 
@@ -144,6 +144,7 @@ Vectorization/
 │
 ├── tools/
 │   ├── batch_run.py                 ← batch driver for PatentData corpus (SQLite results)
+│   ├── filter_patent_data.py        ← content classifier: keep drawings, discard chemistry/text
 │   ├── d2c_eval.py                  ← Drawing2CAD ground-truth eval harness
 │   ├── results_db.py                ← SQLite schema shared by batch_run
 │   └── __init__.py
@@ -194,16 +195,18 @@ config works on any clone without editing.
 
 The most common knobs:
 
-| Key                                | Default                       | Effect                                          |
-|------------------------------------|-------------------------------|-------------------------------------------------|
-| `sketchcleannet.weights`           | `models/sketchcleannet.pth`   | empty `""` ⇒ force classical cleaning mode     |
-| `sketchcleannet.device`            | `cpu`                         | `cuda` for GPU                                  |
-| `puhachov.device`                  | `cpu`                         | `cuda` for GPU                                  |
-| `stage2.nms_reference_resolution`  | `512`                         | training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
-| `stage2.spline_overshoot_limit`    | `5.0`                         | max px a B-spline may exceed the raw pixel bbox; prevents scipy end-effect oscillations turning straight edges into curves |
-| `stage2.min_closed_loop_pixels`    | `80`                          | closed loops shorter than this are treated as noise and removed before Stage 3 |
-| `stage1.quality_threshold`         | `0.70`                        | sketches below this are flagged for review      |
-| `stage3.confidence_threshold`      | `0.60`                        | primitives below this are flagged for review    |
+| Key                                | Default | Effect |
+|------------------------------------|--------:|--------|
+| `sketchcleannet.weights`           | `models/sketchcleannet.pth` | empty `""` ⇒ force classical cleaning mode |
+| `sketchcleannet.device`            | `cpu`   | `cuda` for GPU |
+| `puhachov.device`                  | `cpu`   | `cuda` for GPU |
+| `stage2.max_input_resolution`      | `1000`  | Skeleton images with long edge > this are downsampled before Stage 2. Prevents CNN over-segmentation on large patent TIFs (2000–2700 px). Set to `0` to disable. |
+| `stage2.isolation_threshold`       | `0.30`  | Flag sketch if > this fraction of foreground pixels are unreached by any extracted stroke. Calibrated for patent TIF scan noise (p75 isolation ≈ 0.16). |
+| `stage2.nms_reference_resolution`  | `512`   | Training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
+| `stage2.spline_overshoot_limit`    | `5.0`   | Max px a B-spline may exceed the raw pixel bbox; prevents scipy end-effect oscillations |
+| `stage2.min_closed_loop_pixels`    | `80`    | Closed loops shorter than this are treated as noise and removed before Stage 3 |
+| `stage1.quality_threshold`         | `0.70`  | Sketches below this skeleton quality are flagged for review |
+| `stage3.confidence_threshold`      | `0.60`  | Primitives below this are flagged for review |
 
 ---
 
@@ -237,6 +240,24 @@ pipeline:
 
 ## Evaluation
 
+### PatentData content filter
+
+Before running the batch driver, filter the corpus to keep only mechanical
+and electrical drawings (discard chemistry formulas, equation pages, dense text):
+
+```bash
+# Classify all TIFs — writes output/PatentData/filter_manifest.csv (~30 min, 8 workers)
+python -m tools.filter_patent_data --workers 8
+
+# Optionally move discarded TIFs to a quarantine folder
+python -m tools.filter_patent_data --workers 8 --move
+```
+
+The classifier uses EPO filename letter codes (`_F`/`_A` = figure/assembly → keep;
+`_C` = chemistry → likely discard) combined with Hough line detection and connected
+component analysis. No GPU or ML model required. On the full 334 835-TIF corpus it
+keeps **82.4 %** and discards **17.6 %**.
+
 ### Batch driver — PatentData corpus
 
 [`tools/batch_run.py`](tools/batch_run.py) runs the full four-stage pipeline over
@@ -247,8 +268,16 @@ resumable SQLite database:
 # Phase 0 pilot — 100 random sketches, one per patent
 python -m tools.batch_run --limit 100 --stratified
 
+# 1 000-sketch filtered pilot (recommended)
+python -m tools.batch_run \
+    --limit 1000 --stratified \
+    --filter-manifest output/PatentData/filter_manifest.csv \
+    --workers 8
+
 # Full corpus, 8 parallel workers
-python -m tools.batch_run --workers 8
+python -m tools.batch_run \
+    --filter-manifest output/PatentData/filter_manifest.csv \
+    --workers 8
 ```
 
 ### Drawing2CAD ground-truth harness
@@ -274,21 +303,7 @@ python -m tools.d2c_eval --limit 100 --no-resume
 ```
 
 Results are written to `output/Drawing2CAD/d2c_results.db`; a summary table is
-printed at the end of each run:
-
-```
-──────────────────────────────────────────────────────
-  Drawing2CAD eval — 1000/1000 ok  0 errors
-──────────────────────────────────────────────────────
-  Chamfer distance on skeletons (px, lower = better)
-    mean       4.71    p75      1.19
-    median     1.00    p95     34.50
-──────────────────────────────────────────────────────
-  Secondary (pixel IoU)
-    iou_pixel    0.62    iou_skel    0.52
-    recall       0.80    precision   0.70
-──────────────────────────────────────────────────────
-```
+printed at the end of each run.
 
 ### Drawing2CAD results (1 000 test-set samples, Front view)
 
@@ -307,46 +322,36 @@ random 1 000-sample draw from the 7 881-sample test set).
 | Recall | 0.800 | 0.830 | **0.868** | +0.068 |
 | Precision | 0.700 | 0.709 | **0.740** | +0.040 |
 | Zero-output samples | — | 12 / 1 000 | **4 / 1 000** | −67 % |
-| Samples with output | — | 988 / 1 000 | **996 / 1 000** | +8 |
-
-The most dramatic gains come from Bugs 4 and 5:
-- **p95 drop 34.5 → 2.86 px (−92 %)**: Bug 4 (rectangular open chains fit as
-  sweeping arcs) was the dominant source of extreme outliers; now those chains
-  are correctly emitted as straight-line polylines.
-- **Zero-output samples 12 → 4 (−67 %)**: Bug 5 (noise filter removing genuine
-  small circles) recovered 8 samples. The 4 remaining zero-output samples all
-  contain a single circle with radius < 4 px — too small for Zhang-Suen
-  skeletonization to produce a closed loop; this is a resolution floor, not a
-  bug.
-- **Recall +6.8 pt** (0.800 → 0.868): more strokes recovered correctly,
-  primarily from restored small circles and correct rectangular boundaries.
 
 > **Note on stroke-width handling.** Stage 1 estimates the original ink thickness
 > via distance transform and stores it in `Stage1Result.mean_stroke_width`. The
-> D2C eval harness passes this to Stage 3 (embedded in the primitives JSON) so
-> Stage 4 renders SVG strokes at the correct visual thickness for metric
-> comparison. The patent production path (`batch_run.py`) omits this — it keeps
-> ISO 128 standard lineweights, which is correct for CAD output.
+> D2C eval harness passes this to Stage 3 so Stage 4 renders SVG strokes at the
+> correct visual thickness for metric comparison. The patent production path
+> (`batch_run.py`) omits this — it keeps ISO 128 standard lineweights for CAD output.
 
-### PatentData corpus results (1 000 stratified samples, 4 workers)
+### PatentData corpus results (1 000 stratified filtered samples)
 
-| Metric | Baseline (no fix) | Notes |
-|--------|------------------:|-------|
-| Stage 2 time — mean | 84.7 s | Puhachov CNN on full-size 1400–2700 px images |
-| Stage 2 nodes — median | ~272 k | ~350× over-segmentation at high resolution |
-| Primitives / sketch — median | 1 617 | expected 20–200 for typical patent drawings |
+Three independent runs on the filtered corpus (one sketch per randomly selected
+patent, content-filter applied). All runs used 8 parallel workers.
 
-The over-segmentation root cause: the CNN's NMS radius (5 px) was fixed regardless
-of image size. On 2500 px patent TIFs that is proportionally 5× too small compared
-to the ~512 px images the model was trained on, so thousands of duplicate junctions
-survive suppression.
+| Metric | Run 1 seed=42 | Run 2 seed=99 | Run 3 seed=7 |
+|--------|-------------:|-------------:|------------:|
+| Success rate | **100 %** | **100 %** | **100 %** |
+| Total time — mean | 13.5 s | 9.6 s | 10.8 s |
+| Total time — median | 7.9 s | 6.2 s | 6.7 s |
+| Total time — p90 | 28.3 s | 17.8 s | 18.1 s |
+| Total time — p99 | 125.8 s | 76.4 s | 81.7 s |
+| S2 edges — median | 858 | 901 | 867 |
+| S2 edges — >5 k (dense outliers) | 4.0 % | 4.3 % | 4.0 % |
+| S2 isolation flag rate | 4.9 % | 4.8 % | 4.6 % |
+| S1 flag rate | 4.9 % | 4.5 % | 4.5 % |
+| S3 / S4 flag rate | 0 % | 0 % | 0 % |
 
-**Current fix — adaptive NMS radius** (see [Project status](#project-status)):
-the radius is scaled as `nms_radius × max(H,W) / 512` so suppression remains
-geometrically consistent at any input resolution. The CNN still runs at full
-resolution; only the duplicate-suppression window is widened.
-Re-run `python -m tools.batch_run --limit 1000 --stratified --no-resume` to
-record updated numbers.
+Run 1 was the first run after all three Stage 2 fixes were applied (the
+`isolation_threshold` was still at the old default of 0.05 for Run 1,
+which explains its 93.3 % S2 flag rate — corrected to 0.30 before Runs 2 & 3).
+
+**Full-corpus projection** (275 904 filtered drawings, 8 workers): ~60–90 hours.
 
 ---
 
@@ -357,57 +362,54 @@ record updated numbers.
 - **Full four-stage pipeline** end-to-end, configurable via `config.yaml`
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
-- **Stage 2** — Puhachov keypoint model inference; topological closed-loop
-  reordering; **adaptive NMS radius** (scales with image size) keeps junction
-  suppression proportional on large patent TIFs; **B-spline overshoot guard**
-  prevents scipy end-effect oscillations from turning straight skeleton edges
-  into curves; **noise closed-loop filter** removes small non-circular skeleton
-  blobs before Stage 3 (prevents spurious circles in SVG while preserving
-  genuine small circles via a circularity guard — RMS of radial deviations
-  must exceed 30 % of mean radius before a loop is discarded as noise)
+- **Stage 2** — Puhachov keypoint CNN; CN-cluster skeleton tracing;
+  **resolution cap** (`max_input_resolution: 1000`) — skeletons larger than
+  1 000 px are dilated, downsampled, and re-skeletonized (Zhang-Suen) before
+  the CNN runs, preventing 100×–300× over-segmentation on large patent TIFs;
+  **PyTorch thread cap** (`torch.set_num_threads(1)`) forces process-level
+  parallelism so batch workers don't contend for CPU cores; **adaptive NMS
+  radius** scales junction suppression with image size; **B-spline overshoot
+  guard**; **noise closed-loop filter**
 - **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon** /
-  polyline); **closed polygon fitter** fits rectangular and other angular closed
-  loops as clean N-vertex polygons; **sparse-smooth_pts guard** detects edges
-  where the B-spline overshot and Stage 2 fell back to raw RDP corner points —
-  those edges are emitted as polylines rather than arcs (was the cause of
-  rectangular open chains being fit as sweeping arcs); geometric arc guard
-  prevents straight skeletons being fit as high-radius arcs; Free2CAD
-  Transformer evaluated and retired (6× slower, no accuracy gain — see
-  [`docs/archive/`](docs/archive/))
-- **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF with Bezugszeichen
-  (EPO Rule 46); SVG stroke-width driven by measured source thickness for D2C eval;
-  **polygon** primitive exported as `<polygon>` in SVG and closed `lwpolyline` in DXF
+  polyline); closed polygon fitter; sparse-smooth_pts guard; geometric arc guard;
+  Free2CAD Transformer evaluated and retired
+- **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF
+- **Content classifier** (`tools/filter_patent_data.py`) — feature-based
+  (Hough lines + CC analysis + EPO letter codes); classifies 334 835 patent
+  TIFs in ~30 min; 82.4 % kept, 17.6 % discarded (chemistry, equations, text)
 - **Batch evaluation driver** (`tools/batch_run.py`) — resumable, multi-worker,
-  SQLite results
-- **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — rasterize → pipeline →
-  compare; Chamfer distance as headline metric; pixel IoU / precision / recall
-  as secondary
+  SQLite results; `--filter-manifest` flag to skip non-drawing TIFs
+- **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — Chamfer distance as
+  headline metric; pixel IoU / precision / recall as secondary
 
 ### Bug-fix root-cause log
 
 | # | Symptom | Root cause | Fix |
 |---|---------|-----------|-----|
-| 1 | Lines → wiggly curves in SVG | `scipy splprep` Runge-phenomenon oscillations on long near-straight skeleton edges | Bounding-box overshoot guard: reject spline if any sample pixel exits the raw-pixel bbox by > 5 px; fall back to RDP-simplified points |
-| 2 | Spurious small circles in SVG | Sub-80-px closed skeleton loops from scan noise fit as circles by Stage 3 | Noise filter: remove small closed loops whose radial RMS > 30 % of mean radius (irregular blobs); genuine small circles (low RMS) are preserved |
-| 3 | Rectangles → round polylines | Right-angle skeleton corners prevent clean circle/ellipse fit → raw 300-pt pixel trace used | Closed polygon fitter: try RDP-simplified N-vertex polygon before polyline fallback |
-| 4 | Rectangular open chains → arcs | B-spline overshoot → RDP corner-point fallback (6 pts); all corners lie on circumscribed circle → arc RANSAC high confidence | Sparse-smooth_pts guard: if `len(smooth_pts) < max(10, 5 % of raw pixels)` skip arc, emit corner-polyline instead |
-| 5 | Small circles missing (zero output on 10/12 D2C samples) | `min_closed_loop_pixels=80` treated genuine small circles (radius ~7–13 px, perimeter ~43–82 px) as noise | Added circularity check to the noise filter: only remove loops whose skeleton is not geometrically circular |
+| 1 | Lines → wiggly curves in SVG | `scipy splprep` Runge-phenomenon oscillations on long near-straight skeleton edges | Bounding-box overshoot guard: reject spline if any sample exits the raw-pixel bbox by > 5 px; fall back to RDP points |
+| 2 | Spurious small circles in SVG | Sub-80-px closed skeleton loops from scan noise fit as circles by Stage 3 | Noise filter: remove small closed loops whose radial RMS > 30 % of mean radius; genuine small circles (low RMS) are preserved |
+| 3 | Rectangles → round polylines | Right-angle corners prevent circle/ellipse fit → raw 300-pt pixel trace used | Closed polygon fitter: try RDP-simplified N-vertex polygon before polyline fallback |
+| 4 | Rectangular open chains → arcs | B-spline overshoot → RDP corner-point fallback (6 pts); all corners lie on circumscribed circle → arc RANSAC wins | Sparse-smooth_pts guard: if `len(smooth_pts) < max(10, 5 % of raw pixels)` skip arc, emit corner-polyline |
+| 5 | Small circles missing | `min_closed_loop_pixels=80` removed genuine small circles (radius ~7–13 px) as noise | Added circularity check: only remove loops that are geometrically non-circular (RMS radial deviation > 30 % of mean radius) |
+| 6 | Stage 2 hangs on large patent TIFs (2 000–2 700 px) | Puhachov CNN trained on ~512 px; at 2 700 px it detects 100 k–300 k keypoints; pixel graph has millions of nodes | Resolution cap: dilate 1-px skeleton → resize to ≤ 1 000 px → re-skeletonize (restores 1-px width); reduces edges from ~20 k → ~1 500 per sketch (15×), time from ~190 s → ~13 s |
+| 7 | Stage 2 slow under multi-worker batch despite resolution cap | PyTorch uses all CPU cores per process by default; 8 workers × all cores = severe contention | `torch.set_num_threads(1)` in `load_model()`: forces process-level parallelism |
+| 8 | S2 isolation flag rate 93 % on patent data | `isolation_threshold: 0.05` calibrated for clean SVG inputs; patent TIF scan noise produces 10–20 % orphaned pixels on valid drawings | Recalibrated to `0.30` (flags only top ~5 % of sketches — genuinely noisy scans) |
 
-### Next steps
+### Known limitations / next steps
 
-1. **Re-run the 1 000-sample patent batch eval** (`--no-resume`) to measure the
-   combined effect of all five bug fixes on primitive counts and mean confidence
-   across the patent corpus.
+1. **Dense drawings (4 % of corpus)** — sketches with >5 000 edges can take
+   60–150+ seconds. Add a `max_edges` guard: if Stage 2 exceeds N edges, flag
+   and skip Stage 3/4 rather than processing for minutes.
 
-2. **Sub-pixel circles (4 remaining zero-output D2C samples)** — each drawing
-   contains a single circle with radius < 4 px; Zhang-Suen skeletonization
-   produces fewer than 6 pixels, so no closed edge is formed. This is a
-   resolution floor. A possible fix is to detect filled-disk blobs in Stage 1
-   before thinning and emit them directly as circles.
+2. **Sub-pixel circles (4 D2C zero-output samples)** — single circles with
+   radius < 4 px; Zhang-Suen produces < 6 skeleton pixels, so no closed edge
+   forms. Possible fix: detect filled-disk blobs in Stage 1 before thinning.
 
-3. **Speed up Stage 2** — the Puhachov CNN is the dominant runtime cost on large
-   patent TIFs. Switch `puhachov.device` to `cuda` in `config.yaml` if a GPU is
-   available.
+3. **Stage 2 classical mode** — the Puhachov CNN can be eliminated entirely by
+   setting `puhachov.weights: ""`. The existing classical CN-fallback
+   (`_classical_keypoints()`) already handles this path; vectorising its Python
+   loop with NumPy shifts would bring CN-map time from ~5 s to < 10 ms at
+   1 000 px, making the full Stage 2 CNN-free and resolution-agnostic.
 
 ---
 

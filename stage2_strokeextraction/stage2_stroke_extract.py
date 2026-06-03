@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
+from skimage.morphology import skeletonize as _skeletonize
 import networkx as nx
 import numpy as np
 from rdp import rdp
@@ -742,6 +743,15 @@ def load_model(config: dict) -> Optional[PuhachovKeypointDetector]:
     Returns None if weights are not available — classical fallback will be used.
     Called once at batch start.
     """
+    # Limit PyTorch intra-op threads to 1 per process so that when multiple
+    # worker processes run in parallel they don't compete for the same CPU cores.
+    # Parallelism is provided at the process level by ProcessPoolExecutor.
+    try:
+        import torch
+        torch.set_num_threads(1)
+    except Exception:
+        pass
+
     weights_path = config.get("puhachov", {}).get("weights", "")
     device       = config.get("puhachov", {}).get("device", "cuda")
 
@@ -826,17 +836,40 @@ def run(
         raise FileNotFoundError(f"Cannot read skeleton: {skeleton_path}")
 
     H, W = skeleton.shape
+    cfg_kp = config.get("stage2", {})
+
+    # ── Resolution cap ────────────────────────────────────────────────────
+    # Downsample the skeleton if it exceeds max_input_resolution.
+    # The Puhachov CNN was trained on ~512 px images; feeding it 2000–2700 px
+    # patent TIFs causes massive over-segmentation (10–300 k edges vs expected
+    # 200–2 k).  Capping at 1000 px keeps the CNN in its effective range while
+    # preserving enough geometric detail for the graph and RANSAC stages.
+    # 1-px skeleton lines are dilated before downsampling so they survive
+    # the resize without topological breaks.
+    max_res = cfg_kp.get("max_input_resolution", 0)
+    if max_res and max(H, W) > max_res:
+        scale   = max_res / max(H, W)
+        new_W   = max(1, round(W * scale))
+        new_H   = max(1, round(H * scale))
+        # Dilate before resize so 1-px lines survive the interpolation step;
+        # then re-skeletonize to restore 1-px width before graph building.
+        ksize   = max(3, int(1.0 / scale) * 2 + 1)
+        skeleton = cv2.dilate(skeleton, np.ones((ksize, ksize), np.uint8))
+        skeleton = cv2.resize(skeleton, (new_W, new_H), interpolation=cv2.INTER_AREA)
+        skeleton = (skeleton > 30).astype(np.uint8)
+        skeleton = _skeletonize(skeleton).astype(np.uint8) * 255
+        H, W    = skeleton.shape
+        logger.info(f"[{sketch_id}] Capped skeleton to {W}×{H}px "
+                    f"(scale={scale:.2f}, fg_px={int((skeleton>0).sum())})")
+
     logger.info(f"[{sketch_id}] Stage 2 — skeleton {W}×{H}px, "
                 f"{int((skeleton > 0).sum())} foreground px")
 
     # ── Layer 1: Keypoint detection ───────────────────────────────────────
-    cfg_kp      = config.get("stage2", {})
     conf_thresh = cfg_kp.get("keypoint_threshold", 0.50)
     nms_radius  = cfg_kp.get("nms_radius",         5)
 
-    # Scale NMS radius up for images larger than the model's training resolution
-    # so that spurious duplicate junctions are suppressed on high-res patent TIFs
-    # without any loss of geometric accuracy (full-resolution CNN still runs).
+    # Scale NMS radius up for images larger than the model's training resolution.
     ref_res = cfg_kp.get("nms_reference_resolution", 512)
     if ref_res and max(H, W) > ref_res:
         nms_radius = max(nms_radius, int(round(nms_radius * max(H, W) / ref_res)))

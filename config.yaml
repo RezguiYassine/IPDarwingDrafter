@@ -48,7 +48,12 @@ stage1:
 
 # ── Stage 2 — Stroke Extraction ───────────────────────────────────────────────
 stage2:
-  isolation_threshold: 0.05   # Flag if >5% of foreground pixels are orphaned
+  isolation_threshold: 0.30   # Flag if >30% of foreground pixels are orphaned.
+                               # Original 0.05 was calibrated for clean SVG inputs.
+                               # Patent TIFs have scan noise that produces 10–20%
+                               # orphaned pixels even on valid drawings (p75=0.16,
+                               # p90=0.24 on a 999-sketch sample). 0.30 flags only
+                               # the top ~5% of sketches — genuinely noisy scans.
   spline_overshoot_limit: 5.0 # Max px a B-spline may exceed the raw pixel bbox.
                                # scipy splprep can oscillate by tens of pixels on
                                # long near-straight edges (end-effect / Runge
@@ -64,6 +69,13 @@ stage2:
                                   # so junction suppression stays proportional on
                                   # large patent TIFs (1400–2700 px). Set to 0 to
                                   # use the raw nms_radius from the puhachov block.
+  max_input_resolution: 1000     # Skeleton images larger than this (long edge, px)
+                                  # are downsampled before Stage 2.  Prevents the
+                                  # Puhachov CNN from over-segmenting large patent
+                                  # TIFs (2000–2700 px → 10 k–300 k edges).
+                                  # 1-px skeleton lines are dilated before resize so
+                                  # they survive downsampling without topological
+                                  # breaks.  Set to 0 to disable the cap.
 
 # ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
 stage3:
