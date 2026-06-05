@@ -338,6 +338,37 @@ Run with: `python -m tools.d2c_eval --limit 1000 --views Front --workers 8 --con
 > thin-stroke shapes. The production `config.yaml` keeps `max_input_resolution: 1000`
 > which is required for large (2 000–2 700 px) patent TIFs.
 
+### CN vs Puhachov parity check (10 PatentData samples, seed 42)
+
+Direct head-to-head on the same 10 stratified patent sketches
+(`output/PatentData_CN/` vs `output/PatentData_Puhachov/`):
+
+| Metric | Puhachov CNN | CN classical | Delta |
+|--------|------------:|-------------:|-------|
+| Nodes — mean | 994 | 994 | **0** |
+| Edges — mean | 1 437 | 1 437 | **0** |
+| Primitives — mean | 1 437 | 1 437 | **0** |
+| S3 mean confidence | 0.941 | 0.941 | **0** |
+| Stage 2 time — mean | 3.33 s | **1.04 s** | **−69 %** |
+| Success rate | 100 % | 100 % | 0 |
+
+Every quality metric is identical because `_extract_topology()` computes its own
+CN map internally and ignores whatever keypoints the CNN emits. The CNN adds
+pure latency (3.3 s vs 1.0 s) with no quality benefit. **CN path is recommended
+for all evaluations** (`puhachov.weights: ""`).
+
+Run with:
+```bash
+# CN path
+python -m tools.batch_run --limit 10 --stratified --seed 42 \
+    --output output/PatentData_CN --db output/PatentData_CN/results.db \
+    --config /tmp/config_patent_cn.yaml   # puhachov.weights: ""
+
+# Puhachov path (identical output, 3× slower)
+python -m tools.batch_run --limit 10 --stratified --seed 42 \
+    --output output/PatentData_Puhachov --db output/PatentData_Puhachov/results.db
+```
+
 ### PatentData corpus results (1 000 stratified filtered samples)
 
 Three independent runs on the filtered corpus (one sketch per randomly selected
@@ -412,20 +443,36 @@ which explains its 93.3 % S2 flag rate — corrected to 0.30 before Runs 2 & 3).
 
 ### Known limitations / next steps
 
-1. **Dense drawings (4 % of corpus)** — sketches with >5 000 edges can take
+1. **Stroke fragmentation** *(priority — confirmed on D2C 1 000-sample eval)*
+   — 312 / 1 000 D2C cases have `n_prims_out > n_strokes_gt` (31 %). Root causes
+   identified so far:
+   - **Spurious short halo edges (2–5 px)** at adjacent junction clusters
+     (parallel-edge fix creates chains that immediately enter a neighbouring
+     keypoint's 1-px extension region). Fix: merge junction clusters within
+     `merge_radius` pixels; or filter open edges shorter than a configurable
+     minimum before smoothing.
+   - **Extreme over-segmentation on hatching paths** — one SVG `<path>` with
+     many disconnected `M…L` subpaths (e.g. hatch lines) produces hundreds of
+     graph edges that map 1:1 to primitives (`out=404, gt=2`). Fix: a pre-walk
+     CC-size gate or a post-walk edge-merge step that joins collinear/near-collinear
+     short edges.
+   - **Long strokes split at phantom junctions** — CN≥3 pixels appearing at
+     near-straight skeleton bends (Zhang-Suen staircase artefact) falsely terminate
+     the walk and fragment a single logical stroke into 3–6 pieces. Fix: a post-walk
+     chain-merge that stitches edges sharing a junction with CN=3 and a
+     near-180° turning angle.
+
+2. **Dense drawings (4 % of corpus)** — sketches with >5 000 edges can take
    60–150+ seconds. Add a `max_edges` guard: if Stage 2 exceeds N edges, flag
    and skip Stage 3/4 rather than processing for minutes.
 
-2. **Thin-stroke position error (1 px)** — Zhang-Suen skeletonisation places the
+3. **Thin-stroke position error (1 px)** — Zhang-Suen skeletonisation places the
    skeleton 1 px off-centre for thin strokes (radius ≤ 3 px), causing a systematic
    IoU loss of ~15–20 % for these shapes. Could be improved by distance-transform
    centroid refinement, but requires changes to Stage 1.
 
-3. **Spurious short edges at adjacent junctions** — the parallel-edge fix creates
-   2–5 px halo edges between junction clusters that are ≤ 2 px apart (e.g. the
-   V2 vertex of a triangle sometimes generates 3 CN≥3 pixels in a 3×3 neighbourhood).
-   These propagate through Stage 3 as low-confidence tiny primitives. Fix: merge
-   junction clusters within `merge_radius` pixels before the walk step.
+4. **Spurious short edges at adjacent junctions** — see item 1 above; the
+   parallel-edge fix (bug 14) is the source; merge or length-gate is the fix.
 
 ---
 
