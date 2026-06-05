@@ -145,6 +145,8 @@ Vectorization/
 ├── tools/
 │   ├── batch_run.py                 ← batch driver for PatentData corpus (SQLite results)
 │   ├── filter_patent_data.py        ← content classifier: keep drawings, discard chemistry/text
+│   ├── build_training_manifest.py   ← strict SVG/DXF training manifest builder
+│   ├── clip_curate_manifest.py      ← optional zero-shot CLIP visual curation layer
 │   ├── d2c_eval.py                  ← Drawing2CAD ground-truth eval harness
 │   ├── results_db.py                ← SQLite schema shared by batch_run
 │   └── __init__.py
@@ -293,6 +295,22 @@ Top discard reasons:
 | `chart_or_axis_plot` | 10 |
 | `scientific_line_plot` | 8 |
 
+Clean12 full-corpus result on `data/PatentData/ReorganisedData`:
+
+| Label | Count | Share |
+|-------|------:|------:|
+| Kept as drawing candidate | 56 971 | 20.7 % |
+| Discarded before vectorization | 218 778 | 79.3 % |
+| Load/preprocess error | 55 | 0.0 % |
+| Total TIFs scanned | 275 804 | 100.0 % |
+
+Top full-corpus discard reasons include `letter_d_text_or_formula` (88 396),
+`orthogonal_text_table_or_flowchart` (58 733), `letter_c_chemistry` (17 569),
+`fragmented_tiny_skeleton_components` (14 846),
+`text_heavy_plot_table_or_block_diagram` (12 906), and explicit chart/plot gates
+(`chart_or_axis_plot`, `plot_or_flowchart`, `scientific_line_plot`,
+`single_axis_curve_plot`, `sparse_scientific_plot`, `multi_panel_scientific_plot`).
+
 ### Batch driver — PatentData corpus
 
 [`tools/batch_run.py`](tools/batch_run.py) runs the full four-stage pipeline over
@@ -319,6 +337,85 @@ python -m tools.batch_run \
     --output output/PatentData_clean12_gated \
     --db output/PatentData_clean12_gated/results.db
 ```
+
+Full clean12 gated batch result:
+
+| Status | Count | Share |
+|--------|------:|------:|
+| `ok` | 13 904 | 24.4 % |
+| `quality_gate_stage3` | 38 145 | 66.9 % |
+| `quality_gate_stage2` | 3 558 | 6.2 % |
+| `quality_gate_stage1` | 1 364 | 2.4 % |
+| `stage1` | 55 | 0.1 % |
+| Total manifest rows | 57 026 | 100.0 % |
+
+Accepted `ok` rows average 3.33 s total runtime, 327 Stage-2 edges, 24.5 %
+micro-edge ratio, and 20.4 % low-confidence primitive ratio. The gate is
+intentionally strict: most visually or geometrically unsuitable drawing candidates
+stop before export, rather than becoming noisy SVG/DXF training targets.
+
+### PatentData training manifest curation
+
+`status='ok'` means "the vectorization pipeline completed"; it does **not** mean
+"good LLM training target". [`tools/build_training_manifest.py`](tools/build_training_manifest.py)
+adds a second high-precision deterministic curation layer and writes auditable
+training/reject manifests:
+
+```bash
+python -m tools.build_training_manifest \
+    --db output/PatentData_clean12_gated/results.db \
+    --filter-manifest output/PatentData/filter_manifest_clean12.csv \
+    --run-output output/PatentData_clean12_gated \
+    --output-csv output/PatentData_clean12_gated/training_manifest_strict.csv \
+    --output-jsonl output/PatentData_clean12_gated/training_manifest_strict.jsonl \
+    --rejects-csv output/PatentData_clean12_gated/training_manifest_strict_rejects.csv
+```
+
+Current strict manifest:
+
+| Manifest | Rows |
+|----------|-----:|
+| Strict kept examples | 683 |
+| Strict rejects | 56 343 |
+
+The strict reject reasons include pipeline quality gates plus semantic filters for
+axis/legend patterns, sparse plots, waveform/timing charts, block/flow/network
+diagrams, dense hatching/bar charts, chemistry/formula grids, UI-like box layouts,
+and residual text-heavy pages.
+
+An optional zero-shot CLIP layer is available for visual semantic cleanup:
+
+```bash
+python -m tools.clip_curate_manifest \
+    --input-csv output/PatentData_clean12_gated/training_manifest_strict.csv \
+    --output-csv output/PatentData_clean12_gated/training_manifest_clip.csv \
+    --rejects-csv output/PatentData_clean12_gated/training_manifest_clip_rejects.csv \
+    --batch-size 16 --device cpu
+```
+
+Current CLIP-vetted seed:
+
+| Manifest | Rows |
+|----------|-----:|
+| CLIP kept examples | 412 |
+| CLIP rejects | 271 |
+
+CLIP rejects are mostly `ui_screen` (66), `line_plot` (60), `block_diagram` (56),
+`flowchart` (25), `chart_axes` (23), `table_text` (22), `chemistry` (14), and
+`bar_chart` (5). Audit contact sheets are generated under
+`output/PatentData_clean12_gated/`:
+
+- `contact_clip_random.png`
+- `contact_clip_worst_neg.png`
+- `contact_clip_high_micro.png`
+- `contact_clip_slowest.png`
+
+**Current assessment:** the CLIP-vetted seed is useful for a small,
+high-precision bootstrap set, but it is not yet the final PatentData training
+corpus. The latest visual audit still shows a few chart/axis pages and
+timeline-like diagrams surviving the filter. The next priority is a supervised
+visual curation layer trained from audited positives/negatives so we can remove
+those residual classes without shrinking recall blindly.
 
 ### Drawing2CAD ground-truth harness
 
@@ -487,11 +584,18 @@ high-precision pilot result, not a full-corpus claim.
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF
 - **Content classifier** (`tools/filter_patent_data.py`) — deterministic,
   feature-based strict filter (Hough lines + CC/skeleton analysis + density/orientation
-  gates + EPO letter codes); clean12 pilot kept 304/1 000 and rejected tables,
-  formulas, chemistry, dense text, flowcharts, halftones, and plot pages
+  gates + EPO letter codes); clean12 full-corpus pass scanned 275 804 TIFs and
+  kept 56 971 drawing candidates while rejecting tables, formulas, chemistry,
+  dense text, flowcharts, halftones, and plot pages
 - **Batch evaluation driver** (`tools/batch_run.py`) — resumable, multi-worker,
   SQLite results; `--filter-manifest` flag to skip non-drawing TIFs; Stage 1/2/3
-  quality gates prevent bad examples from entering SVG/DXF training targets
+  quality gates prevent bad examples from entering SVG/DXF training targets; full
+  clean12 gated run produced 13 904 `ok` exports and rejected 43 522 candidates
+  through pipeline/quality gates
+- **Training manifest curation** (`tools/build_training_manifest.py`,
+  `tools/clip_curate_manifest.py`) — strict auditable manifest builder plus optional
+  CLIP semantic curation; current seed is 683 deterministic examples, reduced to
+  412 CLIP-vetted examples after visual semantic cleanup
 - **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — Chamfer distance as
   headline metric; pixel IoU / precision / recall as secondary
 
@@ -517,16 +621,20 @@ high-precision pilot result, not a full-corpus claim.
 
 ### Known limitations / next steps
 
-1. **Run full PatentData clean12 production pass** — current status is a verified
-   high-precision pilot on the first 1 000 PatentData TIFs. Next run:
-   `tools.filter_patent_data` over all `data/PatentData/ReorganisedData`, then
-   `tools.batch_run` with `output/PatentData/filter_manifest_clean12.csv`. The full
-   corpus has ~275k TIFs, so this should be treated as an overnight/resumable job.
+1. **Supervised visual curation layer** — deterministic rules + zero-shot CLIP now
+   produce a small high-precision seed, but residual chart/axis pages still survive.
+   Build an active-learning classifier from audited positives/negatives sampled from
+   `training_manifest_strict.csv`, `training_manifest_clip.csv`, and the CLIP reject
+   set. Target: remove charts, plots, flowcharts, UI/block diagrams, chemistry, and
+   tabular pages while recovering safe mechanical drawings currently rejected by the
+   very strict hand rules.
 
-2. **Build the LLM training manifest** — after the full batch, train only from
-   rows with `status='ok'` in `output/PatentData_clean12_gated/results.db`. Store
-   input image path, SVG path, DXF path, primitive JSON path, metrics, and filter
-   reason/status so later training can audit every example.
+2. **Scale the LLM training manifest after classifier validation** — use
+   `training_manifest_clip.csv` only as a bootstrap set for now. Once supervised
+   curation is validated on held-out PatentData audit sheets, write the final
+   training manifest with input image path, SVG path, DXF path, primitive JSON path,
+   metrics, filter reason/status, and visual classifier confidence so every example
+   remains traceable.
 
 3. **Text/annotation handling** — accepted patent drawings still include figure
    labels, dimensions, reference numerals, and short annotations. For text-to-CAD

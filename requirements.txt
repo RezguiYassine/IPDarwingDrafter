@@ -25,3 +25,4 @@ tqdm>=4.65
 
 # --- Optional: visualization & training-time only ---
 matplotlib>=3.7
+open_clip_torch>=3.3
