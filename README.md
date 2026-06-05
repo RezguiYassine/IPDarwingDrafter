@@ -147,6 +147,7 @@ Vectorization/
 │   ├── filter_patent_data.py        ← content classifier: keep drawings, discard chemistry/text
 │   ├── build_training_manifest.py   ← strict SVG/DXF training manifest builder
 │   ├── clip_curate_manifest.py      ← optional zero-shot CLIP visual curation layer
+│   ├── make_manifest_contact_sheet.py ← render visual audit sheets from any manifest
 │   ├── d2c_eval.py                  ← Drawing2CAD ground-truth eval harness
 │   ├── results_db.py                ← SQLite schema shared by batch_run
 │   └── __init__.py
@@ -375,13 +376,14 @@ Current strict manifest:
 
 | Manifest | Rows |
 |----------|-----:|
-| Strict kept examples | 683 |
-| Strict rejects | 56 343 |
+| Strict kept examples | 598 |
+| Strict rejects | 56 428 |
 
 The strict reject reasons include pipeline quality gates plus semantic filters for
 axis/legend patterns, sparse plots, waveform/timing charts, block/flow/network
 diagrams, dense hatching/bar charts, chemistry/formula grids, UI-like box layouts,
-and residual text-heavy pages.
+non-figure patent pages (`A0001`, etc.), diagonal chart/projection patterns,
+polar/axis plots, and residual text-heavy pages.
 
 An optional zero-shot CLIP layer is available for visual semantic cleanup:
 
@@ -397,25 +399,39 @@ Current CLIP-vetted seed:
 
 | Manifest | Rows |
 |----------|-----:|
-| CLIP kept examples | 412 |
-| CLIP rejects | 271 |
+| CLIP kept examples | 259 |
+| CLIP rejects | 339 |
 
-CLIP rejects are mostly `ui_screen` (66), `line_plot` (60), `block_diagram` (56),
-`flowchart` (25), `chart_axes` (23), `table_text` (22), `chemistry` (14), and
-`bar_chart` (5). Audit contact sheets are generated under
-`output/PatentData_clean12_gated/`:
+CLIP rejects are mostly hard-negative semantic classes: `ui_screen` (57),
+`block_diagram` (54), `frequency_plot` (52), `timeline_chart` (30),
+`flowchart` (25), `xy_plot` (25), `table_text` (21), `line_plot` (16),
+`chart_axes` (8), `chemistry` (5), and `bar_chart` (3), plus lower-margin
+non-hard rejections from the same negative classes.
+
+Audit contact sheets are generated with
+[`tools/make_manifest_contact_sheet.py`](tools/make_manifest_contact_sheet.py):
+
+```bash
+python -m tools.make_manifest_contact_sheet \
+    --manifest output/PatentData_clean12_gated/training_manifest_clip.csv \
+    --output output/PatentData_clean12_gated/contact_clip_random.png \
+    --sort random --limit 24 --seed 42
+```
+
+Current audit sheets live under `output/PatentData_clean12_gated/`:
 
 - `contact_clip_random.png`
 - `contact_clip_worst_neg.png`
 - `contact_clip_high_micro.png`
 - `contact_clip_slowest.png`
 
-**Current assessment:** the CLIP-vetted seed is useful for a small,
-high-precision bootstrap set, but it is not yet the final PatentData training
-corpus. The latest visual audit still shows a few chart/axis pages and
-timeline-like diagrams surviving the filter. The next priority is a supervised
-visual curation layer trained from audited positives/negatives so we can remove
-those residual classes without shrinking recall blindly.
+**Current assessment:** the CLIP-vetted seed is now suitable as a small,
+high-precision bootstrap corpus: the random, worst-negative, high-fragmentation,
+and slowest audit sheets are dominated by physical/mechanical drawings rather
+than tables, chemistry, plots, or dense text. It is still not a broad final
+PatentData corpus; recall is intentionally very low. The next priority is a
+supervised visual curation layer trained from audited positives/negatives so we
+can recover safe mechanical drawings while preserving this precision.
 
 ### Drawing2CAD ground-truth harness
 
@@ -593,9 +609,10 @@ high-precision pilot result, not a full-corpus claim.
   clean12 gated run produced 13 904 `ok` exports and rejected 43 522 candidates
   through pipeline/quality gates
 - **Training manifest curation** (`tools/build_training_manifest.py`,
-  `tools/clip_curate_manifest.py`) — strict auditable manifest builder plus optional
-  CLIP semantic curation; current seed is 683 deterministic examples, reduced to
-  412 CLIP-vetted examples after visual semantic cleanup
+  `tools/clip_curate_manifest.py`, `tools/make_manifest_contact_sheet.py`) —
+  strict auditable manifest builder plus optional CLIP semantic curation and
+  reproducible visual audit sheets; current seed is 598 deterministic examples,
+  reduced to 259 CLIP-vetted bootstrap examples after visual semantic cleanup
 - **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — Chamfer distance as
   headline metric; pixel IoU / precision / recall as secondary
 
@@ -622,12 +639,11 @@ high-precision pilot result, not a full-corpus claim.
 ### Known limitations / next steps
 
 1. **Supervised visual curation layer** — deterministic rules + zero-shot CLIP now
-   produce a small high-precision seed, but residual chart/axis pages still survive.
-   Build an active-learning classifier from audited positives/negatives sampled from
-   `training_manifest_strict.csv`, `training_manifest_clip.csv`, and the CLIP reject
-   set. Target: remove charts, plots, flowcharts, UI/block diagrams, chemistry, and
-   tabular pages while recovering safe mechanical drawings currently rejected by the
-   very strict hand rules.
+   produce a small high-precision seed. Build an active-learning classifier from
+   audited positives/negatives sampled from `training_manifest_strict.csv`,
+   `training_manifest_clip.csv`, and the CLIP reject set. Target: preserve the
+   current chart/table/chemistry precision while recovering safe mechanical
+   drawings currently rejected by the very strict hand rules.
 
 2. **Scale the LLM training manifest after classifier validation** — use
    `training_manifest_clip.csv` only as a bootstrap set for now. Once supervised

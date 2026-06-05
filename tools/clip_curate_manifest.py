@@ -37,13 +37,32 @@ POSITIVE_PROMPTS = [
 NEGATIVE_PROMPTS = [
     ("chart_axes", "a scientific chart or graph with axes"),
     ("line_plot", "a line chart with axes and plotted curves"),
+    ("xy_plot", "an x y coordinate graph with plotted data curves and tick labels"),
+    ("frequency_plot", "a frequency response plot with gain and frequency axes"),
     ("bar_chart", "a bar chart or line plot"),
+    ("timeline_chart", "a timeline chart or waveform timing diagram"),
     ("flowchart", "a flowchart with boxes and arrows"),
     ("block_diagram", "a block diagram or network architecture diagram"),
     ("chemistry", "a chemical molecule formula diagram"),
     ("table_text", "a table or form with text"),
     ("ui_screen", "a user interface screen diagram"),
 ]
+
+HARD_NEGATIVE_THRESHOLDS = {
+    # These classes are semantically bad LLM CAD targets even when the positive
+    # prompt also scores high, which happens for clean plotted curves and tidy
+    # table/grid layouts. Values are calibrated on the strict PatentData seed.
+    "line_plot": 0.04,
+    "xy_plot": 0.045,
+    "frequency_plot": 0.035,
+    "chart_axes": 0.06,
+    "bar_chart": 0.12,
+    "timeline_chart": 0.03,
+    "table_text": 0.08,
+    "ui_screen": 0.09,
+    "block_diagram": 0.075,
+    "flowchart": 0.075,
+}
 
 CLIP_FIELDS = (
     "clip_keep",
@@ -145,7 +164,16 @@ def curate(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
 
             # Strict high-precision policy: strong negative visual evidence is
             # enough to reject even if deterministic rules passed.
-            if neg_score >= args.reject_neg_score and margin <= args.keep_margin:
+            hard_threshold = HARD_NEGATIVE_THRESHOLDS.get(labels[neg_idx])
+            if (
+                args.enable_hard_negatives
+                and hard_threshold is not None
+                and neg_score >= hard_threshold
+            ):
+                row["clip_keep"] = "0"
+                row["clip_reason"] = f"clip_hard_{labels[neg_idx]}"
+                rejected.append(row)
+            elif neg_score >= args.reject_neg_score and margin <= args.keep_margin:
                 row["clip_keep"] = "0"
                 row["clip_reason"] = f"clip_{labels[neg_idx]}"
                 rejected.append(row)
@@ -191,8 +219,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--torch-threads", type=int, default=1)
-    p.add_argument("--reject-neg-score", type=float, default=0.08)
-    p.add_argument("--keep-margin", type=float, default=0.25)
+    p.add_argument("--reject-neg-score", type=float, default=0.05)
+    p.add_argument("--keep-margin", type=float, default=0.45)
+    p.add_argument(
+        "--disable-hard-negatives",
+        dest="enable_hard_negatives",
+        action="store_false",
+        help="Disable calibrated class-specific hard-negative thresholds.",
+    )
+    p.set_defaults(enable_hard_negatives=True)
     return p
 
 

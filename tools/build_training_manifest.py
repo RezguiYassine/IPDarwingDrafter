@@ -353,6 +353,68 @@ def _content_reason(feats: dict[str, Any]) -> str | None:
     ):
         return "axis_or_legend_component_pattern"
 
+    # Surviving CLIP false positives from the first full-corpus audit: clean
+    # looking plots/tables whose geometry resembles a physical drawing.
+    if (
+        n_cc >= 250
+        and lines >= 120
+        and hv >= 0.75
+        and diag <= 0.16
+        and dens >= 0.055
+    ):
+        return "dense_hv_axis_table_or_chart"
+
+    if (
+        150 <= n_cc <= 300
+        and lines <= 12
+        and hv >= 0.80
+        and diag <= 0.05
+        and tiny >= 0.35
+        and med <= 12.0
+        and dens <= 0.035
+    ):
+        return "polar_axis_or_formula_plot"
+
+    if (
+        120 <= n_cc <= 220
+        and lines >= 15
+        and hv >= 0.85
+        and diag <= 0.05
+        and dens <= 0.050
+    ):
+        return "hv_timeline_table_or_axis_plot"
+
+    if (
+        90 <= n_cc <= 140
+        and lines >= 30
+        and large >= 0.65
+        and hv >= 0.55
+        and diag <= 0.25
+        and med <= 12.0
+        and dens <= 0.025
+    ):
+        return "low_density_axis_curve_plot"
+
+    if (
+        n_cc <= 90
+        and lines >= 45
+        and hv >= 0.70
+        and diag <= 0.12
+        and tiny >= 0.45
+        and med <= 6.0
+        and dens <= 0.030
+    ):
+        return "sparse_tiny_table_or_timeline"
+
+    if (
+        n_cc <= 80
+        and lines >= 50
+        and large >= 0.85
+        and diag >= 0.55
+        and dens <= 0.070
+    ):
+        return "sparse_diagonal_chart_or_projection"
+
     if (
         n_cc >= 500
         and large <= 0.50
@@ -558,6 +620,9 @@ def _curation_reason(row: dict[str, Any], args: argparse.Namespace) -> str:
     if args.reject_ambiguous_filter and row.get("filter_reason") != "long_engineering_lines":
         return f"filter_{row.get('filter_reason') or 'missing'}"
 
+    if args.reject_nonfigure_codes and not str(row.get("sketch_id", "")).upper().startswith("F"):
+        return "non_figure_letter_code"
+
     missing = _missing_artifact_reason(row)
     if missing:
         return missing
@@ -653,12 +718,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-mean-confidence", type=float, default=0.67)
     p.add_argument("--keep-ambiguous-filter", action="store_true",
                    help="Keep rows whose original filter reason was sparse_ambiguous_drawing.")
+    p.add_argument(
+        "--keep-nonfigure-codes",
+        action="store_true",
+        help="Keep patent pages whose sketch id does not start with F (for example A0001).",
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     args.reject_ambiguous_filter = not args.keep_ambiguous_filter
+    args.reject_nonfigure_codes = not args.keep_nonfigure_codes
 
     keep, reject, reasons = build(args)
     _write_csv(args.output_csv, keep, MANIFEST_FIELDS)
