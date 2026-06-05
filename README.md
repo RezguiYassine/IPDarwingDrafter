@@ -28,8 +28,8 @@ files (SVG and DXF) that can be opened in any CAD application.
 | Stage | In                  | Out                         | Tech                       |
 |------:|---------------------|-----------------------------|----------------------------|
 | 1     | Raw raster (PNG/TIF) | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
-| 2     | 1-px skeleton       | Stroke graph (JSON)         | **Vectorised CN path** (NumPy ring-slice shifts, ~1 000× vs Python loop); optional Puhachov CNN (ignored by topology — CNN weights can be empty); parallel-edge walk; size-adaptive circularity guard; resolution cap + re-skeletonize; B-spline overshoot guard; noise closed-loop filter |
-| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline) |
+| 2     | 1-px skeleton       | Stroke graph (JSON)         | **Vectorised CN path** (NumPy ring-slice shifts, ~1 000× vs Python loop); incompatible Puhachov weights are rejected instead of silently ignored; parallel-edge walk; **graph de-fragmentation** (spur prune + degree-2 dissolve + collinear through-merge); fragmentation metrics/gates; deterministic scale metadata |
+| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline); primitives are rescaled back to the original image frame after Stage 2 downsampling; low-confidence ratio gate |
 | 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered); polygon primitive rendered as closed shape |
 
 ---
@@ -173,7 +173,7 @@ Three model weights are referenced by the pipeline:
 
 | Weight                       | Size  | Used by              | Status                      |
 |------------------------------|------:|----------------------|-----------------------------|
-| `puhachov_keypoints.pth`     | 22 MB | Stage 2              | shipped in `models/`        |
+| `puhachov_keypoints.pth`     | 22 MB | Stage 2 *(disabled)* | local checkpoint is incompatible with the current detector; `config.yaml` leaves `puhachov.weights: ""` so Stage 2 uses the CN path |
 | `free2cad_v3_best.pth`       | 3 MB  | Stage 3 *(research)* | shipped in `models/`        |
 | `sketchcleannet.pth`         | 124 MB | Stage 1             | **must be downloaded** (>100 MB GitHub limit) |
 
@@ -199,7 +199,8 @@ The most common knobs:
 |------------------------------------|--------:|--------|
 | `sketchcleannet.weights`           | `models/sketchcleannet.pth` | empty `""` ⇒ force classical cleaning mode |
 | `sketchcleannet.device`            | `cpu`   | `cuda` for GPU |
-| `puhachov.device`                  | `cpu`   | `cuda` for GPU |
+| `puhachov.weights`                 | `""`    | Keep empty for production; the local Puhachov checkpoint is incompatible and is rejected by the loader |
+| `puhachov.device`                  | `cpu`   | `cuda` for GPU if a compatible detector is supplied later |
 | `stage2.max_input_resolution`      | `1000`  | Skeleton images with long edge > this are downsampled before Stage 2. Prevents CNN over-segmentation on large patent TIFs (2000–2700 px). Set to `0` to disable. |
 | `stage2.isolation_threshold`       | `0.30`  | Flag sketch if > this fraction of foreground pixels are unreached by any extracted stroke. Calibrated for patent TIF scan noise (p75 isolation ≈ 0.16). |
 | `stage2.nms_reference_resolution`  | `512`   | Training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
@@ -207,6 +208,7 @@ The most common knobs:
 | `stage2.min_closed_loop_pixels`    | `80`    | Closed loops shorter than this are treated as noise and removed before Stage 3 |
 | `stage1.quality_threshold`         | `0.70`  | Sketches below this skeleton quality are flagged for review |
 | `stage3.confidence_threshold`      | `0.60`  | Primitives below this are flagged for review |
+| `pipeline.quality_gates.enabled`   | `true`  | Batch mode stops bad examples before export using Stage 1/2/3 metrics |
 
 ---
 
@@ -240,23 +242,56 @@ pipeline:
 
 ## Evaluation
 
-### PatentData content filter
+### PatentData strict content filter
 
-Before running the batch driver, filter the corpus to keep only mechanical
-and electrical drawings (discard chemistry formulas, equation pages, dense text):
+PatentData is not a clean CAD corpus. It includes mechanical figures, tables,
+flowcharts, dense text, formulas, chemistry, halftones, scientific charts, and
+plot pages. For LLM training on SVG/DXF targets we now use a **precision-first**
+filter: it intentionally sacrifices recall to keep only pages that are plausible
+CAD/vectorization targets.
 
 ```bash
-# Classify all TIFs — writes output/PatentData/filter_manifest.csv (~30 min, 8 workers)
-python -m tools.filter_patent_data --workers 8
+# Pilot on the first 1 000 TIFs
+TQDM_DISABLE=1 python -m tools.filter_patent_data \
+    --limit 1000 --workers 4 \
+    --output output/investigation_patent_filter_clean12/filter_manifest.csv
 
-# Optionally move discarded TIFs to a quarantine folder
-python -m tools.filter_patent_data --workers 8 --move
+# Full corpus manifest for production
+TQDM_DISABLE=1 python -m tools.filter_patent_data \
+    --workers 8 \
+    --output output/PatentData/filter_manifest_clean12.csv
 ```
 
-The classifier uses EPO filename letter codes (`_F`/`_A` = figure/assembly → keep;
-`_C` = chemistry → likely discard) combined with Hough line detection and connected
-component analysis. No GPU or ML model required. On the full 334 835-TIF corpus it
-keeps **82.4 %** and discards **17.6 %**.
+The clean12 filter is deterministic (`probabilistic_hough_line(..., rng=0)`) and
+uses EPO filename buckets plus connected-component, skeleton, Hough-line, density,
+and orientation features. It rejects `_D` formula/text buckets, `_C` chemistry,
+orthogonal tables/flowcharts, dense hatching, dense text, halftones, chart/axis
+plots, scientific line plots, sparse scientific plots, multi-panel plot pages,
+and text-box block/circuit diagrams.
+
+Clean12 pilot result on the first 1 000 PatentData TIFs:
+
+| Label | Count | Share |
+|-------|------:|------:|
+| Kept as drawing candidate | 304 | 30.4 % |
+| Discarded before vectorization | 696 | 69.6 % |
+
+Top discard reasons:
+
+| Reason | Count |
+|--------|------:|
+| `orthogonal_text_table_or_flowchart` | 342 |
+| `letter_d_text_or_formula` | 134 |
+| `text_heavy_plot_table_or_block_diagram` | 77 |
+| `block_diagram_text_boxes` | 19 |
+| `multi_panel_scientific_plot` | 18 |
+| `too_dense_for_clean_cad` | 16 |
+| `fragmented_tiny_skeleton_components` | 14 |
+| `letter_c_chemistry` | 14 |
+| `plot_or_flowchart` | 14 |
+| `dense_text_or_flowchart` | 11 |
+| `chart_or_axis_plot` | 10 |
+| `scientific_line_plot` | 8 |
 
 ### Batch driver — PatentData corpus
 
@@ -268,16 +303,21 @@ resumable SQLite database:
 # Phase 0 pilot — 100 random sketches, one per patent
 python -m tools.batch_run --limit 100 --stratified
 
-# 1 000-sketch filtered pilot (recommended)
+# 1 000-TIF clean12 pilot (recommended before full corpus)
 python -m tools.batch_run \
-    --limit 1000 --stratified \
-    --filter-manifest output/PatentData/filter_manifest.csv \
-    --workers 8
+    --limit 1000 --workers 4 \
+    --config config.yaml \
+    --filter-manifest output/investigation_patent_filter_clean12/filter_manifest.csv \
+    --output output/investigation_patent_clean12_1k_gated \
+    --db output/investigation_patent_clean12_1k_gated/results.db
 
-# Full corpus, 8 parallel workers
+# Full corpus, resumable, 8 parallel workers
 python -m tools.batch_run \
-    --filter-manifest output/PatentData/filter_manifest.csv \
-    --workers 8
+    --workers 8 \
+    --config config.yaml \
+    --filter-manifest output/PatentData/filter_manifest_clean12.csv \
+    --output output/PatentData_clean12_gated \
+    --db output/PatentData_clean12_gated/results.db
 ```
 
 ### Drawing2CAD ground-truth harness
@@ -338,60 +378,88 @@ Run with: `python -m tools.d2c_eval --limit 1000 --views Front --workers 8 --con
 > thin-stroke shapes. The production `config.yaml` keeps `max_input_resolution: 1000`
 > which is required for large (2 000–2 700 px) patent TIFs.
 
-### CN vs Puhachov parity check (10 PatentData samples, seed 42)
+### Stroke de-fragmentation (Stage 2 graph simplification)
 
-Direct head-to-head on the same 10 stratified patent sketches
-(`output/PatentData_CN/` vs `output/PatentData_Puhachov/`):
+The CN map splits a single logical stroke wherever a phantom `CN≥3` pixel appears
+(Zhang-Suen staircase) or wherever the stroke crosses a junction, so a long line
+fragmented into many primitives. A graph-simplification pass (`_simplify_graph`,
+run after topology extraction, before smoothing) fixes this with three operations
+iterated to a fixed point: **(a)** prune short dead-end spurs off junctions,
+**(b)** dissolve degree-2 phantom junctions (genuine corners are `CN=2`, never
+`CN≥3` junctions — so degree-2 junctions are always artefacts and safe to merge),
+**(c)** merge collinear edges that pass straight through a real (degree ≥ 3)
+junction. Closed loops pass through untouched.
 
-| Metric | Puhachov CNN | CN classical | Delta |
-|--------|------------:|-------------:|-------|
-| Nodes — mean | 994 | 994 | **0** |
-| Edges — mean | 1 437 | 1 437 | **0** |
-| Primitives — mean | 1 437 | 1 437 | **0** |
-| S3 mean confidence | 0.941 | 0.941 | **0** |
-| Stage 2 time — mean | 3.33 s | **1.04 s** | **−69 %** |
-| Success rate | 100 % | 100 % | 0 |
+| Metric | Before | **After de-frag** | Change |
+|--------|-------:|------------------:|--------|
+| **D2C** primitives — mean (1 000 samples, seed 42) | 4.35 | **2.73** | **−37 %** |
+| D2C primitives — p95 | 12 | **7** | −42 % |
+| D2C prim/stroke ratio — mean | 1.87 | **1.27** | −32 % |
+| D2C pixel IoU — mean | 0.681 | **0.683** | +0.3 % |
+| D2C Chamfer sym — mean | 0.949 px | **0.937 px** | −1.3 % |
+| D2C recall — mean | 0.871 | **0.873** | +0.2 % |
+| D2C precision — mean | 0.756 | **0.757** | +0.1 % |
+| **PatentData** primitives — mean (30 stratified, seed 42) | 2 364 | **771** | **−67 %** |
+| PatentData total edges (30 samples) | 70 927 | **23 133** | −67 % |
 
-Every quality metric is identical because `_extract_topology()` computes its own
-CN map internally and ignores whatever keypoints the CNN emits. The CNN adds
-pure latency (3.3 s vs 1.0 s) with no quality benefit. **CN path is recommended
-for all evaluations** (`puhachov.weights: ""`).
+Quality (IoU, Chamfer, precision, recall) is unchanged-to-slightly-better on D2C —
+the pass removes redundant fragments without moving any geometry, so where it merges
+collinear segments the fit gets marginally cleaner. A complex 30-part patent assembly
+drops from 2 497 to 848 edges while rendering visually identical. Stage-2 time rises
+~3 % (the extra graph pass), offset by Stage 3 now fitting far fewer edges.
 
-Run with:
-```bash
-# CN path
-python -m tools.batch_run --limit 10 --stratified --seed 42 \
-    --output output/PatentData_CN --db output/PatentData_CN/results.db \
-    --config /tmp/config_patent_cn.yaml   # puhachov.weights: ""
+Run with: `python -m tools.d2c_eval --limit 1000 --views Front --workers 8 --config config_d2c_eval.yaml --seed 42`
 
-# Puhachov path (identical output, 3× slower)
-python -m tools.batch_run --limit 10 --stratified --seed 42 \
-    --output output/PatentData_Puhachov --db output/PatentData_Puhachov/results.db
-```
+`junction_merge_radius` (collapse junction clusters within N px) is a fourth,
+**OFF-by-default** operation: it welds parallel strokes that run close together
+(concentric circles, washers, thin-ring / double-wall outlines) and so destroyed a
+two-circle D2C sample (IoU −0.246). Enable it only on corpora known to be free of
+close parallel lines.
 
-### PatentData corpus results (1 000 stratified filtered samples)
+### Puhachov status
 
-Three independent runs on the filtered corpus (one sketch per randomly selected
-patent, content-filter applied). All runs used 8 parallel workers.
+The previous "Puhachov" path was not actually improving topology:
 
-| Metric | Run 1 seed=42 | Run 2 seed=99 | Run 3 seed=7 |
-|--------|-------------:|-------------:|------------:|
-| Success rate | **100 %** | **100 %** | **100 %** |
-| Total time — mean | 13.5 s | 9.6 s | 10.8 s |
-| Total time — median | 7.9 s | 6.2 s | 6.7 s |
-| Total time — p90 | 28.3 s | 17.8 s | 18.1 s |
-| Total time — p99 | 125.8 s | 76.4 s | 81.7 s |
-| S2 edges — median | 858 | 901 | 867 |
-| S2 edges — >5 k (dense outliers) | 4.0 % | 4.3 % | 4.0 % |
-| S2 isolation flag rate | 4.9 % | 4.8 % | 4.6 % |
-| S1 flag rate | 4.9 % | 4.5 % | 4.5 % |
-| S3 / S4 flag rate | 0 % | 0 % | 0 % |
+- The shipped/local checkpoint is incompatible with the current detector
+  architecture. The loader now strips common prefixes and checks same-shape tensor
+  matches; incompatible checkpoints raise `ModelNotAvailableError`.
+- The old topology builder also computed its own CN topology internally, so CNN
+  keypoints did not change the output graph.
+- Production config therefore keeps `puhachov.weights: ""` and uses the guarded CN
+  path. A true Puhachov path requires a compatible model and explicit topology
+  integration/retraining.
 
-Run 1 was the first run after all three Stage 2 fixes were applied (the
-`isolation_threshold` was still at the old default of 0.05 for Run 1,
-which explains its 93.3 % S2 flag rate — corrected to 0.30 before Runs 2 & 3).
+### PatentData strict gated pilot (first 1 000 corpus TIFs)
 
-**Full-corpus projection** (275 904 filtered drawings, 8 workers): ~60–90 hours.
+After clean12 filtering, the four-stage pipeline runs with quality gates enabled:
+
+| Status | Count |
+|--------|------:|
+| `ok` | 93 |
+| `quality_gate_stage1` | 9 |
+| `quality_gate_stage2` | 55 |
+| `quality_gate_stage3` | 147 |
+
+Accepted `ok` exports:
+
+| Metric | Value |
+|--------|------:|
+| Mean total time / ok | 2.72 s |
+| Mean Stage 2 edges / ok | 342.8 |
+| Max Stage 2 edges / ok | 774 |
+| Mean micro-edge ratio / ok | 21.1 % |
+| Mean low-confidence primitive ratio / ok | 17.4 % |
+| Max low-confidence primitive ratio / ok | 25.0 % |
+
+Visual audit contact sheets:
+
+- `output/investigation_patent_clean12_1k_gated/contact_worst_ok.png`
+- `output/investigation_patent_clean12_1k_gated/contact_slowest_ok.png`
+
+The accepted worst/slowest samples are now mostly mechanical, device, and geometric
+engineering drawings. Obvious tables, dense text, formulas, chemistry pages,
+halftones, flowcharts, and scientific plots are rejected in this pilot. This is a
+high-precision pilot result, not a full-corpus claim.
 
 ---
 
@@ -402,23 +470,28 @@ which explains its 93.3 % S2 flag rate — corrected to 0.30 before Runs 2 & 3).
 - **Full four-stage pipeline** end-to-end, configurable via `config.yaml`
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
-- **Stage 2** — Puhachov keypoint CNN; CN-cluster skeleton tracing;
+- **Stage 2** — production CN-cluster skeleton tracing; guarded Puhachov loader
+  rejects incompatible checkpoints instead of silently using bad weights;
   **resolution cap** (`max_input_resolution: 1000`) — skeletons larger than
   1 000 px are dilated, downsampled, and re-skeletonized (Zhang-Suen) before
-  the CNN runs, preventing 100×–300× over-segmentation on large patent TIFs;
+  topology extraction runs, preventing 100×–300× over-segmentation on large patent TIFs;
   **PyTorch thread cap** (`torch.set_num_threads(1)`) forces process-level
   parallelism so batch workers don't contend for CPU cores; **adaptive NMS
   radius** scales junction suppression with image size; **B-spline overshoot
-  guard**; **noise closed-loop filter**
+  guard**; **noise closed-loop filter**; **graph de-fragmentation** (`_simplify_graph`
+  — spur prune + degree-2 phantom-junction dissolve + collinear through-merge;
+  D2C primitives −37 %, PatentData −67 %, IoU/Chamfer unchanged-to-better)
 - **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon** /
   polyline); closed polygon fitter; sparse-smooth_pts guard; geometric arc guard;
   Free2CAD Transformer evaluated and retired
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF
-- **Content classifier** (`tools/filter_patent_data.py`) — feature-based
-  (Hough lines + CC analysis + EPO letter codes); classifies 334 835 patent
-  TIFs in ~30 min; 82.4 % kept, 17.6 % discarded (chemistry, equations, text)
+- **Content classifier** (`tools/filter_patent_data.py`) — deterministic,
+  feature-based strict filter (Hough lines + CC/skeleton analysis + density/orientation
+  gates + EPO letter codes); clean12 pilot kept 304/1 000 and rejected tables,
+  formulas, chemistry, dense text, flowcharts, halftones, and plot pages
 - **Batch evaluation driver** (`tools/batch_run.py`) — resumable, multi-worker,
-  SQLite results; `--filter-manifest` flag to skip non-drawing TIFs
+  SQLite results; `--filter-manifest` flag to skip non-drawing TIFs; Stage 1/2/3
+  quality gates prevent bad examples from entering SVG/DXF training targets
 - **Drawing2CAD eval harness** (`tools/d2c_eval.py`) — Chamfer distance as
   headline metric; pixel IoU / precision / recall as secondary
 
@@ -440,39 +513,64 @@ which explains its 93.3 % S2 flag rate — corrected to 0.30 before Runs 2 & 3).
 | 12 | D2C zero-output: tiny circles (< 40 px) dropped | Hardcoded `min_loop_pixels = 40` in `_extract_topology` step 5 silently removed circles with radius < 6 px before they could be preserved by the circularity guard | Lowered to `min_loop_pixels = 8` so the circularity guard (`_is_circular_loop`) actually gets to decide |
 | 13 | D2C zero-output: small circles fail circularity check | `_is_circular_loop` used a fixed 30 % RMS threshold; Zhang-Suen staircasing on tiny circles (r < 12 px) produces ≥ 38 % relative RMS, so genuine circles were rejected as noise | Size-adaptive threshold: 55 % for r_mean < 12 px, 30 % otherwise |
 | 14 | Parallel paths between same two nodes lost | Walk used `frozenset({src, dst})` dict key — only the first path found between any pair of nodes was stored; parallel arcs and two-arc circles lost remaining paths | Replaced with list + `all_edge_pix` entry check: deduplicates reverse-direction walks while allowing genuinely parallel paths with disjoint pixel sets |
+| 15 | Long strokes fragmented into many primitives | CN map emits a phantom `CN≥3` junction at every Zhang-Suen staircase bend and at every stroke crossing, so one logical stroke is split at each — dense patent scans produce thousands of 2–3 px junction stubs | `_simplify_graph` pass: prune short spurs, dissolve degree-2 phantom junctions, merge collinear edges straight through real junctions. D2C prims −37 % (1 000-sample), PatentData prims −67 %, IoU/Chamfer unchanged-to-better |
 
 ### Known limitations / next steps
 
-1. **Stroke fragmentation** *(priority — confirmed on D2C 1 000-sample eval)*
-   — 312 / 1 000 D2C cases have `n_prims_out > n_strokes_gt` (31 %). Root causes
-   identified so far:
-   - **Spurious short halo edges (2–5 px)** at adjacent junction clusters
-     (parallel-edge fix creates chains that immediately enter a neighbouring
-     keypoint's 1-px extension region). Fix: merge junction clusters within
-     `merge_radius` pixels; or filter open edges shorter than a configurable
-     minimum before smoothing.
-   - **Extreme over-segmentation on hatching paths** — one SVG `<path>` with
-     many disconnected `M…L` subpaths (e.g. hatch lines) produces hundreds of
-     graph edges that map 1:1 to primitives (`out=404, gt=2`). Fix: a pre-walk
-     CC-size gate or a post-walk edge-merge step that joins collinear/near-collinear
-     short edges.
-   - **Long strokes split at phantom junctions** — CN≥3 pixels appearing at
-     near-straight skeleton bends (Zhang-Suen staircase artefact) falsely terminate
-     the walk and fragment a single logical stroke into 3–6 pieces. Fix: a post-walk
-     chain-merge that stitches edges sharing a junction with CN=3 and a
-     near-180° turning angle.
+1. **Run full PatentData clean12 production pass** — current status is a verified
+   high-precision pilot on the first 1 000 PatentData TIFs. Next run:
+   `tools.filter_patent_data` over all `data/PatentData/ReorganisedData`, then
+   `tools.batch_run` with `output/PatentData/filter_manifest_clean12.csv`. The full
+   corpus has ~275k TIFs, so this should be treated as an overnight/resumable job.
 
-2. **Dense drawings (4 % of corpus)** — sketches with >5 000 edges can take
-   60–150+ seconds. Add a `max_edges` guard: if Stage 2 exceeds N edges, flag
-   and skip Stage 3/4 rather than processing for minutes.
+2. **Build the LLM training manifest** — after the full batch, train only from
+   rows with `status='ok'` in `output/PatentData_clean12_gated/results.db`. Store
+   input image path, SVG path, DXF path, primitive JSON path, metrics, and filter
+   reason/status so later training can audit every example.
 
-3. **Thin-stroke position error (1 px)** — Zhang-Suen skeletonisation places the
+3. **Text/annotation handling** — accepted patent drawings still include figure
+   labels, dimensions, reference numerals, and short annotations. For text-to-CAD
+   training this may be useful metadata; for geometry-only training it needs OCR
+   masking or separate layers before primitive fitting/export.
+
+4. **True Puhachov replacement** — the local checkpoint is incompatible and the old
+   code path did not affect topology. Port/retrain a compatible keypoint detector
+   only after the CN/gated baseline has a clean full-corpus manifest.
+
+5. **Stroke fragmentation** *(largely addressed — see "Stroke de-fragmentation"
+   above)* — the `_simplify_graph` pass cut D2C primitives −37 % and PatentData
+   primitives −67 % by pruning spurs, dissolving degree-2 phantom junctions, and
+   merging collinear edges straight through real junctions. Remaining over-segmentation
+   comes from two harder, still-open cases:
+   - **Thin outline rectangles / concentric rings → double-wall ladders.** A thin
+     *outline* rectangle (or a washer / concentric-circle pair) skeletonizes to two
+     close parallel rails joined by short rungs; each rail segment between rungs is
+     its own primitive. Junction-cluster merging would fix it but unsafely welds the
+     two rails — needs a ladder-aware rung-removal that preserves both rails.
+   - **Extreme over-segmentation on hatching** — a hatched fill is many genuine short
+     parallel lines crossing a boundary, producing hundreds of edges. Needs a
+     hatch-region detector that collapses or tags the fill rather than vectorising
+     every hatch line.
+
+6. **Dense drawings and runtime outliers** — sketches with extreme hatch/detail can
+   still take much longer than the median. Stage 2/3 gates now reject most of these,
+   but the full-corpus run should be monitored for long-tail workers and may need a
+   per-sketch timeout.
+
+   Dense drawings now de-fragment to ~⅓ the edge count (`_simplify_graph`), but the
+   slowest hatched figures can still exceed the time budget — a `max_edges` guard
+   remains worthwhile.
+
+7. **Thin-stroke position error (1 px)** — Zhang-Suen skeletonisation places the
    skeleton 1 px off-centre for thin strokes (radius ≤ 3 px), causing a systematic
    IoU loss of ~15–20 % for these shapes. Could be improved by distance-transform
    centroid refinement, but requires changes to Stage 1.
 
-4. **Spurious short edges at adjacent junctions** — see item 1 above; the
-   parallel-edge fix (bug 14) is the source; merge or length-gate is the fix.
+8. **Spur-pruning coverage trade-off** — `_simplify_graph`'s spur prune removes
+   dead-end edges shorter than `spur_min_length` (6 px), which raises the patent
+   isolation ratio by ~0.05 on average (some pruned stubs are real short ticks, not
+   just barbs). Still well under the 0.30 flag threshold; lower `spur_min_length`
+   if a corpus has many genuine short features.
 
 ---
 

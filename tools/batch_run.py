@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as _dt
+import json
 import logging
 import os
 import random
@@ -107,6 +108,8 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         "completed_at": _dt.datetime.utcnow().isoformat(timespec="seconds"),
     }
     t0 = time.perf_counter()
+    gates = _WORKER_CFG.get("pipeline", {}).get("quality_gates", {})
+    gates_enabled = bool(gates.get("enabled", False))
 
     try:
         s1 = stage1_preprocess.run(
@@ -125,6 +128,15 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         row["total_time"] = time.perf_counter() - t0
         return row
 
+    if gates_enabled and gates.get("stop_on_stage1", True) and s1.flagged:
+        row["status"] = "quality_gate_stage1"
+        row["error"] = (
+            f"skeleton quality {s1.skeleton_quality:.3f} below threshold; "
+            "not suitable for accurate vectorization"
+        )
+        row["total_time"] = time.perf_counter() - t0
+        return row
+
     try:
         s2 = stage2_stroke_extract.run(
             skeleton_path=s1.skeleton_path, output_dir=output_dir,
@@ -135,12 +147,28 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             "s2_keypoint_src": s2.keypoint_source,
             "s2_n_nodes":      s2.n_nodes,
             "s2_n_edges":      s2.n_edges,
+            "s2_n_closed_edges": s2.n_closed_edges,
+            "s2_median_edge_len": s2.median_edge_length,
+            "s2_micro_edge_ratio": s2.micro_edge_ratio,
+            "s2_short_edge_ratio": s2.short_edge_ratio,
             "s2_isolation":    s2.isolation_ratio,
             "s2_flagged":      int(s2.flagged),
         })
     except Exception as exc:
         row["status"] = "stage2"
         row["error"] = f"{type(exc).__name__}: {exc}"
+        row["total_time"] = time.perf_counter() - t0
+        return row
+
+    if gates_enabled and gates.get("stop_on_stage2", True) and s2.flagged:
+        row["status"] = "quality_gate_stage2"
+        row["error"] = (
+            f"graph fragmentation/isolation too high: edges={s2.n_edges}, "
+            f"median_len={s2.median_edge_length:.1f}, "
+            f"micro_ratio={s2.micro_edge_ratio:.3f}, "
+            f"short_ratio={s2.short_edge_ratio:.3f}, "
+            f"isolation={s2.isolation_ratio:.3f}"
+        )
         row["total_time"] = time.perf_counter() - t0
         return row
 
@@ -151,15 +179,44 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             # stroke_width intentionally omitted: patent SVG output uses ISO 128
             # lineweights, not the original scan's ink thickness.
         )
+        with open(s3.primitives_path) as fh:
+            prim_doc = json.load(fh)
+        conf_thresh = _WORKER_CFG.get("stage3", {}).get("confidence_threshold", 0.60)
+        prim_confs = [
+            float(p.get("confidence", 0.0))
+            for p in prim_doc.get("primitives", [])
+        ]
+        low_conf_ratio = (
+            sum(c < conf_thresh for c in prim_confs) / len(prim_confs)
+            if prim_confs else 0.0
+        )
         row.update({
             "s3_time":         s3.processing_time_s,
             "s3_n_primitives": s3.n_primitives,
             "s3_mean_conf":    s3.mean_confidence,
+            "s3_low_conf_ratio": low_conf_ratio,
             "s3_flagged":      int(s3.flagged),
         })
     except Exception as exc:
         row["status"] = "stage3"
         row["error"] = f"{type(exc).__name__}: {exc}"
+        row["total_time"] = time.perf_counter() - t0
+        return row
+
+    max_primitives = int(gates.get("max_primitives", 0) or 0)
+    max_low_conf_ratio = float(gates.get("max_low_conf_ratio", 0.0) or 0.0)
+    if gates_enabled and (
+        s3.flagged
+        or (max_primitives and s3.n_primitives > max_primitives)
+        or (max_low_conf_ratio
+            and row.get("s3_low_conf_ratio", 0.0) > max_low_conf_ratio)
+    ):
+        row["status"] = "quality_gate_stage3"
+        row["error"] = (
+            f"primitive set not suitable for accurate CAD export: "
+            f"n={s3.n_primitives}, mean_conf={s3.mean_confidence:.3f}, "
+            f"low_conf_ratio={row.get('s3_low_conf_ratio', 0.0):.3f}"
+        )
         row["total_time"] = time.perf_counter() - t0
         return row
 
@@ -388,6 +445,19 @@ def main() -> int:
         print(f"    Stage 2          : {s['mean_s2_s']:.2f} s")
         print(f"    Stage 3          : {s['mean_s3_s']:.2f} s")
         print(f"    Stage 4          : {s['mean_s4_s']:.2f} s")
+        if s.get("mean_s2_edges") is not None:
+            print(f"  Stage 2 edges/ok  : mean {s['mean_s2_edges']:.1f}, "
+                  f"max {s['max_s2_edges']}")
+        if s.get("mean_s2_micro_edge_ratio") is not None:
+            print(f"  Micro-edge ratio  : mean "
+                  f"{100.0 * s['mean_s2_micro_edge_ratio']:.1f}%")
+        if s.get("mean_s3_primitives") is not None:
+            print(f"  Stage 3 prims/ok  : mean {s['mean_s3_primitives']:.1f}, "
+                  f"max {s['max_s3_primitives']}")
+        if s.get("mean_s3_low_conf_ratio") is not None:
+            print(f"  Low-conf prims/ok : mean "
+                  f"{100.0 * s['mean_s3_low_conf_ratio']:.1f}%, "
+                  f"max {100.0 * s['max_s3_low_conf_ratio']:.1f}%")
     for k in ("flag_rate_s1", "flag_rate_s2", "flag_rate_s3", "flag_rate_s4"):
         v = s[k]
         if v is not None:

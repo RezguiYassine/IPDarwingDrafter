@@ -17,7 +17,11 @@ sketchcleannet:
 
 # ── Puhachov stroke-extraction CNN (Stage 2) ─────────────────────────────────
 puhachov:
-  weights: "models/puhachov_keypoints.pth"
+  # The shipped/local checkpoint is not compatible with the local detector
+  # wrapper, so production uses the CN fallback until a matching checkpoint is
+  # ported or retrained. The loader now refuses incompatible weights instead of
+  # silently running random parameters.
+  weights: ""
   device:  "cpu"
   keypoint_threshold: 0.50
   nms_radius:          5
@@ -77,6 +81,32 @@ stage2:
                                   # they survive downsampling without topological
                                   # breaks.  Set to 0 to disable the cap.
 
+  # ── Graph simplification (de-fragmentation) ──────────────────────────────
+  # The CN map splits a single logical stroke wherever a phantom CN>=3 pixel
+  # appears (Zhang-Suen staircase) or wherever a stroke crosses a junction.
+  # Without cleanup a long line fragments into many primitives — dense patent
+  # scans yield thousands of 2–3 px junction stubs. This pass prunes spurs,
+  # dissolves degree-2 phantom junctions, and merges collinear edges that pass
+  # straight through real junctions.  D2C 300-sample eval: primitives mean
+  # 5.06 → 2.73 (−46 %), IoU/Chamfer unchanged.
+  simplify_graph: true
+  spur_min_length: 6.0            # Dead-end edges shorter than this (px arc-length)
+                                  # that dangle off a junction are pruned as
+                                  # skeleton barbs / scan whiskers.
+  merge_collinear_max_angle: 28.0 # Two edges meeting at a junction are merged into
+                                  # one stroke if they continue straight through it
+                                  # within this many degrees of 180°.
+  junction_merge_radius: 0.0      # Collapse junction clusters within this radius
+                                  # (px). OFF by default: it welds parallel strokes
+                                  # that run close together (concentric circles,
+                                  # washers, thin-ring/double-wall outlines),
+                                  # destroying them. Only enable (e.g. 3–4) on
+                                  # corpora free of close parallel lines.
+  fragmentation:
+    max_edges: 2500
+    max_micro_edge_ratio: 0.50
+    max_short_edge_ratio: 0.80
+
 # ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
 stage3:
   confidence_threshold: 0.60  # Primitive confidence below this = flag
@@ -106,3 +136,9 @@ pipeline:
   workers:    4            # Parallel workers (0/1 = no parallelism)
   resume:     true         # Skip sketches that already have complete outputs
   log_level: "INFO"        # DEBUG | INFO | WARNING | ERROR
+  quality_gates:
+    enabled: true           # PatentData batch mode: stop before exporting bad CAD
+    stop_on_stage1: true    # Reject low-quality / halftone / text-like skeletons
+    stop_on_stage2: true    # Reject heavily fragmented or isolated graphs
+    max_primitives: 900     # Hard cap for usable CAD output
+    max_low_conf_ratio: 0.25 # Reject exports with too many uncertain primitives

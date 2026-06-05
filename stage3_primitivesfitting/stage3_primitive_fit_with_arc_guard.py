@@ -44,7 +44,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from rdp import rdp as _rdp
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +77,7 @@ _MIN_PTS_ELLIPSE = 6
 _CONF_THRESH_LINE    = 0.75
 _CONF_THRESH_CIRCLE  = 0.65
 _CONF_THRESH_ARC     = 0.65
-_CONF_THRESH_ELLIPSE  = 0.55
-_CONF_THRESH_POLYGON  = 0.40  # lenient: skeleton corners are naturally rounded
-
-_INLIER_DIST_POLYGON  = 3.0   # px — slightly wider than line/circle tolerance
-_MAX_RMS_POLYGON      = 4.0   # px — more lenient denominator for polygon conf
-_MAX_POLYGON_SIDES    = 12    # RDP won't be accepted above this vertex count
+_CONF_THRESH_ELLIPSE = 0.55
 
 # Geometric guard: when an arc wins the cascade, fall back to the line fit
 # if the actual skeleton bulges by less than 5% of its chord length AND the
@@ -320,105 +314,6 @@ def _fit_ellipse_ransac(pts: np.ndarray) -> dict:
     }
 
 
-# ── Closed polygon fitter ────────────────────────────────────────────────────
-
-def _fit_polygon_closed(pts: np.ndarray) -> dict | None:
-    """
-    Fit a closed polygon (RDP-simplified line-segment sequence) to the
-    topologically-ordered pixel loop. Intended for rectangular or otherwise
-    angular closed shapes whose skeleton has naturally rounded corners that
-    prevent a clean circle/ellipse fit.
-
-    Tries RDP with progressively larger epsilon until the vertex count is
-    ≤ _MAX_POLYGON_SIDES, then accepts the fit if the per-pixel distance to
-    the nearest polygon edge is good enough.
-
-    Returns a 'polygon' dict or None if no acceptable fit was found.
-    """
-    if len(pts) < 6:
-        return None
-
-    best_conf   = -1.0
-    best_verts  = None
-
-    for eps in (3.0, 5.0, 8.0, 12.0, 20.0):
-        verts = np.asarray(_rdp(pts, epsilon=eps), dtype=np.float64)
-        n_v   = len(verts)
-        if n_v < 3 or n_v > _MAX_POLYGON_SIDES:
-            continue
-
-        # Vectorised: for every raw pixel compute the min distance to any edge
-        # of the closed polygon (edges are verts[i] → verts[(i+1) % n_v]).
-        min_dists = np.full(len(pts), np.inf)
-        for i in range(n_v):
-            a  = verts[i]
-            b  = verts[(i + 1) % n_v]
-            ab = b - a
-            len_sq = float(np.dot(ab, ab))
-            if len_sq < 1e-12:
-                d = np.linalg.norm(pts - a, axis=1)
-            else:
-                t  = np.clip(((pts - a) @ ab) / len_sq, 0.0, 1.0)
-                proj = a + t[:, None] * ab
-                d  = np.linalg.norm(pts - proj, axis=1)
-            np.minimum(min_dists, d, out=min_dists)
-
-        inlier_ratio = float((min_dists <= _INLIER_DIST_POLYGON).mean())
-        rms          = float(np.sqrt((min_dists ** 2).mean()))
-        conf         = inlier_ratio * max(0.0, 1.0 - rms / _MAX_RMS_POLYGON)
-
-        if conf > best_conf:
-            best_conf  = conf
-            best_verts = verts
-
-        if n_v <= 4:
-            break  # can't simplify a quadrilateral further
-
-    if best_conf < _CONF_THRESH_POLYGON or best_verts is None:
-        return None
-
-    return {
-        "type":       "polygon",
-        "points":     [[float(p[0]), float(p[1])] for p in best_verts],
-        "confidence": best_conf,
-    }
-
-
-# ── Closed-loop pixel reordering ──────────────────────────────────────────────
-
-def _reorder_loop_pixels(pixels) -> np.ndarray:
-    """
-    Reorder a closed-loop's pixel list into topological traversal order.
-
-    Stage 2 stores closed-loop pixels in scanline-like order (each column
-    sweep contains both the top and bottom edges of the loop at that X).
-    The circle/ellipse fits are insensitive to order, but the polyline
-    fallback emits a wildly zigzagging shape if fed scanline-ordered points
-    (confirmed on Drawing2CAD samples — a clean hexagon outline rendered
-    as a single 397-point polyline criss-crossing the interior).
-
-    Greedy nearest-neighbour walk from the first pixel. O(N²) — fine for
-    loops with up to a few thousand pixels.
-    """
-    n = len(pixels)
-    if n < 3:
-        return np.asarray(pixels, dtype=np.float64)
-    pts    = np.asarray(pixels, dtype=np.float64)
-    used   = np.zeros(n, dtype=bool)
-    order  = [0]
-    used[0] = True
-    last   = pts[0]
-    for _ in range(n - 1):
-        diff      = pts - last
-        d2        = np.einsum("ij,ij->i", diff, diff)
-        d2[used]  = np.inf
-        nxt       = int(d2.argmin())
-        order.append(nxt)
-        used[nxt] = True
-        last      = pts[nxt]
-    return pts[order]
-
-
 # ── Geometric guard helper ────────────────────────────────────────────────────
 
 def _refit_arc_as_line(edge: dict, edge_id) -> dict | None:
@@ -458,7 +353,7 @@ def _refit_arc_as_line(edge: dict, edge_id) -> dict | None:
 def fit_edge_ransac(edge: dict) -> dict:
     """
     Fit one edge with the priority order:
-      circle (closed) → ellipse (closed) → polygon (closed) → line → arc → ellipse → polyline
+      circle (closed) → line → arc → ellipse → polyline
 
     For open edges the cascade fits on smooth_pts (Stage 2's spline-
     interpolated coords), which generally improves fit confidence on noisy
@@ -473,25 +368,11 @@ def fit_edge_ransac(edge: dict) -> dict:
     is_closed = edge.get("is_closed", False)
 
     if is_closed:
-        # Reorder pixels into topological loop traversal (Stage 2 emits
-        # them scanline-ordered for closed loops; the polyline fallback
-        # would otherwise zigzag through the interior).
-        pts = _reorder_loop_pixels(edge["pixels"])
+        pts = np.array(edge["pixels"], dtype=np.float64)
     else:
-        raw            = edge.get("smooth_pts") or []
-        raw_pixels_list = edge.get("pixels", [])
+        raw = edge.get("smooth_pts") or []
         pts = (np.array(raw, dtype=np.float64) if raw
-               else np.array(raw_pixels_list, dtype=np.float64))
-
-        # Detect Stage 2 RDP fallback: when the B-spline overshoots,
-        # Stage 2 substitutes RDP corner points as smooth_pts (~4–8 pts for
-        # angular edges).  On rectangular/polygonal open chains these sparse
-        # corner points all lie near the circumscribed circle, so arc RANSAC
-        # achieves artificially high confidence.  For those edges emit a
-        # polyline from the RDP corner points instead.
-        _spline_sparse = (bool(raw)
-                          and len(raw_pixels_list) >= 100
-                          and len(raw) < max(10, int(0.05 * len(raw_pixels_list))))
+               else np.array(edge["pixels"], dtype=np.float64))
 
     # ── Degenerate guard ─────────────────────────────────────────────────────
     if len(pts) < 2:
@@ -522,21 +403,11 @@ def fit_edge_ransac(edge: dict) -> dict:
                     return r
             except ValueError:
                 pass
-        # Try closed polygon (handles rectangles, hexagons, etc. whose
-        # skeleton corners are rounded and fool circle/ellipse fitters).
-        poly = _fit_polygon_closed(pts)
-        if poly is not None:
-            poly["edge_id"] = edge_id
-            return poly
-
-        # Final fallback: raw ordered pixel trace.
-        poly_points = [[float(p[0]), float(p[1])] for p in pts]
-        if poly_points and poly_points[0] != poly_points[-1]:
-            poly_points.append(poly_points[0])
+        raw_poly = edge.get("smooth_pts") or edge["pixels"]
         return {
             "edge_id":    edge_id,
             "type":       "polyline",
-            "points":     poly_points,
+            "points":     [[float(p[0]), float(p[1])] for p in raw_poly],
             "confidence": 0.3,
         }
 
@@ -562,11 +433,7 @@ def fit_edge_ransac(edge: dict) -> dict:
                 line_fallback = _refit_arc_as_line(edge, edge_id)
                 if line_fallback is not None:
                     return line_fallback
-                # If smooth_pts are a sparse RDP fallback (angular corners),
-                # arc confidence is artificially inflated — skip and use
-                # the corner-polyline fallback instead.
-                if not _spline_sparse:
-                    return r
+                return r
             arc_result = r
         except ValueError:
             pass
@@ -595,52 +462,15 @@ def fit_edge_ransac(edge: dict) -> dict:
             line_fallback = _refit_arc_as_line(edge, edge_id)
             if line_fallback is not None:
                 return line_fallback
-            # Sparse RDP fallback edges → prefer the polyline below
-            if not _spline_sparse:
-                return best
-        else:
-            return best
+        return best
 
     raw_poly = edge.get("smooth_pts") or edge["pixels"]
-    # For sparse RDP-fallback edges the raw_poly corners accurately represent
-    # the shape (rectangle, L-shape, etc.) — assign a decent confidence.
-    poly_conf = 0.65 if _spline_sparse else 0.3
     return {
         "edge_id":    edge_id,
         "type":       "polyline",
         "points":     [[float(p[0]), float(p[1])] for p in raw_poly],
-        "confidence": poly_conf,
+        "confidence": 0.3,
     }
-
-
-def _scale_point(pt: list, scale: float) -> list:
-    return [float(pt[0]) * scale, float(pt[1]) * scale]
-
-
-def _scale_primitive(prim: dict, scale: float) -> dict:
-    """
-    Map a primitive from Stage-2 working coordinates back to source-image
-    coordinates.  Stage 2 may cap large patent TIFs to 1000 px before graph
-    extraction; Stage 4 should still export in the original image frame.
-    """
-    if abs(scale - 1.0) < 1e-9:
-        return prim
-
-    p = dict(prim)
-    ptype = p.get("type")
-    if ptype == "line":
-        p["p1"] = _scale_point(p["p1"], scale)
-        p["p2"] = _scale_point(p["p2"], scale)
-    elif ptype in ("circle", "arc"):
-        p["center"] = _scale_point(p["center"], scale)
-        p["radius"] = float(p["radius"]) * scale
-    elif ptype == "ellipse":
-        p["center"] = _scale_point(p["center"], scale)
-        p["a"] = float(p["a"]) * scale
-        p["b"] = float(p["b"]) * scale
-    elif ptype in ("polyline", "polygon"):
-        p["points"] = [_scale_point(pt, scale) for pt in p.get("points", [])]
-    return p
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -648,7 +478,7 @@ def _scale_primitive(prim: dict, scale: float) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run(graph_path: Path, output_dir: Path, sketch_id: str,
-        config: dict, stroke_width: float = None) -> Stage3Result:
+        config: dict) -> Stage3Result:
     """
     Fit primitives to all edges in one stroke graph.
 
@@ -662,10 +492,6 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         Unique identifier for this sketch.
     config : dict
         Parsed config.yaml — only `stage3.confidence_threshold` is read.
-    stroke_width : float | None
-        Estimated original stroke width in pixels (from Stage 1). When
-        provided it is embedded in the JSON so Stage 4 can produce an SVG
-        whose stroke-width matches the source sketch.
     """
     t_start = time.perf_counter()
 
@@ -677,16 +503,11 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         graph = json.load(f)
     edges = graph.get("edges", [])
 
-    # Stage 2 writes image_shape as numpy convention [H, W]. If Stage 2 capped
-    # the image resolution, it also writes original_image_shape + stage2_scale;
-    # export back in the original coordinate frame.
+    # Stage 2 writes image_shape as numpy convention [H, W]; Stage 4 expects
+    # image_size as [W, H]. Swap once here so downstream consumers don't have
+    # to remember the convention.
     img_shape = graph.get("image_shape")
-    orig_shape = graph.get("original_image_shape")
-    stage2_scale = float(graph.get("stage2_scale", 1.0) or 1.0)
-    coord_scale = 1.0 / stage2_scale if stage2_scale > 0 else 1.0
-    if orig_shape and len(orig_shape) == 2:
-        image_size = [int(orig_shape[1]), int(orig_shape[0])]
-    elif img_shape and len(img_shape) == 2:
+    if img_shape and len(img_shape) == 2:
         image_size = [int(img_shape[1]), int(img_shape[0])]
     else:
         logger.warning(
@@ -699,8 +520,7 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
 
     conf_thresh = config.get("stage3", {}).get("confidence_threshold", 0.60)
 
-    primitives = [_scale_primitive(fit_edge_ransac(edge), coord_scale)
-                  for edge in edges]
+    primitives = [fit_edge_ransac(edge) for edge in edges]
 
     confidences = [p.get("confidence", 0.0) for p in primitives]
     mean_conf   = float(np.mean(confidences)) if confidences else 0.0
@@ -720,10 +540,6 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     doc = {"sketch_id": sketch_id}
     if image_size is not None:
         doc["image_size"] = image_size
-    if stroke_width is not None:
-        doc["stroke_width"] = round(float(stroke_width), 2)
-    if abs(stage2_scale - 1.0) >= 1e-9:
-        doc["stage2_scale"] = stage2_scale
     doc["primitives"]  = primitives
     doc["annotations"] = []   # filled by AP6.4 (Bezugszeichen) when available
     doc = _to_python(doc)

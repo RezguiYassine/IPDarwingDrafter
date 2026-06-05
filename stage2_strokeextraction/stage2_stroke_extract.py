@@ -62,6 +62,10 @@ class Stage2Result:
     keypoint_source: str        # "cnn" | "classical"
     n_nodes: int
     n_edges: int
+    n_closed_edges: int = 0
+    median_edge_length: float = 0.0
+    micro_edge_ratio: float = 0.0   # open edges shorter than 6 px
+    short_edge_ratio: float = 0.0   # open edges shorter than 15 px
 
 
 # ─── Keypoint type constants ─────────────────────────────────────────────────
@@ -117,7 +121,44 @@ class PuhachovKeypointDetector:
                           or checkpoint.get("model_state_dict")
                           or checkpoint)
             model = _build_stacked_hourglass()
-            model.load_state_dict(state_dict, strict=False)
+
+            # Be deliberately strict about compatibility even though the final
+            # load uses strict=False.  Older revisions silently accepted the
+            # shipped checkpoint although none of its tensor names matched this
+            # lightweight wrapper, yielding effectively random heatmaps while
+            # still reporting "cnn" as the keypoint source.
+            model_state = model.state_dict()
+
+            def _strip_known_prefixes(sd: dict) -> dict:
+                out = {}
+                for key, value in sd.items():
+                    k = key
+                    for prefix in ("module.", "model.", "net."):
+                        if k.startswith(prefix):
+                            k = k[len(prefix):]
+                    out[k] = value
+                return out
+
+            state_dict = _strip_known_prefixes(state_dict)
+            matched = [
+                k for k, v in state_dict.items()
+                if k in model_state and tuple(v.shape) == tuple(model_state[k].shape)
+            ]
+            min_required = max(10, int(0.20 * len(model_state)))
+            if len(matched) < min_required:
+                raise ModelNotAvailableError(
+                    "Puhachov checkpoint is incompatible with the in-repo "
+                    f"hourglass wrapper: matched {len(matched)}/{len(model_state)} "
+                    f"model tensors from {weights_file}. Refusing to run an "
+                    "effectively untrained keypoint detector."
+                )
+
+            load_result = model.load_state_dict(state_dict, strict=False)
+            if load_result.missing_keys:
+                logger.warning(
+                    "Puhachov checkpoint loaded partially: %d missing, %d unexpected keys.",
+                    len(load_result.missing_keys), len(load_result.unexpected_keys),
+                )
             model.eval()
             model.to(device)
             self._model  = model
@@ -613,6 +654,316 @@ def _extract_topology(
     return nodes, edges
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LAYER 2b — GRAPH SIMPLIFICATION (de-fragmentation)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _chain_length(pix) -> float:
+    """Euclidean arc-length of a pixel chain."""
+    if len(pix) < 2:
+        return 0.0
+    p = np.asarray(pix, dtype=np.float64)
+    return float(np.hypot(*(p[1:] - p[:-1]).T).sum())
+
+
+def _leave_direction(pix, at_start: bool, baseline: float = 8.0):
+    """
+    Unit direction in which a pixel chain leaves one of its ends.
+
+    `at_start=True`  → direction leaving pix[0]   (into the chain)
+    `at_start=False` → direction leaving pix[-1]  (into the chain)
+
+    Sampled over up to `baseline` px of arc-length so a single staircase
+    pixel does not dominate the estimate; for chains shorter than the
+    baseline this is just the chord direction.
+    """
+    seq = pix if at_start else pix[::-1]
+    if len(seq) < 2:
+        return None
+    p0 = np.asarray(seq[0], dtype=np.float64)
+    acc = 0.0
+    far = seq[-1]
+    for k in range(1, len(seq)):
+        far = seq[k]
+        acc += float(np.hypot(seq[k][0] - seq[k - 1][0],
+                              seq[k][1] - seq[k - 1][1]))
+        if acc >= baseline:
+            break
+    v = np.asarray(far, dtype=np.float64) - p0
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-9 else None
+
+
+def _merge_close_junctions(
+    E: list, node_by_id: dict, radius: float
+) -> bool:
+    """
+    Collapse clusters of junction nodes that sit within `radius` px of each
+    other, connected by a short edge. On dense patent scans the CN map fires
+    a forest of junctions 2–4 px apart (a "hairball" of tiny inter-junction
+    stubs); merging them into one node removes the stubs and lets the
+    surviving strokes reconnect. Union-find over a single sweep. Returns True
+    if anything merged.
+    """
+    parent = {}
+
+    def find(a):
+        parent.setdefault(a, a)
+        root = a
+        while parent[root] != root:
+            root = parent[root]
+        while parent[a] != root:
+            parent[a], a = root, parent[a]
+        return root
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    merged_any = False
+    for e in E:
+        if e is None or e["a"] == e["b"]:
+            continue
+        na, nb = node_by_id.get(e["a"]), node_by_id.get(e["b"])
+        if na is None or nb is None:
+            continue
+        if na["type"] != KP_JUNCTION or nb["type"] != KP_JUNCTION:
+            continue
+        if _chain_length(e["pix"]) < radius:
+            union(e["a"], e["b"])
+            merged_any = True
+
+    if not merged_any:
+        return False
+
+    # representative = cluster root; recompute its centroid from members
+    members = {}
+    for nid in list(node_by_id.keys()):
+        if nid in parent:
+            members.setdefault(find(nid), []).append(nid)
+    for root, mids in members.items():
+        if len(mids) <= 1:
+            continue
+        xs = [node_by_id[m]["x"] for m in mids]
+        ys = [node_by_id[m]["y"] for m in mids]
+        node_by_id[root]["x"] = int(round(sum(xs) / len(xs)))
+        node_by_id[root]["y"] = int(round(sum(ys) / len(ys)))
+        for m in mids:
+            if m != root:
+                node_by_id.pop(m, None)
+
+    # relabel edge endpoints to cluster roots; drop edges that collapse to a
+    # short self-loop (the stubs we merged across).
+    for i, e in enumerate(E):
+        if e is None:
+            continue
+        a = find(e["a"]) if e["a"] in parent else e["a"]
+        b = find(e["b"]) if e["b"] in parent else e["b"]
+        if a == b and _chain_length(e["pix"]) < max(radius * 2.0, 6.0):
+            E[i] = None
+            continue
+        e["a"], e["b"] = a, b
+    return True
+
+
+def _simplify_graph(
+    nodes: list[dict],
+    edges: list[dict],
+    spur_min_len: float = 6.0,
+    collinear_max_angle: float = 28.0,
+    junction_merge_radius: float = 4.0,
+    max_iter: int = 40,
+) -> tuple[list[dict], list[dict]]:
+    """
+    De-fragment the stroke graph produced by `_extract_topology`.
+
+    Three operations, iterated to a fixed point:
+      (a) Spur pruning — delete short dead-end edges that dangle off a
+          junction (one end has graph-degree 1, the other is a junction,
+          chain length < spur_min_len). These are Zhang-Suen barbs and
+          scan-noise whiskers, the dominant fragment source on patent TIFs.
+      (b) Degree-2 dissolution — a node where exactly two open edges meet is
+          a phantom junction (genuine corners are CN=2, never CN>=3 junctions),
+          so the two edges are merged into one continuous chain and the node
+          removed. This stitches long strokes that the CN map split at
+          staircase artefacts.
+      (c) Collinear through-merge — at a real junction (degree >= 3), pairs of
+          incident edges that continue nearly straight through the node
+          (turn within collinear_max_angle of 180°) are merged, so a line
+          passing through a T-junction/crossing stays a single primitive.
+
+    Closed-loop edges (and their loop_anchor nodes) are passed through
+    untouched. Returns renumbered (nodes, edges).
+    """
+    from collections import defaultdict
+
+    node_by_id = {n["id"]: dict(n) for n in nodes}
+
+    closed_edges = [e for e in edges if e.get("is_closed")]
+    # Working representation for open edges: {a, b, pix}
+    E: list[dict | None] = []
+    for e in edges:
+        if e.get("is_closed"):
+            continue
+        pix = [(int(p[0]), int(p[1])) for p in e["pixels"]]
+        E.append({"a": e["source"], "b": e["target"], "pix": pix})
+
+    cos_thresh = np.cos(np.radians(collinear_max_angle))
+
+    def build_adj():
+        adj = defaultdict(list)
+        for i, e in enumerate(E):
+            if e is None:
+                continue
+            adj[e["a"]].append(i)
+            adj[e["b"]].append(i)
+        return adj
+
+    def other(e, node):
+        return e["b"] if e["a"] == node else e["a"]
+
+    def merge(i, j, node):
+        """Merge alive edges i, j that share `node`; node becomes interior."""
+        ei, ej = E[i], E[j]
+        # orient ei to END at node
+        if ei["b"] == node:
+            pi, a_node = ei["pix"], ei["a"]
+        else:
+            pi, a_node = ei["pix"][::-1], ei["b"]
+        # orient ej to START at node
+        if ej["a"] == node:
+            pj, b_node = ej["pix"], ej["b"]
+        else:
+            pj, b_node = ej["pix"][::-1], ej["a"]
+        if pi and pj and pi[-1] == pj[0]:
+            pj = pj[1:]
+        E[i] = {"a": a_node, "b": b_node, "pix": pi + pj}
+        E[j] = None
+
+    for _ in range(max_iter):
+        changed = False
+
+        # ── (a0) collapse hairball: merge junctions within radius ───────────
+        if junction_merge_radius > 0 and _merge_close_junctions(
+                E, node_by_id, junction_merge_radius):
+            continue
+
+        adj = build_adj()
+        deg = {nid: len(idxs) for nid, idxs in adj.items()}
+
+        # ── (a) spur pruning ────────────────────────────────────────────────
+        for i, e in enumerate(E):
+            if e is None:
+                continue
+            a, b = e["a"], e["b"]
+            da, db = deg.get(a, 0), deg.get(b, 0)
+            # dead-end = degree-1 end; keep it only if it is a free stroke
+            # (both ends degree 1) or long enough to be real.
+            tip = None
+            root = None
+            if da == 1 and db >= 3:
+                tip, root = a, b
+            elif db == 1 and da >= 3:
+                tip, root = b, a
+            if tip is None:
+                continue
+            if _chain_length(e["pix"]) < spur_min_len:
+                E[i] = None
+                deg[tip] = 0
+                deg[root] = deg.get(root, 1) - 1
+                changed = True
+        if changed:
+            continue   # recompute adjacency before dissolving
+
+        # ── (b) degree-2 dissolution ────────────────────────────────────────
+        adj = build_adj()
+        for nid, idxs in adj.items():
+            alive = [k for k in idxs if E[k] is not None]
+            if len(alive) != 2:
+                continue
+            i, j = alive
+            if i == j:
+                continue   # self-loop edge through this node — leave it
+            if other(E[i], nid) == nid or other(E[j], nid) == nid:
+                continue
+            merge(i, j, nid)
+            node_by_id.pop(nid, None)
+            changed = True
+        if changed:
+            continue
+
+        # ── (c) collinear through-merge at real junctions ───────────────────
+        adj = build_adj()
+        for nid, idxs in adj.items():
+            alive = [k for k in idxs if E[k] is not None]
+            if len(alive) < 3:
+                continue
+            # direction each incident edge leaves the node
+            dirs = {}
+            for k in alive:
+                e = E[k]
+                d = _leave_direction(e["pix"], at_start=(e["a"] == nid))
+                if d is not None:
+                    dirs[k] = d
+            # candidate straight-through pairs (leaving dirs ~opposite)
+            cands = []
+            ks = list(dirs.keys())
+            for a_i in range(len(ks)):
+                for b_i in range(a_i + 1, len(ks)):
+                    ka, kb = ks[a_i], ks[b_i]
+                    # straight-through ⇒ leaving directions point opposite ways
+                    straightness = -float(np.dot(dirs[ka], dirs[kb]))
+                    if straightness >= cos_thresh:
+                        # avoid creating a self-loop (both far ends same node)
+                        if other(E[ka], nid) == other(E[kb], nid):
+                            continue
+                        cands.append((straightness, ka, kb))
+            cands.sort(reverse=True)
+            used = set()
+            for _s, ka, kb in cands:
+                if ka in used or kb in used:
+                    continue
+                if E[ka] is None or E[kb] is None:
+                    continue
+                merge(ka, kb, nid)
+                used.add(ka)
+                used.add(kb)
+                changed = True
+            # node stays (it still has the un-merged incident edges)
+        if not changed:
+            break
+
+    # ── rebuild node/edge lists ─────────────────────────────────────────────
+    alive_edges = [e for e in E if e is not None]
+    used_nodes = set()
+    for e in alive_edges:
+        used_nodes.add(e["a"])
+        used_nodes.add(e["b"])
+    for e in closed_edges:
+        used_nodes.add(e["source"])
+        used_nodes.add(e["target"])
+
+    out_nodes = [node_by_id[nid] for nid in node_by_id if nid in used_nodes]
+
+    out_edges = []
+    eid = 0
+    for e in alive_edges:
+        out_edges.append({
+            "id": eid, "source": e["a"], "target": e["b"],
+            "pixels": [[int(p[0]), int(p[1])] for p in e["pix"]],
+            "smooth_pts": [], "is_closed": False,
+        })
+        eid += 1
+    for e in closed_edges:
+        ce = dict(e)
+        ce["id"] = eid
+        out_edges.append(ce)
+        eid += 1
+
+    return out_nodes, out_edges
+
+
 def _snap_to_skeleton(
     binary: np.ndarray, x: int, y: int, radius: int = 6
 ) -> Optional[tuple[int, int]]:
@@ -880,6 +1231,8 @@ def run(
         raise FileNotFoundError(f"Cannot read skeleton: {skeleton_path}")
 
     H, W = skeleton.shape
+    orig_H, orig_W = H, W
+    stage2_scale = 1.0
     cfg_kp = config.get("stage2", {})
 
     # ── Resolution cap ────────────────────────────────────────────────────
@@ -892,19 +1245,19 @@ def run(
     # the resize without topological breaks.
     max_res = cfg_kp.get("max_input_resolution", 0)
     if max_res and max(H, W) > max_res:
-        scale   = max_res / max(H, W)
-        new_W   = max(1, round(W * scale))
-        new_H   = max(1, round(H * scale))
+        stage2_scale = max_res / max(H, W)
+        new_W   = max(1, round(W * stage2_scale))
+        new_H   = max(1, round(H * stage2_scale))
         # Dilate before resize so 1-px lines survive the interpolation step;
         # then re-skeletonize to restore 1-px width before graph building.
-        ksize   = max(3, int(1.0 / scale) * 2 + 1)
+        ksize   = max(3, int(1.0 / stage2_scale) * 2 + 1)
         skeleton = cv2.dilate(skeleton, np.ones((ksize, ksize), np.uint8))
         skeleton = cv2.resize(skeleton, (new_W, new_H), interpolation=cv2.INTER_AREA)
         skeleton = (skeleton > 30).astype(np.uint8)
         skeleton = _skeletonize(skeleton).astype(np.uint8) * 255
         H, W    = skeleton.shape
         logger.info(f"[{sketch_id}] Capped skeleton to {W}×{H}px "
-                    f"(scale={scale:.2f}, fg_px={int((skeleton>0).sum())})")
+                    f"(scale={stage2_scale:.2f}, fg_px={int((skeleton>0).sum())})")
 
     logger.info(f"[{sketch_id}] Stage 2 — skeleton {W}×{H}px, "
                 f"{int((skeleton > 0).sum())} foreground px")
@@ -940,6 +1293,27 @@ def run(
     nodes, edges = _extract_topology(skeleton, keypoints, max_radius)
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
+    # ── Layer 2b: Graph simplification (de-fragmentation) ─────────────────
+    # Prune skeleton spurs, dissolve phantom degree-2 junctions, and merge
+    # collinear edges that pass straight through real junctions. Without this
+    # a single logical stroke fragments into many primitives: dense patent
+    # scans produce thousands of 2–3 px junction stubs, and clean CAD drawings
+    # split a straight edge at every T-junction it crosses.
+    if cfg_kp.get("simplify_graph", True):
+        n0, e0 = len(nodes), len(edges)
+        nodes, edges = _simplify_graph(
+            nodes, edges,
+            spur_min_len          = cfg_kp.get("spur_min_length", 6.0),
+            collinear_max_angle   = cfg_kp.get("merge_collinear_max_angle", 28.0),
+            # Junction-cluster merging welds parallel strokes that run close
+            # together (concentric circles, thin-ring/washer outlines, double
+            # walls), destroying them — it is OFF by default. Enable with a
+            # small radius only on corpora known to be free of close parallels.
+            junction_merge_radius = cfg_kp.get("junction_merge_radius", 0.0),
+        )
+        logger.info(f"[{sketch_id}] Simplified: {n0}→{len(nodes)} nodes, "
+                    f"{e0}→{len(edges)} edges")
+
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
     rdp_eps        = cfg_kp.get("rdp_epsilon",          1.5)
     spline_s       = cfg_kp.get("spline_smoothing",     2.0)
@@ -967,7 +1341,33 @@ def run(
     iso_ratio = _compute_isolation_ratio(skeleton, edges)
     threshold = cfg_kp.get("isolation_threshold",
                             config.get("stage2", {}).get("isolation_threshold", 0.05))
-    flagged = iso_ratio > threshold
+    open_lengths = [
+        _chain_length([(int(p[0]), int(p[1])) for p in e["pixels"]])
+        for e in edges
+        if not e.get("is_closed")
+    ]
+    n_open = len(open_lengths)
+    n_closed = sum(1 for e in edges if e.get("is_closed"))
+    median_edge_length = float(np.median(open_lengths)) if open_lengths else 0.0
+    micro_edge_ratio = (
+        float(sum(1 for length in open_lengths if length < 6.0) / n_open)
+        if n_open else 0.0
+    )
+    short_edge_ratio = (
+        float(sum(1 for length in open_lengths if length < 15.0) / n_open)
+        if n_open else 0.0
+    )
+
+    frag_cfg = cfg_kp.get("fragmentation", {})
+    max_micro_ratio = frag_cfg.get("max_micro_edge_ratio", 0.50)
+    max_short_ratio = frag_cfg.get("max_short_edge_ratio", 0.80)
+    max_edges = frag_cfg.get("max_edges", 5000)
+    flagged = (
+        iso_ratio > threshold
+        or len(edges) > max_edges
+        or (n_open >= 50 and micro_edge_ratio > max_micro_ratio)
+        or (n_open >= 50 and short_edge_ratio > max_short_ratio)
+    )
 
     # ── Serialise graph ───────────────────────────────────────────────────
     def _to_python(obj):
@@ -985,6 +1385,14 @@ def run(
     graph_doc = _to_python({
         "sketch_id":   sketch_id,
         "image_shape": [H, W],
+        "original_image_shape": [orig_H, orig_W],
+        "stage2_scale": stage2_scale,
+        "metrics": {
+            "n_closed_edges": n_closed,
+            "median_edge_length": median_edge_length,
+            "micro_edge_ratio": micro_edge_ratio,
+            "short_edge_ratio": short_edge_ratio,
+        },
         "nodes": nodes,
         "edges": edges,
     })
@@ -1013,6 +1421,10 @@ def run(
         keypoint_source   = kp_source,
         n_nodes           = len(nodes),
         n_edges           = len(edges),
+        n_closed_edges    = n_closed,
+        median_edge_length = median_edge_length,
+        micro_edge_ratio  = micro_edge_ratio,
+        short_edge_ratio  = short_edge_ratio,
     )
 
 

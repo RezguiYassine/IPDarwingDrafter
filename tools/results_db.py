@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS results (
     s2_keypoint_src  TEXT,
     s2_n_nodes       INTEGER,
     s2_n_edges       INTEGER,
+    s2_n_closed_edges INTEGER,
+    s2_median_edge_len REAL,
+    s2_micro_edge_ratio REAL,
+    s2_short_edge_ratio REAL,
     s2_isolation     REAL,
     s2_flagged       INTEGER,
 
@@ -49,6 +53,7 @@ CREATE TABLE IF NOT EXISTS results (
     s3_time          REAL,
     s3_n_primitives  INTEGER,
     s3_mean_conf     REAL,
+    s3_low_conf_ratio REAL,
     s3_flagged       INTEGER,
 
     -- Stage 4
@@ -72,10 +77,21 @@ COLUMNS = [
     "status", "error", "total_time", "completed_at",
     "s1_time", "s1_quality", "s1_model_used", "s1_flagged",
     "s2_time", "s2_keypoint_src", "s2_n_nodes", "s2_n_edges",
+    "s2_n_closed_edges", "s2_median_edge_len",
+    "s2_micro_edge_ratio", "s2_short_edge_ratio",
     "s2_isolation", "s2_flagged",
-    "s3_time", "s3_n_primitives", "s3_mean_conf", "s3_flagged",
+    "s3_time", "s3_n_primitives", "s3_mean_conf",
+    "s3_low_conf_ratio", "s3_flagged",
     "s4_time", "s4_n_in", "s4_n_out", "s4_flagged",
 ]
+
+EXTRA_COLUMN_TYPES = {
+    "s2_n_closed_edges": "INTEGER",
+    "s2_median_edge_len": "REAL",
+    "s2_micro_edge_ratio": "REAL",
+    "s2_short_edge_ratio": "REAL",
+    "s3_low_conf_ratio": "REAL",
+}
 
 
 def init_db(db_path: Path) -> None:
@@ -83,6 +99,12 @@ def init_db(db_path: Path) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.executescript("PRAGMA journal_mode = WAL;")
         conn.executescript(SCHEMA)
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(results)").fetchall()
+        }
+        for col, typ in EXTRA_COLUMN_TYPES.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE results ADD COLUMN {col} {typ}")
 
 
 @contextmanager
@@ -138,6 +160,13 @@ def summarise(db_path: Path) -> dict[str, Any]:
         flag_s2    = scalar("SELECT 1.0*SUM(s2_flagged)/COUNT(*) FROM results WHERE status='ok'")
         flag_s3    = scalar("SELECT 1.0*SUM(s3_flagged)/COUNT(*) FROM results WHERE status='ok'")
         flag_s4    = scalar("SELECT 1.0*SUM(s4_flagged)/COUNT(*) FROM results WHERE status='ok'")
+        mean_edges = scalar("SELECT AVG(s2_n_edges) FROM results WHERE status='ok'")
+        max_edges  = scalar("SELECT MAX(s2_n_edges) FROM results WHERE status='ok'")
+        mean_micro = scalar("SELECT AVG(s2_micro_edge_ratio) FROM results WHERE status='ok'")
+        mean_prims = scalar("SELECT AVG(s3_n_primitives) FROM results WHERE status='ok'")
+        max_prims  = scalar("SELECT MAX(s3_n_primitives) FROM results WHERE status='ok'")
+        mean_low_conf = scalar("SELECT AVG(s3_low_conf_ratio) FROM results WHERE status='ok'")
+        max_low_conf  = scalar("SELECT MAX(s3_low_conf_ratio) FROM results WHERE status='ok'")
 
     return {
         "total": total, "ok": n_ok, "by_status": by_status,
@@ -146,4 +175,9 @@ def summarise(db_path: Path) -> dict[str, Any]:
         "mean_s3_s": mean_s3, "mean_s4_s": mean_s4,
         "flag_rate_s1": flag_s1, "flag_rate_s2": flag_s2,
         "flag_rate_s3": flag_s3, "flag_rate_s4": flag_s4,
+        "mean_s2_edges": mean_edges, "max_s2_edges": max_edges,
+        "mean_s2_micro_edge_ratio": mean_micro,
+        "mean_s3_primitives": mean_prims, "max_s3_primitives": max_prims,
+        "mean_s3_low_conf_ratio": mean_low_conf,
+        "max_s3_low_conf_ratio": max_low_conf,
     }
