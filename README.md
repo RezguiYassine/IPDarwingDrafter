@@ -612,6 +612,15 @@ The previous "Puhachov" path was not actually improving topology:
   path. A true Puhachov path requires a compatible model and explicit topology
   integration/retraining.
 
+**Update — a true CNN path was built, trained on D2C, and measured.** Topology
+extraction now genuinely consumes keypoint clusters (so the detector controls the
+graph), and a `_build_stacked_hourglass` model trained on Drawing2CAD (val peak-F1
+0.83; corners 0.96) was compared head-to-head against the CN path. Outcome: the
+CN path still wins the headline **Chamfer** metric (CNN ~13 % worse), while the
+CNN is ~4× faster and slightly less fragmented. Production therefore still uses
+`puhachov.weights: ""`. Full table + analysis in
+[Roadmap → Results](#results--cn-vs-cnn-executed).
+
 ### PatentData strict gated pilot (first 1 000 corpus TIFs)
 
 After clean12 filtering, Stage 0 plus the vectorization pipeline runs with
@@ -869,6 +878,52 @@ nothing.**
 *CN-derived* keypoints passed as an argument and confirm the output is
 byte-identical to today. That proves the plumbing before any GPU time is spent on
 training.
+
+### Results — CN vs CNN (executed)
+
+All phases were run. Labels: 567 324 train + 31 516 val skeletons from D2C
+`svg_raw` (99.8 % zero-drop). The CNN (`_build_stacked_hourglass`, 3 channels)
+trained 60 k steps to **val peak-F1 0.83** — corner **0.96**, junction 0.86,
+endpoint 0.66. Comparison on **1 000 test-split Front samples, seed 42**, paired
+(1000/1000 ok in every arm):
+
+| Metric | A · CN (baseline) | B · CNN + simplify | C · CNN, no simplify |
+|--------|------------------:|-------------------:|---------------------:|
+| **Chamfer sym — mean** | **0.937** | 1.061 (+13.2 %) | 1.093 (+16.7 %) |
+| Chamfer sym — p95 | **1.78** | 2.67 (+49.8 %) | 2.72 (+52.9 %) |
+| Pixel IoU — mean | 0.683 | **0.694** (+1.7 %) | 0.687 (+0.7 %) |
+| Precision / Recall | 0.757 / 0.873 | 0.762 / 0.881 | 0.762 / 0.872 |
+| Primitives / sketch | 2.73 | **2.20** (−19.4 %) | 6.65 (+144 %) |
+| Stage-2 time — mean | 10.1 s | **2.34 s** (−76.9 %) | 2.22 s (−78.1 %) |
+
+**Verdict.** The classical **CN path wins the headline Chamfer metric** — the
+learned detector is ~13 % worse on mean Chamfer and ~50 % worse at p95, because
+its keypoint localisation (endpoint F1 0.66, junction 0.86) is less exact than
+crossing-number keypoints on clean D2C skeletons. Pixel IoU/precision/recall are
+a wash. But the CNN has two real upsides: it is **~4× faster** (it suppresses the
+phantom `CN≥3` staircase junctions that make the CN walk + simplify expensive)
+and yields **−19 % primitives** with simplification on. Crucially, arm C shows
+the **CNN does _not_ replace `_simplify_graph`**: without it the CNN graph
+fragments to **+144 % primitives** — the heuristic de-frag pass is still required.
+
+**Recommendation.** Keep the CN path in production (`puhachov.weights: ""`) for
+its Chamfer accuracy. The CNN is a promising **speed** lever, not an accuracy
+one, at this integration depth. Next experiments to recover accuracy while
+keeping the speed: (1) **fusion arm** — CN endpoints/junctions (near-exact) +
+CNN corners (F1 0.96, which CN cannot detect at all); (2) richer CNN cluster
+cores in `_clusters_from_points` (currently single-pixel — Phase-3-proper);
+(3) keypoint-threshold sweep on val.
+
+Reproduce: `models/puhachov_d2c.pth` via
+`stage2_strokeextraction/research/train_puhachov.py`; arms via
+`config_d2c_eval_puhachov.yaml` / `config_d2c_eval_puhachov_nosimplify.yaml` with
+`tools/d2c_eval.py --split test --limit 1000 --views Front --seed 42`. Baseline
+DB frozen at `output/Drawing2CAD/cn_baseline/`.
+
+> **Training note.** Focal loss requires the RetinaNet/CenterNet output-head
+> init (small weights + negative prior bias); without it the model collapses to
+> "background everywhere" (val F1 0, loss frozen at the −log(1e-6) clamp). Fixed
+> in `train_puhachov.py`.
 
 ---
 
