@@ -445,9 +445,136 @@ def _build_pixel_graph(skeleton: np.ndarray) -> nx.Graph:
     return G
 
 
+def _cn_keypoint_clusters(skeleton: np.ndarray) -> list[dict]:
+    """
+    Classical CN keypoint clusters: connected components of CN==1 (endpoints)
+    then CN>=3 (junctions), each carrying its core skeleton pixels as
+    ``{x, y, type, confidence, pixels:[(x,y), …]}``.
+
+    This is the default seeding consumed by ``_extract_topology``. Emitting
+    explicit clusters — instead of letting ``_extract_topology`` recompute CN
+    internally — is the contract a learned keypoint detector also targets
+    (Phase 3 of the Puhachov roadmap): produce the same cluster list and
+    topology extraction is byte-for-byte identical.
+    """
+    binary = (skeleton > 0).astype(np.uint8)
+    cn_map = _cn_map_vectorized(binary)
+    clusters: list[dict] = []
+    for mask_bool, kp_type in (((cn_map == 1), KP_ENDPOINT),
+                               ((cn_map >= 3), KP_JUNCTION)):
+        mask = mask_bool.astype(np.uint8)
+        n, labels = cv2.connectedComponents(mask)
+        if n <= 1:
+            continue
+        # Single pass: all foreground pixels and their cluster labels, sorted by
+        # label so same-cluster pixels are contiguous (never np.where per cluster).
+        ys_all, xs_all = np.where(labels > 0)
+        if len(ys_all) == 0:
+            continue
+        lv     = labels[ys_all, xs_all]
+        order  = np.argsort(lv, kind="stable")
+        xs_s   = xs_all[order]; ys_s = ys_all[order]; lv_s = lv[order]
+        splits = np.where(np.diff(lv_s))[0] + 1
+        starts = np.concatenate([[0], splits])
+        ends   = np.concatenate([splits, [len(lv_s)]])
+        for s, e in zip(starts.tolist(), ends.tolist()):
+            xs_g = xs_s[s:e]; ys_g = ys_s[s:e]
+            clusters.append({
+                "x": int(np.mean(xs_g)), "y": int(np.mean(ys_g)),
+                "type": kp_type, "confidence": 1.0,
+                "pixels": list(zip(xs_g.tolist(), ys_g.tolist())),
+            })
+    return clusters
+
+
+def _clusters_from_points(
+    keypoints: list[dict], skeleton: np.ndarray, snap_radius: int = 3
+) -> list[dict]:
+    """
+    Build keypoint clusters from bare point detections (the learned-detector
+    path). Each ``{x, y, type}`` is snapped to the nearest skeleton foreground
+    pixel within ``snap_radius``; that single pixel becomes the cluster core and
+    the 1-px halo in ``_materialize_keypoint_clusters`` absorbs the rest. Points
+    snapping to the same pixel are de-duplicated.
+
+    NOTE: minimal plumbing for the Puhachov CNN path — not exercised while
+    ``puhachov.weights`` is empty. Phase 3 proper may grow richer cores (e.g.
+    the local CN-connected blob) so CNN junctions match the multi-pixel
+    clusters the CN path produces.
+    """
+    binary = (skeleton > 0)
+    H, W = binary.shape
+    ys, xs = np.where(binary)
+    if len(xs) == 0:
+        return []
+    fg = np.stack([xs, ys], axis=1).astype(np.int64)   # (N,2) as (x,y)
+    used: dict[tuple, dict] = {}
+    for kp in keypoints:
+        px, py = int(round(kp["x"])), int(round(kp["y"]))
+        if 0 <= py < H and 0 <= px < W and binary[py, px]:
+            sx, sy = px, py
+        else:
+            d2 = (fg[:, 0] - px) ** 2 + (fg[:, 1] - py) ** 2
+            j = int(np.argmin(d2))
+            if d2[j] > snap_radius ** 2:
+                continue
+            sx, sy = int(fg[j, 0]), int(fg[j, 1])
+        key = (sx, sy)
+        if key in used:
+            continue
+        used[key] = {
+            "x": sx, "y": sy,
+            "type": kp.get("type", KP_JUNCTION),
+            "confidence": float(kp.get("confidence", 1.0)),
+            "pixels": [(sx, sy)],
+        }
+    return list(used.values())
+
+
+def _materialize_keypoint_clusters(
+    clusters: list[dict], binary: np.ndarray, H: int, W: int
+) -> tuple[list[dict], dict, dict]:
+    """
+    Turn a keypoint-cluster list into (kp_info, kp_map, kp_pixels) for the walk.
+
+    Registers each cluster's core pixels (cluster id = list index), then extends
+    every cluster by 1px via a single bulk dilation of a float label image
+    (max-pool: each extended pixel takes the highest adjacent kid+1; higher ID
+    wins ties — fine, any adjacent cluster stops the walk). This is the legacy
+    extension step, factored out unchanged.
+    """
+    kp_info: list[dict] = []
+    kp_map: dict = {}
+    kp_pixels: dict = {}
+    for cl in clusters:
+        kid = len(kp_info)
+        kp_info.append({
+            "id": kid,
+            "x": int(cl["x"]), "y": int(cl["y"]),
+            "type": cl["type"], "confidence": float(cl.get("confidence", 1.0)),
+        })
+        kp_pixels[kid] = set()
+        for x, y in cl["pixels"]:
+            kp_map[(int(x), int(y))] = kid
+            kp_pixels[kid].add((int(x), int(y)))
+
+    if kp_info:
+        label_img = np.zeros((H, W), dtype=np.float32)
+        for (x, y), kid in kp_map.items():
+            label_img[y, x] = float(kid + 1)
+        dilated = cv2.dilate(label_img, np.ones((3, 3), np.uint8))
+        ext_ys, ext_xs = np.where((dilated > 0) & (binary > 0) & (label_img == 0))
+        for y, x in zip(ext_ys.tolist(), ext_xs.tolist()):
+            kid = int(dilated[y, x]) - 1
+            if (x, y) not in kp_map:
+                kp_map[(x, y)] = kid
+                kp_pixels[kid].add((x, y))
+    return kp_info, kp_map, kp_pixels
+
+
 def _extract_topology(
     skeleton: np.ndarray,
-    keypoints: list[dict] = (),   # unused — topology is built from CN internally
+    kp_clusters: list[dict] | None = None,   # keypoint seeds; None → classical CN
     max_search_radius: int = 60,  # unused — walk terminates at extended kp regions
 ) -> tuple[list[dict], list[dict]]:
     """
@@ -465,78 +592,26 @@ def _extract_topology(
       5. Unclaimed CCs >= min_loop_pixels -> closed loops.
 
     Returns (nodes, edges) as plain dicts for JSON serialisation.
-    The `keypoints` parameter is accepted for API compatibility but is not
-    used — keypoints are derived from the CN map to keep layers independent.
+
+    `kp_clusters` are the keypoint seeds that drive topology: a list of
+    {x, y, type, confidence, pixels:[(x,y),…]} where `pixels` are the core
+    skeleton pixels of each keypoint. When None, classical CN seeding is used
+    (`_cn_keypoint_clusters`), reproducing the legacy behaviour exactly. A
+    learned keypoint detector supplies the same structure instead, so swapping
+    detectors changes only the seeds, not the walk.
     """
     binary = (skeleton > 0).astype(np.uint8)
     H, W   = binary.shape
 
-    # ── Step 1: vectorised CN map ────────────────────────────────────────
-    cn_map = _cn_map_vectorized(binary)
-
-    # ── Step 2: cluster keypoints ────────────────────────────────────────
-    kp_info   = []   # list of {id, x, y, type, confidence}
-    kp_map    = {}   # pixel (x,y) -> kp_id  (core + extended 8-neighbourhood)
-    kp_pixels = {}   # kp_id -> set of pixels in extended region (O(1) reverse lookup)
-
-    _k3 = np.ones((3, 3), np.uint8)   # 3×3 dilation kernel (shared)
-
-    def _add_cluster(mask, kp_type):
-        """
-        Register core pixels of each CN cluster; extension happens in bulk below.
-
-        Critical: never call np.where(labels == c) inside a loop — that scans
-        the full image once per cluster (O(n_clusters × H × W)).  Instead, read
-        all labeled pixels once, sort by label, and slice into per-cluster groups.
-        """
-        n, labels = cv2.connectedComponents(mask)
-        if n <= 1:
-            return
-        # Single pass: all foreground pixels and their cluster labels
-        ys_all, xs_all = np.where(labels > 0)
-        if len(ys_all) == 0:
-            return
-        lv = labels[ys_all, xs_all]
-        # Sort so pixels of the same cluster are contiguous
-        order  = np.argsort(lv, kind="stable")
-        xs_s   = xs_all[order]; ys_s = ys_all[order]; lv_s = lv[order]
-        splits = np.where(np.diff(lv_s))[0] + 1
-        starts = np.concatenate([[0], splits])
-        ends   = np.concatenate([splits, [len(lv_s)]])
-        for s, e in zip(starts.tolist(), ends.tolist()):
-            xs_g = xs_s[s:e]; ys_g = ys_s[s:e]
-            kid  = len(kp_info)
-            kp_info.append({
-                "id": kid,
-                "x": int(np.mean(xs_g)), "y": int(np.mean(ys_g)),
-                "type": kp_type, "confidence": 1.0,
-            })
-            kp_pixels[kid] = set()
-            for x, y in zip(xs_g.tolist(), ys_g.tolist()):
-                kp_map[(x, y)] = kid
-                kp_pixels[kid].add((x, y))
-
-    _add_cluster((cn_map == 1).astype(np.uint8), KP_ENDPOINT)
-    _add_cluster((cn_map >= 3).astype(np.uint8), KP_JUNCTION)
-
-    # Extend each cluster by 1px using a single bulk dilation of a float label image.
-    # This avoids calling cv2.dilate once per cluster (O(n_clusters × H × W)) and
-    # replaces it with a single O(H × W) operation.
-    # Label encoding: label_img[y,x] = kid+1 so that 0 = background.
-    # cv2.dilate with float uses max-pool: each extended pixel gets the highest
-    # adjacent kid+1.  Ties are broken deterministically (higher ID wins); this is
-    # fine because any adjacent cluster will stop the walk correctly.
-    if kp_info:
-        label_img = np.zeros((H, W), dtype=np.float32)
-        for (x, y), kid in kp_map.items():
-            label_img[y, x] = float(kid + 1)
-        dilated = cv2.dilate(label_img, _k3)
-        ext_ys, ext_xs = np.where((dilated > 0) & (binary > 0) & (label_img == 0))
-        for y, x in zip(ext_ys.tolist(), ext_xs.tolist()):
-            kid = int(dilated[y, x]) - 1
-            if (x, y) not in kp_map:
-                kp_map[(x, y)] = kid
-                kp_pixels[kid].add((x, y))
+    # ── Steps 1–2: keypoint seeds → kp_info / kp_map / kp_pixels ─────────
+    # Keypoints now drive topology. None → classical CN seeding (CN==1
+    # endpoints, CN>=3 junctions), which reproduces the legacy behaviour
+    # exactly; a learned detector supplies the same cluster contract instead.
+    if kp_clusters is None:
+        kp_clusters = _cn_keypoint_clusters(skeleton)
+    kp_info, kp_map, kp_pixels = _materialize_keypoint_clusters(
+        kp_clusters, binary, H, W
+    )
 
     # ── Step 3: walk from each keypoint cluster outward ─────────────────
     def _neighbours8(x, y):
@@ -1530,24 +1605,29 @@ def run(
         logger.debug(f"[{sketch_id}] Adaptive NMS radius: {nms_radius} "
                      f"(image {max(H,W)}px vs ref {ref_res}px)")
 
+    # Keypoint clusters seed topology extraction. The CN path produces the same
+    # clusters _extract_topology used to recompute internally (byte-identical);
+    # a learned detector returns bare points that are snapped onto the skeleton.
     if model is not None:
         try:
-            keypoints = model.detect(skeleton, conf_thresh, nms_radius)
-            kp_source = "cnn"
-            logger.info(f"[{sketch_id}] CNN detected {len(keypoints)} keypoints")
+            keypoints   = model.detect(skeleton, conf_thresh, nms_radius)
+            kp_clusters = _clusters_from_points(keypoints, skeleton)
+            kp_source   = "cnn"
+            logger.info(f"[{sketch_id}] CNN detected {len(keypoints)} keypoints "
+                        f"→ {len(kp_clusters)} clusters")
         except Exception as exc:
             logger.warning(f"[{sketch_id}] CNN keypoint detection failed "
                            f"({exc}), using classical fallback")
-            keypoints = _classical_keypoints(skeleton)
-            kp_source = "classical_fallback"
+            kp_clusters = _cn_keypoint_clusters(skeleton)
+            kp_source   = "classical_fallback"
     else:
-        keypoints = _classical_keypoints(skeleton)
-        kp_source = "classical"
-        logger.info(f"[{sketch_id}] Classical CN: {len(keypoints)} keypoints")
+        kp_clusters = _cn_keypoint_clusters(skeleton)
+        kp_source   = "classical"
+        logger.info(f"[{sketch_id}] Classical CN: {len(kp_clusters)} keypoints")
 
     # ── Layer 2: Topology extraction ──────────────────────────────────────
     max_radius = cfg_kp.get("max_search_radius", 60)
-    nodes, edges = _extract_topology(skeleton, keypoints, max_radius)
+    nodes, edges = _extract_topology(skeleton, kp_clusters, max_radius)
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
     removed_hachures: list[dict] = []
