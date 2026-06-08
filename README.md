@@ -3,34 +3,41 @@
 > Hand-drawn engineering sketch → editable vector files (SVG / DXF).
 > HAW Landshut · IP DrawingDrafter project · AP3.
 
-This repository implements the four-stage vectorization pipeline of the
-IP DrawingDrafter project. It takes a raster image of a hand-drawn
-engineering sketch as input and produces clean, ISO 128–styled vector
-files (SVG and DXF) that can be opened in any CAD application.
+This repository implements the Stage 0 + four-stage vectorization pipeline of
+the IP DrawingDrafter project. It takes a raster image of a hand-drawn or patent
+engineering sketch as input and produces clean, ISO 128–styled vector files
+(SVG and DXF) that can be opened in any CAD application.
 
 ```
-   raster PNG               cleaned + skeleton           stroke graph
+   raster PNG/TIF          no-reference raster       cleaned + skeleton
        │                          │                          │
        ▼                          ▼                          ▼
-┌──────────────┐         ┌──────────────────┐       ┌──────────────────┐
-│   Stage 1    │  ─────▶ │     Stage 2      │ ────▶ │     Stage 3      │
-│ Preprocessing│         │ Stroke Extraction│       │ Primitive Fitting│
-└──────────────┘         └──────────────────┘       └──────────────────┘
-                                                            │
-                                                            ▼
-                                                   ┌──────────────────┐
-                                                   │     Stage 4      │
-                                                   │     Export       │
-                                                   │  (SVG, DXF)      │
-                                                   └──────────────────┘
+┌──────────────┐         ┌──────────────┐           ┌──────────────────┐
+│   Stage 0    │ ──────▶ │   Stage 1    │ ────────▶ │     Stage 2      │
+│ References   │         │ Preprocessing│           │ Stroke Extraction│
+└──────────────┘         └──────────────┘           └──────────────────┘
+       │                                                     │
+       │ reference JSON                                      ▼
+       │                                            ┌──────────────────┐
+       └──────────────────────────────────────────▶ │     Stage 3      │
+                                                    │ Primitive Fitting│
+                                                    └──────────────────┘
+                                                             │
+                                                             ▼
+                                                    ┌──────────────────┐
+                                                    │     Stage 4      │
+                                                    │ Export + Reinject│
+                                                    │  (SVG, DXF)      │
+                                                    └──────────────────┘
 ```
 
 | Stage | In                  | Out                         | Tech                       |
 |------:|---------------------|-----------------------------|----------------------------|
+| 0     | Raw patent TIF/PNG   | Reference-free PNG + reference JSON + mask/crops | Conservative connected-component + Hough leader detector; removes reference numerals/help lines before skeletonisation; reinjects annotations during export |
 | 1     | Raw raster (PNG/TIF) | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
-| 2     | 1-px skeleton       | Stroke graph (JSON)         | **Vectorised CN path** (NumPy ring-slice shifts, ~1 000× vs Python loop); incompatible Puhachov weights are rejected instead of silently ignored; parallel-edge walk; **graph de-fragmentation** (spur prune + degree-2 dissolve + collinear through-merge); fragmentation metrics/gates; deterministic scale metadata |
-| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline); primitives are rescaled back to the original image frame after Stage 2 downsampling; low-confidence ratio gate |
-| 4     | Geometric primitives | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered); polygon primitive rendered as closed shape |
+| 2     | 1-px skeleton       | Stroke graph + side-layer hachures (JSON) | **Vectorised CN path** (NumPy ring-slice shifts, ~1 000× vs Python loop); incompatible Puhachov weights are rejected instead of silently ignored; parallel-edge walk; **graph de-fragmentation** (spur prune + degree-2 dissolve + collinear through-merge); patent hachure extraction; fragmentation metrics/gates; deterministic scale metadata |
+| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline); primitives are rescaled back to the original image frame after Stage 2 downsampling; removed hachures are reinserted as `style: "hachure"` primitives and excluded from main-geometry confidence gates |
+| 4     | Geometric primitives + optional annotations | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered, including `HACHURE`); polygon primitive rendered as closed shape; Stage 0 references are reinserted as SVG crop overlays + leader lines and DXF leader geometry |
 
 ---
 
@@ -72,6 +79,11 @@ idempotent: safe to re-run.
 ### 2. Run the pipeline on a sample
 
 ```bash
+# Optional Stage 0 — remove patent reference numerals/leaders before Stage 1
+python stage0_handling_references/stage0_handle_references.py \
+    data/PatentData/ReorganisedData/EP1705282B1/EP1705282B1_F0002.tif \
+    --output output/EP1705282B1 --id F0002
+
 # Stage 1 — clean + skeletonize
 python stage1_preprocessing/stage1_preprocess.py \
     data/samples/Picture1.png
@@ -94,6 +106,7 @@ Everything lands under `output/`:
 
 ```
 output/
+├── references/   ← Stage 0 (reference-free PNG + JSON + mask + crops)
 ├── cleaned/      ← Stage 1 (cleaned PNG + skeleton PNG)
 ├── graphs/       ← Stage 2 (stroke graph JSON)
 ├── primitives/   ← Stage 3 (primitives JSON)
@@ -111,6 +124,10 @@ Vectorization/
 ├── config.yaml                      ← single source of truth for all stages
 ├── requirements.txt
 ├── setup.sh                         ← one-shot install + weight download
+│
+├── stage0_handling_references/
+│   ├── stage0_handle_references.py  ← patent reference detection/removal
+│   └── __init__.py
 │
 ├── stage1_preprocessing/
 │   ├── stage1_preprocess.py
@@ -163,7 +180,7 @@ Vectorization/
 └── output/                          ← (gitignored) all pipeline outputs
 ```
 
-The four stage scripts are intentionally **decoupled**: each one reads its
+The stage scripts are intentionally **decoupled**: each one reads its
 input from disk, writes its output to disk, and has no Python imports
 between stages. You can run any stage standalone, swap a stage's
 implementation, or insert a new stage between two existing ones.
@@ -192,7 +209,7 @@ See [`models/README.md`](models/README.md) for details.
 
 ## Configuration
 
-All four stages read from the single [`config.yaml`](config.yaml) at the
+All production stages read from the single [`config.yaml`](config.yaml) at the
 project root. All paths in it are relative to the project root, so the
 config works on any clone without editing.
 
@@ -204,14 +221,28 @@ The most common knobs:
 | `sketchcleannet.device`            | `cpu`   | `cuda` for GPU |
 | `puhachov.weights`                 | `""`    | Keep empty for production; the local Puhachov checkpoint is incompatible and is rejected by the loader |
 | `puhachov.device`                  | `cpu`   | `cuda` for GPU if a compatible detector is supplied later |
+| `stage0.enabled`                   | `true`  | PatentData batch mode removes reference numerals/help lines before Stage 1 and reinjects them during Stage 4 |
+| `stage0.max_iterations`            | `10`    | Bounded repeated Stage 0 pass; catches labels that become detectable only after earlier removals |
+| `stage0.require_leader`            | `true`  | Prefer text-like clusters attached to nearby leader/help lines; unleadered and caption text use stricter shape filters |
+| `stage0.remove_unleadered_labels`  | `true`  | Remove compact numeric/text clusters without detected leaders, including margin-only single-character labels |
+| `stage0.remove_figure_labels`      | `true`  | Remove compact `FIG`/panel caption text, including captions between subfigures |
+| `stage0.max_removed_ink_ratio`     | `0.70`  | Guard against masks that erase too much ink in one pass |
+| `stage0.max_total_removed_ink_ratio` | `0.82` | Total ink-removal guard across iterative Stage 0 passes |
+| `stage0.leader_min_support_ratio`  | `0.50`  | Reject broken/dashed Hough segments that are unlikely to be solid callout leaders |
+| `stage0.repair_close_kernel`       | `7`     | Local gap repair after reference removal; reconnects small true-stroke breaks inside the removal mask |
 | `stage2.max_input_resolution`      | `1000`  | Skeleton images with long edge > this are downsampled before Stage 2. Prevents CNN over-segmentation on large patent TIFs (2000–2700 px). Set to `0` to disable. |
 | `stage2.isolation_threshold`       | `0.30`  | Flag sketch if > this fraction of foreground pixels are unreached by any extracted stroke. Calibrated for patent TIF scan noise (p75 isolation ≈ 0.16). |
 | `stage2.nms_reference_resolution`  | `512`   | Training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
 | `stage2.spline_overshoot_limit`    | `5.0`   | Max px a B-spline may exceed the raw pixel bbox; prevents scipy end-effect oscillations |
 | `stage2.min_closed_loop_pixels`    | `80`    | Closed loops shorter than this are treated as noise and removed before Stage 3 |
+| `stage2.remove_hachures`           | `true`  | Patent mode: extract dense short hatch clusters as a side layer so they do not split long outline strokes |
+| `stage2.hachure_trigger_micro_edge_ratio` | `0.20` | Run hatch cleanup only when the simplified graph still has many micro-fragments |
+| `stage2.hachure_trigger_short_edge_ratio` | `0.80` | Secondary hatch trigger for graphs dominated by short open edges |
 | `stage1.quality_threshold`         | `0.70`  | Sketches below this skeleton quality are flagged for review |
 | `stage3.confidence_threshold`      | `0.60`  | Primitives below this are flagged for review |
+| `stage3.confidence_threshold_after_hachure` | `0.50` | Hachure-heavy graphs use this main-geometry threshold because easy hatch-line primitives are no longer part of the confidence average |
 | `pipeline.quality_gates.enabled`   | `true`  | Batch mode stops bad examples before export using Stage 1/2/3 metrics |
+| `pipeline.quality_gates.max_low_conf_ratio_after_hachure` | `0.65` | Hachure-heavy graphs use this relaxed low-confidence ratio after the hatch side layer is extracted |
 
 ---
 
@@ -220,6 +251,7 @@ The most common knobs:
 Each stage has its own architecture document:
 
 - **Pipeline overview** — [`docs/pipeline_overview.md`](docs/pipeline_overview.md)
+- **Stage 0** — [`stage0_handling_references/stage0_handle_references.py`](stage0_handling_references/stage0_handle_references.py)
 - **Stage 1** — [`docs/stage1_preprocess.md`](docs/stage1_preprocess.md)
 - **Stage 2** — [`docs/stage2_stroke_extract.md`](docs/stage2_stroke_extract.md)
 - **Stage 3** — [`docs/stage3_primitive_fit.md`](docs/stage3_primitive_fit.md)
@@ -314,7 +346,8 @@ Top full-corpus discard reasons include `letter_d_text_or_formula` (88 396),
 
 ### Batch driver — PatentData corpus
 
-[`tools/batch_run.py`](tools/batch_run.py) runs the full four-stage pipeline over
+[`tools/batch_run.py`](tools/batch_run.py) runs Stage 0 plus the full
+vectorization pipeline over
 the partner patent corpus and writes one row of intrinsic metrics per sketch to a
 resumable SQLite database:
 
@@ -529,6 +562,43 @@ Run with: `python -m tools.d2c_eval --limit 1000 --views Front --workers 8 --con
 two-circle D2C sample (IoU −0.246). Enable it only on corpora known to be free of
 close parallel lines.
 
+### Patent hachure handling
+
+Hachures were diagnosed as a **Stage 2 topology problem**, not primarily a
+Stage 3 fitting problem. Dense section hatching creates many short, parallel
+open edges and extra junctions where hatches touch outlines; Stage 3 then
+faithfully fits those already-fragmented chains.
+
+The production fix is a side-layer design:
+
+1. Stage 2 first simplifies the graph to reconnect true outlines.
+2. If the simplified graph is still micro/short-edge heavy, Stage 2 extracts
+   dense local clusters of short, straight, similarly angled strokes as
+   `graph.removed_hachures`.
+3. The main graph is re-simplified and sent to Stage 3 without hatch clutter.
+4. Stage 3 converts `removed_hachures` back into `style: "hachure"` primitives,
+   excluded from main-geometry confidence gates.
+5. Stage 4 exports them on the SVG/DXF hachure layer, so the final output keeps
+   the hatch/detail strokes without letting them break long outlines.
+
+Filtered 100-sample PatentData probe:
+
+| Metric | Stage 0 baseline | Hachure side-layer fix |
+|--------|-----------------:|-----------------------:|
+| Output folder | `output/PatentData100_stage0refs_iter5` | `output/PatentData100_hachures_v4` |
+| `ok` rows | 91/100 overlapping old-ok rows | 94/100 total |
+| Hachure-cleaned sketches | n/a | 35/100 |
+| Main Stage 2 edges on hachure-cleaned sketches | 186.2 mean | **64.1 mean** |
+| Median main edge length on hachure-cleaned sketches | 17.2 px | **75.1 px** |
+| Micro-edge ratio on hachure-cleaned sketches | 26.8 % | **0.0 %** |
+| Hachure primitives exported / ok | n/a | 43.2 mean |
+
+Visual audit sheet: `output/hachure_final_audit_v4.png`.
+
+Drawing2CAD smoke check with `config_d2c_eval.yaml` (`stage2.remove_hachures:
+false`) remains stable on the same 50-sample Front-view overlap:
+Chamfer `0.908 → 0.906`, pixel IoU `0.677 → 0.678`, 50/50 ok.
+
 ### Puhachov status
 
 The previous "Puhachov" path was not actually improving topology:
@@ -544,7 +614,8 @@ The previous "Puhachov" path was not actually improving topology:
 
 ### PatentData strict gated pilot (first 1 000 corpus TIFs)
 
-After clean12 filtering, the four-stage pipeline runs with quality gates enabled:
+After clean12 filtering, Stage 0 plus the vectorization pipeline runs with
+quality gates enabled:
 
 | Status | Count |
 |--------|------:|
@@ -580,7 +651,16 @@ high-precision pilot result, not a full-corpus claim.
 
 ### Completed
 
-- **Full four-stage pipeline** end-to-end, configurable via `config.yaml`
+- **Stage 0 + four-stage pipeline** end-to-end, configurable via `config.yaml`
+- **Stage 0** — patent reference handling: detects leadered reference numeral
+  clusters, segment-adjacent labels, compact unleadered labels, and `FIG`/panel
+  captions; writes
+  `references/<id>_references.json`, `references/<id>_references_mask.png`,
+  transparent label crops, and a `references/<id>_norefs.png` raster for Stage 1;
+  includes bounded iterative removal (`stage0.max_iterations: 10`), leader-tip
+  trimming, strict single-character margin rules, panel-caption removal, and local
+  mask repair to reduce broken true strokes; Stage 4 reinjects references as SVG
+  crop overlays + leader lines and DXF leader geometry
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
 - **Stage 2** — production CN-cluster skeleton tracing; guarded Puhachov loader
@@ -593,11 +673,15 @@ high-precision pilot result, not a full-corpus claim.
   radius** scales junction suppression with image size; **B-spline overshoot
   guard**; **noise closed-loop filter**; **graph de-fragmentation** (`_simplify_graph`
   — spur prune + degree-2 phantom-junction dissolve + collinear through-merge;
-  D2C primitives −37 %, PatentData −67 %, IoU/Chamfer unchanged-to-better)
+  D2C primitives −37 %, PatentData −67 %, IoU/Chamfer unchanged-to-better);
+  **patent hachure extraction** separates dense hatch clusters into
+  `removed_hachures` so long outlines fit as main geometry
 - **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon** /
   polyline); closed polygon fitter; sparse-smooth_pts guard; geometric arc guard;
-  Free2CAD Transformer evaluated and retired
-- **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF
+  hachure side-layer reinjection as styled primitives; Free2CAD Transformer
+  evaluated and retired
+- **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF, including a
+  dedicated `HACHURE` layer
 - **Content classifier** (`tools/filter_patent_data.py`) — deterministic,
   feature-based strict filter (Hough lines + CC/skeleton analysis + density/orientation
   gates + EPO letter codes); clean12 full-corpus pass scanned 275 804 TIFs and
@@ -635,6 +719,8 @@ high-precision pilot result, not a full-corpus claim.
 | 13 | D2C zero-output: small circles fail circularity check | `_is_circular_loop` used a fixed 30 % RMS threshold; Zhang-Suen staircasing on tiny circles (r < 12 px) produces ≥ 38 % relative RMS, so genuine circles were rejected as noise | Size-adaptive threshold: 55 % for r_mean < 12 px, 30 % otherwise |
 | 14 | Parallel paths between same two nodes lost | Walk used `frozenset({src, dst})` dict key — only the first path found between any pair of nodes was stored; parallel arcs and two-arc circles lost remaining paths | Replaced with list + `all_edge_pix` entry check: deduplicates reverse-direction walks while allowing genuinely parallel paths with disjoint pixel sets |
 | 15 | Long strokes fragmented into many primitives | CN map emits a phantom `CN≥3` junction at every Zhang-Suen staircase bend and at every stroke crossing, so one logical stroke is split at each — dense patent scans produce thousands of 2–3 px junction stubs | `_simplify_graph` pass: prune short spurs, dissolve degree-2 phantom junctions, merge collinear edges straight through real junctions. D2C prims −37 % (1 000-sample), PatentData prims −67 %, IoU/Chamfer unchanged-to-better |
+| 16 | Reference numerals/help lines split long patent strokes | Patent reference labels and leader lines enter Stage 1 as normal ink; every leader/feature contact becomes a skeleton junction or tiny post-removal gap | Added Stage 0 reference handling. It now removes leadered labels, segment-adjacent labels, compact unleadered labels, figure/panel captions, and heavy annotation cases before Stage 1, then reinjects the captured crops/leaders during export. On the filtered 100-sample PatentData probe, all-row mean Stage 2 edges moved 307.95 baseline → 270.71 two-pass Stage 0 → 199.31 final Stage 0. Final residual scan on `*_norefs.png`: 100/100 active removals, 0 Stage 0 flags, 99/100 with zero residual detections, max residual 1 |
+| 17 | Hachures reduce long-stroke quality | Dense section hatching creates real Stage 2 junctions and hundreds of short parallel edges before primitive fitting; Stage 3 mostly fits the fragmented graph it receives | Added adaptive Stage 2 hachure side-layer extraction after graph simplification, then re-simplifies the main graph. Stage 3 reinjects extracted hachures as `style: "hachure"` primitives excluded from main-geometry confidence gates; Stage 4 exports them on a `HACHURE` layer. On the filtered 100-sample probe, hachure-cleaned sketches moved from 186.2 → 64.1 main edges, median main edge length 17.2 → 75.1 px, micro-edge ratio 26.8 % → 0.0 %, while v4 exports all hatch primitives (`output/PatentData100_hachures_v4`) |
 
 ### Known limitations / next steps
 
@@ -652,37 +738,51 @@ high-precision pilot result, not a full-corpus claim.
    metrics, filter reason/status, and visual classifier confidence so every example
    remains traceable.
 
-3. **Text/annotation handling** — accepted patent drawings still include figure
-   labels, dimensions, reference numerals, and short annotations. For text-to-CAD
-   training this may be useful metadata; for geometry-only training it needs OCR
-   masking or separate layers before primitive fitting/export.
+3. **Stage 0 reference refinement** — the filtered 100-sample probe is now
+   effectively reference-free before Stage 1 (`output/PatentData100_stage0refs_iter5`:
+   100/100 active removals, 0 Stage 0 flags, 99/100 zero residual detections,
+   max residual 1). Remaining priorities:
+   - separate dashed/hidden construction geometry from annotation/dimension
+     geometry more reliably; annotation-heavy dimension figures can require
+     60-75 % ink removal;
+   - add OCR for numeric `text` fields so DXF can reinject real MTEXT, not only
+     crop overlays in SVG and leader geometry in DXF;
+   - add a post-reference stub/gap cleanup pass after Stage 2, because removing a
+     leader at a feature contact can leave tiny remnants even when total edge
+     count improves;
+   - broaden the residual visual audit from 100 samples to a larger filtered
+     PatentData slice before generating the final LLM training manifest.
 
 4. **True Puhachov replacement** — the local checkpoint is incompatible and the old
    code path did not affect topology. Port/retrain a compatible keypoint detector
-   only after the CN/gated baseline has a clean full-corpus manifest.
+   only after the CN/gated baseline has a clean full-corpus manifest. See the
+   [Roadmap — Puhachov retraining & CN-vs-CNN comparison](#roadmap--puhachov-keypoint-cnn-retraining--cn-vs-cnn-comparison)
+   section below for the concrete plan.
 
 5. **Stroke fragmentation** *(largely addressed — see "Stroke de-fragmentation"
    above)* — the `_simplify_graph` pass cut D2C primitives −37 % and PatentData
    primitives −67 % by pruning spurs, dissolving degree-2 phantom junctions, and
    merging collinear edges straight through real junctions. Remaining over-segmentation
-   comes from two harder, still-open cases:
+   comes from harder, still-open cases:
    - **Thin outline rectangles / concentric rings → double-wall ladders.** A thin
      *outline* rectangle (or a washer / concentric-circle pair) skeletonizes to two
      close parallel rails joined by short rungs; each rail segment between rungs is
      its own primitive. Junction-cluster merging would fix it but unsafely welds the
      two rails — needs a ladder-aware rung-removal that preserves both rails.
-   - **Extreme over-segmentation on hatching** — a hatched fill is many genuine short
-     parallel lines crossing a boundary, producing hundreds of edges. Needs a
-     hatch-region detector that collapses or tags the fill rather than vectorising
-     every hatch line.
+   - **Hachure/dashed-detail policy.** Hatch side-layer extraction now prevents
+     hatches from fragmenting long outlines and reinjects them into SVG/DXF, but
+     visually similar dashed detail borders can also enter the hachure layer. This
+     preserves the strokes, yet a future training manifest should decide whether
+     these belong on `HACHURE`, `hidden`, or `construction` layers.
 
 6. **Dense drawings and runtime outliers** — sketches with extreme hatch/detail can
    still take much longer than the median. Stage 2/3 gates now reject most of these,
    but the full-corpus run should be monitored for long-tail workers and may need a
    per-sketch timeout.
 
-   Dense drawings now de-fragment to ~⅓ the edge count (`_simplify_graph`), but the
-   slowest hatched figures can still exceed the time budget — a `max_edges` guard
+   Dense drawings now de-fragment to ~⅓ the edge count (`_simplify_graph`), and
+   hachure extraction cuts hatch-heavy main graphs substantially, but the slowest
+   highly detailed figures can still exceed the time budget — a `max_edges` guard
    remains worthwhile.
 
 7. **Thin-stroke position error (1 px)** — Zhang-Suen skeletonisation places the
@@ -695,6 +795,80 @@ high-precision pilot result, not a full-corpus claim.
    isolation ratio by ~0.05 on average (some pruned stubs are real short ticks, not
    just barbs). Still well under the 0.30 flag threshold; lower `spur_min_length`
    if a corpus has many genuine short features.
+
+---
+
+## Roadmap — Puhachov keypoint CNN: retraining & CN-vs-CNN comparison
+
+**Goal.** Retrain the keypoint detector on the **Drawing2CAD** dataset, then
+measure whether a *learned* keypoint detector beats the production classical
+**CN** path inside this pipeline (Chamfer / IoU / fragmentation / runtime).
+
+### Critical precondition
+
+Retraining alone changes **nothing**. `_extract_topology()` in
+[`stage2_stroke_extract.py`](stage2_strokeextraction/stage2_stroke_extract.py)
+accepts a `keypoints` argument but **ignores it** — topology is always rebuilt
+from the internal CN map, so today the "Puhachov path" and the "CN path" emit
+identical graphs downstream of keypoint detection. **Wiring keypoints into
+topology (Phase 3) is the load-bearing work; without it the comparison measures
+nothing.**
+
+### Design decisions
+
+| # | Decision | Choice |
+|---|----------|--------|
+| A | Which network | In-repo lightweight `_build_stacked_hourglass` (3 channels: endpoint / junction / **corner**) — matches the existing guarded loader, has no frame-field machinery the pipeline can't consume, and avoids re-introducing the checkpoint-incompatibility problem |
+| B | How keypoints drive topology | Start by **replacing** CN seeds with CNN keypoints; ablate by **fusing** (CNN suppresses phantom `CN≥3` staircase junctions; corners deliberately split polylines) |
+| C | `_simplify_graph` in the comparison | Run the CNN arm **with** and **without** it — tests whether a learned detector can *replace* the heuristic de-fragmentation pass |
+
+### Phases
+
+0. **Baseline lock** — re-run the CN path on the D2C `test` split with
+   [`config_d2c_eval.yaml`](config_d2c_eval.yaml) on the current machine/seed and
+   freeze it as the comparison baseline DB. Freeze the keypoint→topology contract
+   (classes, coordinate frame, resolution).
+1. **Ground-truth labels** (new `tools/d2c_keypoint_labels.py`) — D2C `svg_raw`
+   `M`/`L` paths give exact keypoints with no manual annotation: vertex degree
+   1 → endpoint, ≥ 3 → junction, degree-2 with a sharp turn → corner. Rasterize
+   each view, **Stage-1 skeletonize** (train on real skeleton artefacts, not the
+   clean GT raster), snap each keypoint to the nearest skeleton pixel, and emit
+   3-channel Gaussian heatmap targets. Visually audit ~50 overlays before scaling
+   to the full 141 831-sample train split (× 4 views).
+2. **Training** (new `stage2_strokeextraction/research/train_puhachov.py`,
+   mirroring [`stage1_preprocessing/research/train_sketchcleannet.py`](stage1_preprocessing/research/train_sketchcleannet.py))
+   — train on the `train` split only, weighted BCE/focal heatmap loss with
+   small rotation/scale augmentation, checkpoint best-on-`validation` by per-class
+   peak F1, and export `models/puhachov_d2c.pth` whose tensor names/shapes satisfy
+   the loader's matched-tensor check. **Gate:** the CNN must beat CN on intrinsic
+   keypoint precision/recall before integrating.
+3. **Topology integration** *(critical path)* — refactor `_extract_topology` to
+   seed clusters from a supplied keypoint source (snapped to skeleton pixels,
+   reusing the existing 1-px halo + walk machinery), driven by the already-tracked
+   `kp_source` switch. Unit-test on rectangle / two-arc circle / T-junction shapes
+   before any batch run.
+4. **Comparison matrix** — add `config_d2c_eval_puhachov.yaml` and run
+   [`tools/d2c_eval.py`](tools/d2c_eval.py) on the `test` split per arm into
+   separate result DBs:
+
+   | Arm | Keypoints | `_simplify_graph` |
+   |-----|-----------|-------------------|
+   | A (baseline) | CN | on |
+   | B | CNN | on |
+   | C | CNN | off |
+   | D *(optional)* | CN + CNN fused | on |
+
+   Same seed/workers/split. Diff Chamfer (headline), pixel/skeleton IoU,
+   precision, recall, primitive count & prims/stroke ratio, zero-output count,
+   and Stage-2 runtime.
+5. **Analysis & verdict** — per-metric delta table + win/loss audit contact
+   sheets; record the outcome (including a clean null result) in the
+   [Puhachov status](#puhachov-status) and the bug-fix / limitations log.
+
+**De-risking.** Do a thin Phase-3 spike *first*: make `_extract_topology` consume
+*CN-derived* keypoints passed as an argument and confirm the output is
+byte-identical to today. That proves the plumbing before any GPU time is spent on
+training.
 
 ---
 
