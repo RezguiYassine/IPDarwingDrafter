@@ -38,6 +38,7 @@ stage2:
   spur_min_length: 6.0
   merge_collinear_max_angle: 28.0
   junction_merge_radius: 0.0
+  remove_hachures: false
 stage3:
   confidence_threshold: 0.6
 training:

@@ -12,7 +12,8 @@ Outputs (selected by user via --format):
 
 Two DXF compliance levels:
   basic   — single layer, AutoCAD-readable, no styling. For quick QA.
-  patent  — ISO 128 layered (visible / hidden / center / construction / text),
+  patent  — ISO 128 layered (visible / hidden / center / construction /
+            hachure / text),
             standard linetypes & lineweights, Bezugszeichen rendered as MTEXT
             with leader lines per EPO Rule 46. AP6 supplies the Bezugszeichen
             via the optional `annotations` block in the input JSON; if absent,
@@ -50,6 +51,7 @@ Author : Yassine Rezgui — HAW Landshut / IP DrawingDrafter
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import math
@@ -90,6 +92,7 @@ ISO128_LAYERS = {
     "hidden":       {"linetype": "DASHED",     "lineweight": 25, "color": 7},  # 0.25 mm
     "center":       {"linetype": "CENTER",     "lineweight": 25, "color": 7},  # 0.25 mm
     "construction": {"linetype": "CONTINUOUS", "lineweight": 13, "color": 7},  # 0.13 mm
+    "hachure":      {"linetype": "CONTINUOUS", "lineweight": 18, "color": 7},  # 0.18 mm
     "text":         {"linetype": "CONTINUOUS", "lineweight": 25, "color": 7},
     "leader":       {"linetype": "CONTINUOUS", "lineweight": 18, "color": 7},
 }
@@ -155,6 +158,19 @@ def _svg_dasharray(style: str) -> Optional[str]:
     if style == "center":
         return "12,3,2,3"
     return None
+
+
+def _svg_data_uri(image_path: str) -> Optional[str]:
+    """Return a data URI for a PNG/JPEG crop, or None if it cannot be read."""
+    path = Path(image_path)
+    if not path.exists():
+        return None
+    suffix = path.suffix.lower()
+    mime = "image/png"
+    if suffix in (".jpg", ".jpeg"):
+        mime = "image/jpeg"
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{data}"
 
 
 def _arc_endpoints(cx: float, cy: float, r: float,
@@ -269,19 +285,46 @@ def _export_svg(data: dict, out_path: Path,
     # Annotations (Bezugszeichen) — also in patent SVG previews
     for ann in data.get("annotations", []):
         try:
-            x, y = ann["position"]
-            dwg.add(dwg.text(
-                ann["text"],
-                insert=(x, y),
-                font_size=14,
-                font_family="Arial",
-                fill="black",
-            ))
-            if "leader_to" in ann:
+            leader_lines = ann.get("leader_lines") or []
+            for leader in leader_lines:
+                p1, p2 = leader.get("p1"), leader.get("p2")
+                if not p1 or not p2:
+                    continue
+                dwg.add(dwg.line(
+                    start=(float(p1[0]), float(p1[1])),
+                    end=(float(p2[0]), float(p2[1])),
+                    stroke="black", stroke_width=0.7,
+                ))
+            if not leader_lines and "leader_to" in ann:
+                x, y = ann["position"]
                 lx, ly = ann["leader_to"]
                 dwg.add(dwg.line(
                     start=(x, y), end=(lx, ly),
                     stroke="black", stroke_width=0.7,
+                ))
+
+            image_path = ann.get("image_path")
+            crop_bbox = ann.get("crop_bbox") or ann.get("bbox")
+            if image_path and crop_bbox:
+                href = _svg_data_uri(str(image_path))
+                if href:
+                    x, y, bw, bh = crop_bbox
+                    img = dwg.image(
+                        href=href,
+                        insert=(float(x), float(y)),
+                        size=(float(bw), float(bh)),
+                    )
+                    dwg.add(img)
+
+            text = str(ann.get("text", "") or "")
+            if text:
+                x, y = ann["position"]
+                dwg.add(dwg.text(
+                    text,
+                    insert=(x, y),
+                    font_size=14,
+                    font_family="Arial",
+                    fill="black",
                 ))
         except Exception as exc:
             logger.warning(f"SVG: failed to render annotation {ann}: {exc}")
@@ -405,17 +448,30 @@ def _add_bezugszeichen(msp, ann: dict, image_h: float) -> None:
     line on the LEADER layer. Per EPO Rule 46, numerals must be uniform in
     size and clearly identify the referenced feature.
     """
-    pos    = _flip_y_point(ann["position"], image_h)
-    char_h = ann.get("char_height", 12)
+    pos = _flip_y_point(ann["position"], image_h)
 
-    msp.add_mtext(
-        str(ann["text"]),
-        dxfattribs={"layer": "TEXT", "char_height": char_h},
-    ).set_location(insert=pos)
+    leader_lines = ann.get("leader_lines") or []
+    for leader in leader_lines:
+        p1, p2 = leader.get("p1"), leader.get("p2")
+        if not p1 or not p2:
+            continue
+        msp.add_line(
+            _flip_y_point(p1, image_h),
+            _flip_y_point(p2, image_h),
+            dxfattribs={"layer": "LEADER"},
+        )
 
-    if "leader_to" in ann:
+    if not leader_lines and "leader_to" in ann:
         tip = _flip_y_point(ann["leader_to"], image_h)
         msp.add_line(pos, tip, dxfattribs={"layer": "LEADER"})
+
+    text = str(ann.get("text", "") or "")
+    if text:
+        char_h = ann.get("char_height", 12)
+        msp.add_mtext(
+            text,
+            dxfattribs={"layer": "TEXT", "char_height": char_h},
+        ).set_location(insert=pos)
 
 
 def _export_dxf_patent(data: dict, out_path: Path) -> tuple:

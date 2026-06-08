@@ -2,7 +2,8 @@
 Batch driver for evaluating the AP3 vectorization pipeline on a corpus of
 patent sketches (Phase 0 + Phase 1 of the evaluation roadmap).
 
-Reads sketches from a directory of patent subfolders, runs all four stages
+Reads sketches from a directory of patent subfolders, runs Stage 0 plus the
+four vectorization stages
 per sketch, and writes one row of intrinsic metrics per sketch to a SQLite
 results DB. Resumable: sketches whose row already exists in the DB are
 skipped (unless --no-resume is given).
@@ -44,10 +45,11 @@ from tqdm import tqdm
 
 # ─── Make each stage module importable as a plain Python module ──────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-for sub in ("stage1_preprocessing", "stage2_strokeextraction",
+for sub in ("stage0_handling_references", "stage1_preprocessing", "stage2_strokeextraction",
             "stage3_primitivesfitting", "stage4_export"):
     sys.path.insert(0, str(PROJECT_ROOT / sub))
 
+import stage0_handle_references    # noqa: E402
 import stage1_preprocess           # noqa: E402
 import stage2_stroke_extract       # noqa: E402
 import stage3_primitive_fit        # noqa: E402
@@ -110,10 +112,31 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
     t0 = time.perf_counter()
     gates = _WORKER_CFG.get("pipeline", {}).get("quality_gates", {})
     gates_enabled = bool(gates.get("enabled", False))
+    stage0_enabled = bool((_WORKER_CFG.get("stage0", {}) or {}).get("enabled", False))
+    stage1_input = input_path
+    references_json_path = None
 
     try:
+        if stage0_enabled:
+            s0 = stage0_handle_references.run(
+                input_path=input_path, output_dir=output_dir,
+                sketch_id=sketch_id, config=_WORKER_CFG,
+            )
+            stage1_input = s0.reference_free_path
+            references_json_path = s0.references_json_path
+            row.update({
+                "s0_time":              s0.processing_time_s,
+                "s0_n_labels":          s0.n_labels,
+                "s0_n_leaders":         s0.n_leaders,
+                "s0_n_iterations":      s0.n_iterations,
+                "s0_removed_ink_ratio": s0.removed_ink_ratio,
+                "s0_active_removal":    int(s0.active_removal),
+                "s0_flagged":           int(s0.flagged),
+            })
+
+        stage1_started = True
         s1 = stage1_preprocess.run(
-            input_path=input_path, output_dir=output_dir,
+            input_path=stage1_input, output_dir=output_dir,
             sketch_id=sketch_id, config=_WORKER_CFG, model=_WORKER_S1_MODEL,
         )
         row.update({
@@ -123,7 +146,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             "s1_flagged":    int(s1.flagged),
         })
     except Exception as exc:
-        row["status"] = "stage1"
+        row["status"] = "stage1" if locals().get("stage1_started") else "stage0"
         row["error"] = f"{type(exc).__name__}: {exc}"
         row["total_time"] = time.perf_counter() - t0
         return row
@@ -148,6 +171,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             "s2_n_nodes":      s2.n_nodes,
             "s2_n_edges":      s2.n_edges,
             "s2_n_closed_edges": s2.n_closed_edges,
+            "s2_n_hachure_edges_removed": s2.n_hachure_edges_removed,
             "s2_median_edge_len": s2.median_edge_length,
             "s2_micro_edge_ratio": s2.micro_edge_ratio,
             "s2_short_edge_ratio": s2.short_edge_ratio,
@@ -182,17 +206,30 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         with open(s3.primitives_path) as fh:
             prim_doc = json.load(fh)
         conf_thresh = _WORKER_CFG.get("stage3", {}).get("confidence_threshold", 0.60)
+        prims = prim_doc.get("primitives", [])
+        quality_prims = [
+            p for p in prims
+            if p.get("style") != "hachure"
+            and p.get("source") != "removed_hachure"
+        ]
         prim_confs = [
             float(p.get("confidence", 0.0))
-            for p in prim_doc.get("primitives", [])
+            for p in quality_prims
         ]
         low_conf_ratio = (
             sum(c < conf_thresh for c in prim_confs) / len(prim_confs)
             if prim_confs else 0.0
         )
+        quality_metrics = prim_doc.get("quality_metrics", {})
         row.update({
             "s3_time":         s3.processing_time_s,
             "s3_n_primitives": s3.n_primitives,
+            "s3_n_hachure_primitives": int(
+                quality_metrics.get(
+                    "n_hachure_primitives",
+                    getattr(s3, "n_hachure_primitives", 0),
+                )
+            ),
             "s3_mean_conf":    s3.mean_confidence,
             "s3_low_conf_ratio": low_conf_ratio,
             "s3_flagged":      int(s3.flagged),
@@ -205,24 +242,47 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
 
     max_primitives = int(gates.get("max_primitives", 0) or 0)
     max_low_conf_ratio = float(gates.get("max_low_conf_ratio", 0.0) or 0.0)
+    hachure_relax_min_edges = int(
+        gates.get("min_hachure_edges_for_low_conf_relax", 0) or 0
+    )
+    hachure_max_low_conf_ratio = float(
+        gates.get("max_low_conf_ratio_after_hachure", 0.0) or 0.0
+    )
+    effective_max_low_conf_ratio = max_low_conf_ratio
+    if (
+        hachure_max_low_conf_ratio
+        and hachure_relax_min_edges
+        and getattr(s2, "n_hachure_edges_removed", 0) >= hachure_relax_min_edges
+    ):
+        effective_max_low_conf_ratio = max(
+            max_low_conf_ratio,
+            hachure_max_low_conf_ratio,
+        )
     if gates_enabled and (
         s3.flagged
         or (max_primitives and s3.n_primitives > max_primitives)
-        or (max_low_conf_ratio
-            and row.get("s3_low_conf_ratio", 0.0) > max_low_conf_ratio)
+        or (effective_max_low_conf_ratio
+            and row.get("s3_low_conf_ratio", 0.0) > effective_max_low_conf_ratio)
     ):
         row["status"] = "quality_gate_stage3"
         row["error"] = (
             f"primitive set not suitable for accurate CAD export: "
             f"n={s3.n_primitives}, mean_conf={s3.mean_confidence:.3f}, "
-            f"low_conf_ratio={row.get('s3_low_conf_ratio', 0.0):.3f}"
+            f"low_conf_ratio={row.get('s3_low_conf_ratio', 0.0):.3f}, "
+            f"max_low_conf_ratio={effective_max_low_conf_ratio:.3f}"
         )
         row["total_time"] = time.perf_counter() - t0
         return row
 
     try:
+        export_json = s3.primitives_path
+        if references_json_path is not None:
+            export_json = stage0_handle_references.attach_references_to_primitives(
+                primitives_path=s3.primitives_path,
+                references_json_path=references_json_path,
+            )
         s4 = stage4_export.run(
-            input_json=s3.primitives_path, output_dir=output_dir,
+            input_json=export_json, output_dir=output_dir,
             sketch_id=sketch_id, formats=("svg", "dxf"), dxf_mode="patent",
         )
         row.update({
@@ -441,24 +501,38 @@ def main() -> int:
     print(f"  Status breakdown   : {s['by_status']}")
     if s["mean_total_s"]:
         print(f"  Mean total time/ok : {s['mean_total_s']:.2f} s")
+        if s.get("mean_s0_s") is not None:
+            print(f"    Stage 0          : {s['mean_s0_s']:.2f} s")
         print(f"    Stage 1          : {s['mean_s1_s']:.2f} s")
         print(f"    Stage 2          : {s['mean_s2_s']:.2f} s")
         print(f"    Stage 3          : {s['mean_s3_s']:.2f} s")
         print(f"    Stage 4          : {s['mean_s4_s']:.2f} s")
+        if s.get("mean_s0_labels") is not None:
+            print(f"  Stage 0 refs/ok   : labels {s['mean_s0_labels']:.1f}, "
+                  f"leaders {s['mean_s0_leaders']:.1f}, "
+                  f"iters {s['mean_s0_iterations']:.1f}, "
+                  f"ink removed {100.0 * s['mean_s0_removed_ink_ratio']:.2f}%")
         if s.get("mean_s2_edges") is not None:
             print(f"  Stage 2 edges/ok  : mean {s['mean_s2_edges']:.1f}, "
                   f"max {s['max_s2_edges']}")
+        if s.get("mean_s2_hachure_edges_removed") is not None:
+            print(f"  Hachure edges rm  : mean "
+                  f"{s['mean_s2_hachure_edges_removed']:.1f}")
         if s.get("mean_s2_micro_edge_ratio") is not None:
             print(f"  Micro-edge ratio  : mean "
                   f"{100.0 * s['mean_s2_micro_edge_ratio']:.1f}%")
         if s.get("mean_s3_primitives") is not None:
             print(f"  Stage 3 prims/ok  : mean {s['mean_s3_primitives']:.1f}, "
                   f"max {s['max_s3_primitives']}")
+        if s.get("mean_s3_hachure_primitives") is not None:
+            print(f"  Hachure prims/ok  : mean "
+                  f"{s['mean_s3_hachure_primitives']:.1f}")
         if s.get("mean_s3_low_conf_ratio") is not None:
             print(f"  Low-conf prims/ok : mean "
                   f"{100.0 * s['mean_s3_low_conf_ratio']:.1f}%, "
                   f"max {100.0 * s['max_s3_low_conf_ratio']:.1f}%")
-    for k in ("flag_rate_s1", "flag_rate_s2", "flag_rate_s3", "flag_rate_s4"):
+    for k in ("flag_rate_s0", "flag_rate_s1", "flag_rate_s2",
+              "flag_rate_s3", "flag_rate_s4"):
         v = s[k]
         if v is not None:
             print(f"  {k:18s}: {100.0 * v:.1f}%")

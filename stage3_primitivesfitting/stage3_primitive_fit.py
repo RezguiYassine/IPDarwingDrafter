@@ -59,6 +59,7 @@ class Stage3Result:
     flagged:           bool
     processing_time_s: float
     n_primitives:      int
+    n_hachure_primitives: int = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -643,6 +644,36 @@ def _scale_primitive(prim: dict, scale: float) -> dict:
     return p
 
 
+def _fit_removed_hachure(edge: dict) -> dict | None:
+    """
+    Convert a Stage 2 side-layer hatch edge into an exportable primitive.
+
+    Hachures are fitted separately from the main graph: they are useful visual
+    content, but they should not participate in the quality gate that evaluates
+    the long outline primitives.
+    """
+    pix = edge.get("pixels") or []
+    if len(pix) < 2:
+        return None
+
+    pts = np.array(pix, dtype=np.float64)
+    try:
+        prim = _fit_line_ransac(pts)
+    except ValueError:
+        prim = {
+            "type": "polyline",
+            "points": [[float(p[0]), float(p[1])] for p in pts],
+            "confidence": 0.3,
+        }
+
+    prim["edge_id"] = edge.get("id")
+    prim["style"] = "hachure"
+    prim["source"] = "removed_hachure"
+    if "hachure" in edge:
+        prim["hachure"] = edge["hachure"]
+    return prim
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # PUBLIC STAGE FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════
@@ -661,7 +692,9 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     sketch_id : str
         Unique identifier for this sketch.
     config : dict
-        Parsed config.yaml — only `stage3.confidence_threshold` is read.
+        Parsed config.yaml. `stage3.confidence_threshold` controls main-geometry
+        confidence; hachure-heavy graphs can use
+        `stage3.confidence_threshold_after_hachure`.
     stroke_width : float | None
         Estimated original stroke width in pixels (from Stage 1). When
         provided it is embedded in the JSON so Stage 4 can produce an SVG
@@ -676,6 +709,7 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     with open(graph_path) as f:
         graph = json.load(f)
     edges = graph.get("edges", [])
+    removed_hachures = graph.get("removed_hachures", [])
 
     # Stage 2 writes image_shape as numpy convention [H, W]. If Stage 2 capped
     # the image resolution, it also writes original_image_shape + stage2_scale;
@@ -695,16 +729,40 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         )
         image_size = None
 
-    logger.info(f"[{sketch_id}] Stage 3 — {len(edges)} edge(s)")
+    logger.info(
+        f"[{sketch_id}] Stage 3 — {len(edges)} main edge(s), "
+        f"{len(removed_hachures)} hachure edge(s)"
+    )
 
-    conf_thresh = config.get("stage3", {}).get("confidence_threshold", 0.60)
+    stage3_cfg = config.get("stage3", {})
+    conf_thresh = float(stage3_cfg.get("confidence_threshold", 0.60))
+    effective_conf_thresh = conf_thresh
+    hachure_relax_min_edges = int(
+        stage3_cfg.get("min_hachure_edges_for_relaxed_confidence", 0) or 0
+    )
+    hachure_conf_thresh = float(
+        stage3_cfg.get("confidence_threshold_after_hachure", 0.0) or 0.0
+    )
+    if (
+        hachure_conf_thresh
+        and hachure_relax_min_edges
+        and len(removed_hachures) >= hachure_relax_min_edges
+    ):
+        effective_conf_thresh = min(conf_thresh, hachure_conf_thresh)
 
-    primitives = [_scale_primitive(fit_edge_ransac(edge), coord_scale)
-                  for edge in edges]
+    main_primitives = [_scale_primitive(fit_edge_ransac(edge), coord_scale)
+                       for edge in edges]
+    hachure_primitives = [
+        _scale_primitive(prim, coord_scale)
+        for edge in removed_hachures
+        for prim in [_fit_removed_hachure(edge)]
+        if prim is not None
+    ]
+    primitives = main_primitives + hachure_primitives
 
-    confidences = [p.get("confidence", 0.0) for p in primitives]
+    confidences = [p.get("confidence", 0.0) for p in main_primitives]
     mean_conf   = float(np.mean(confidences)) if confidences else 0.0
-    flagged     = mean_conf < conf_thresh
+    flagged     = mean_conf < effective_conf_thresh
 
     def _to_python(obj):
         if isinstance(obj, dict):
@@ -725,6 +783,13 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     if abs(stage2_scale - 1.0) >= 1e-9:
         doc["stage2_scale"] = stage2_scale
     doc["primitives"]  = primitives
+    doc["quality_metrics"] = {
+        "n_main_primitives": len(main_primitives),
+        "n_hachure_primitives": len(hachure_primitives),
+        "main_mean_confidence": mean_conf,
+        "confidence_threshold": conf_thresh,
+        "effective_confidence_threshold": effective_conf_thresh,
+    }
     doc["annotations"] = []   # filled by AP6.4 (Bezugszeichen) when available
     doc = _to_python(doc)
     with open(prims_path, "w") as f:
@@ -735,12 +800,12 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     if flagged:
         logger.warning(
             f"[{sketch_id}] FLAGGED — mean conf {mean_conf:.3f} "
-            f"< threshold {conf_thresh:.2f}"
+            f"< threshold {effective_conf_thresh:.2f}"
         )
     else:
         logger.info(
             f"[{sketch_id}] Stage 3 done in {elapsed:.2f}s — "
-            f"conf={mean_conf:.3f}"
+            f"main_conf={mean_conf:.3f}, hachures={len(hachure_primitives)}"
         )
 
     return Stage3Result(
@@ -750,6 +815,7 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         flagged           = flagged,
         processing_time_s = elapsed,
         n_primitives      = len(primitives),
+        n_hachure_primitives = len(hachure_primitives),
     )
 
 

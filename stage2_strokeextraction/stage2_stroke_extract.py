@@ -63,6 +63,7 @@ class Stage2Result:
     n_nodes: int
     n_edges: int
     n_closed_edges: int = 0
+    n_hachure_edges_removed: int = 0
     median_edge_length: float = 0.0
     micro_edge_ratio: float = 0.0   # open edges shorter than 6 px
     short_edge_ratio: float = 0.0   # open edges shorter than 15 px
@@ -666,6 +667,253 @@ def _chain_length(pix) -> float:
     return float(np.hypot(*(p[1:] - p[:-1]).T).sum())
 
 
+def _angle_delta_deg(a: float, b: float) -> float:
+    d = abs((a - b) % 180.0)
+    return min(d, 180.0 - d)
+
+
+def _edge_line_features(edge: dict) -> dict | None:
+    """
+    Measure whether an open graph edge behaves like a short straight hatch line.
+
+    Hachures are not identified by absolute angle: drawings use many hatch
+    angles. The useful signal is local repetition: many short, line-like,
+    similarly angled edges packed near one another.
+    """
+    if edge.get("is_closed"):
+        return None
+    pix = edge.get("pixels") or []
+    if len(pix) < 2:
+        return None
+
+    pts = np.asarray(pix, dtype=np.float64)
+    length = _chain_length(pix)
+    if length <= 1e-9:
+        return None
+    chord = float(np.linalg.norm(pts[-1] - pts[0]))
+    center = pts.mean(axis=0)
+    centered = pts - center
+
+    if len(pts) == 2:
+        direction = pts[-1] - pts[0]
+        n = float(np.linalg.norm(direction))
+        direction = direction / n if n > 1e-9 else np.array([1.0, 0.0])
+    else:
+        _, _, vt = np.linalg.svd(centered, full_matrices=False)
+        direction = vt[0]
+    normal = np.array([-direction[1], direction[0]])
+    residual_rms = float(np.sqrt(((centered @ normal) ** 2).mean()))
+    angle = float(np.degrees(np.arctan2(direction[1], direction[0])) % 180.0)
+
+    return {
+        "edge_id": int(edge["id"]),
+        "length": float(length),
+        "chord": float(chord),
+        "straightness": float(chord / length),
+        "residual_rms": residual_rms,
+        "angle_deg": angle,
+        "center": center,
+    }
+
+
+def _drop_unused_nodes(
+    nodes: list[dict],
+    edges: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    used = set()
+    for edge in edges:
+        used.add(edge["source"])
+        used.add(edge["target"])
+    return [node for node in nodes if node["id"] in used], edges
+
+
+def _remove_hachure_edges(
+    nodes: list[dict],
+    edges: list[dict],
+    cfg: dict,
+    *,
+    pass_name: str,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Remove dense parallel short strokes before primitive fitting.
+
+    This is deliberately graph-level rather than Stage 3-level: hachures split
+    outlines at skeleton intersections, so the outline must be reconnected while
+    topology is still editable. Removed hatch edges are stored in the graph JSON
+    as `removed_hachures` and their pixels are ignored by the isolation metric.
+    """
+    if not bool(cfg.get("remove_hachures", False)):
+        return nodes, edges, []
+
+    open_edges = [edge for edge in edges if not edge.get("is_closed")]
+    if len(open_edges) < int(cfg.get("hachure_min_graph_edges", 20)):
+        return nodes, edges, []
+
+    min_len = float(cfg.get("hachure_min_length", 5.0))
+    max_len = float(cfg.get("hachure_max_length", 80.0))
+    min_straight = float(cfg.get("hachure_min_straightness", 0.70))
+    max_rms = float(cfg.get("hachure_max_residual_rms", 2.2))
+
+    feats: list[dict] = []
+    for edge in open_edges:
+        feat = _edge_line_features(edge)
+        if feat is None:
+            continue
+        if not (min_len <= feat["length"] <= max_len):
+            continue
+        if feat["straightness"] < min_straight:
+            continue
+        if feat["residual_rms"] > max_rms:
+            continue
+        feats.append(feat)
+
+    if not feats:
+        return nodes, edges, []
+
+    n = len(feats)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    angle_tol = float(cfg.get("hachure_angle_tolerance", 12.0))
+    cluster_radius = float(cfg.get("hachure_cluster_radius", 95.0))
+    for i in range(n):
+        ci = feats[i]["center"]
+        for j in range(i + 1, n):
+            if _angle_delta_deg(feats[i]["angle_deg"], feats[j]["angle_deg"]) > angle_tol:
+                continue
+            if float(np.linalg.norm(ci - feats[j]["center"])) > cluster_radius:
+                continue
+            union(i, j)
+
+    groups: dict[int, list[dict]] = {}
+    for i, feat in enumerate(feats):
+        groups.setdefault(find(i), []).append(feat)
+
+    min_cluster = int(cfg.get("hachure_min_cluster_edges", 4))
+    min_total_len = float(cfg.get("hachure_min_cluster_total_length", 35.0))
+    selected_ids: set[int] = set()
+    selected_meta: dict[int, dict] = {}
+    for group in groups.values():
+        if len(group) < min_cluster:
+            continue
+        total_len = sum(float(feat["length"]) for feat in group)
+        if total_len < min_total_len:
+            continue
+        for feat in group:
+            selected_ids.add(int(feat["edge_id"]))
+            selected_meta[int(feat["edge_id"])] = {
+                "pass": pass_name,
+                "length": feat["length"],
+                "angle_deg": feat["angle_deg"],
+                "straightness": feat["straightness"],
+                "residual_rms": feat["residual_rms"],
+                "cluster_size": len(group),
+                "cluster_total_length": float(total_len),
+            }
+
+    if not selected_ids:
+        return nodes, edges, []
+
+    max_ratio = float(cfg.get("hachure_max_removed_edge_ratio", 0.75))
+    if max_ratio > 0 and len(selected_ids) / max(1, len(open_edges)) > max_ratio:
+        logger.warning(
+            "Hachure removal skipped: candidate ratio %.3f exceeds guard %.3f",
+            len(selected_ids) / max(1, len(open_edges)),
+            max_ratio,
+        )
+        return nodes, edges, []
+
+    kept: list[dict] = []
+    removed: list[dict] = []
+    for edge in edges:
+        if int(edge["id"]) not in selected_ids:
+            kept.append(edge)
+            continue
+        item = dict(edge)
+        item["is_hachure"] = True
+        item["hachure"] = selected_meta.get(int(edge["id"]), {"pass": pass_name})
+        removed.append(item)
+
+    nodes, kept = _drop_unused_nodes(nodes, kept)
+    return nodes, kept, removed
+
+
+def _prune_hachure_residual_edges(
+    nodes: list[dict],
+    edges: list[dict],
+    cfg: dict,
+    *,
+    pass_name: str,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Remove tiny crumbs left after hatch-line removal.
+
+    This is intentionally much narrower than general spur pruning: it only runs
+    when hachures were already found in the sketch, and it defaults to sub-6px
+    open edges that are below the pipeline's own micro-edge threshold.
+    """
+    max_len = float(cfg.get("hachure_residual_prune_max_length", 0.0) or 0.0)
+    if max_len <= 0:
+        return nodes, edges, []
+
+    kept: list[dict] = []
+    removed: list[dict] = []
+    for edge in edges:
+        if edge.get("is_closed"):
+            kept.append(edge)
+            continue
+        length = _chain_length(edge.get("pixels") or [])
+        if length >= max_len:
+            kept.append(edge)
+            continue
+        item = dict(edge)
+        item["is_hachure"] = True
+        item["hachure"] = {
+            "pass": pass_name,
+            "length": float(length),
+            "reason": "tiny_residual_after_hachure_removal",
+        }
+        removed.append(item)
+
+    if not removed:
+        return nodes, edges, []
+    nodes, kept = _drop_unused_nodes(nodes, kept)
+    return nodes, kept, removed
+
+
+def _open_edge_length_stats(edges: list[dict]) -> tuple[list[float], float, float, float]:
+    open_lengths = [
+        _chain_length([(int(p[0]), int(p[1])) for p in edge["pixels"]])
+        for edge in edges
+        if not edge.get("is_closed")
+    ]
+    if not open_lengths:
+        return [], 0.0, 0.0, 0.0
+    median = float(np.median(open_lengths))
+    micro = float(sum(1 for length in open_lengths if length < 6.0) / len(open_lengths))
+    short = float(sum(1 for length in open_lengths if length < 15.0) / len(open_lengths))
+    return open_lengths, median, micro, short
+
+
+def _should_run_hachure_cleanup(edges: list[dict], cfg: dict) -> bool:
+    open_lengths, _median, micro, short = _open_edge_length_stats(edges)
+    if len(open_lengths) < int(cfg.get("hachure_trigger_min_open_edges", 40)):
+        return False
+    micro_trigger = float(cfg.get("hachure_trigger_micro_edge_ratio", 0.20))
+    short_trigger = float(cfg.get("hachure_trigger_short_edge_ratio", 0.55))
+    return micro >= micro_trigger or short >= short_trigger
+
+
 def _leave_direction(pix, at_start: bool, baseline: float = 8.0):
     """
     Unit direction in which a pixel chain leaves one of its ends.
@@ -1097,6 +1345,7 @@ def _smooth_edges(
 def _compute_isolation_ratio(
     skeleton: np.ndarray,
     edges: list[dict],
+    ignored_pixels: set[tuple[int, int]] | None = None,
 ) -> float:
     """
     Fraction of foreground pixels not captured by any edge.
@@ -1104,7 +1353,13 @@ def _compute_isolation_ratio(
     isolation_ratio → 1 : almost nothing was captured
     """
     binary = (skeleton > 0)
-    total  = int(binary.sum())
+    ignored_pixels = ignored_pixels or set()
+    total = int(binary.sum())
+    if ignored_pixels:
+        total -= sum(
+            1 for x, y in ignored_pixels
+            if 0 <= y < skeleton.shape[0] and 0 <= x < skeleton.shape[1] and binary[y, x]
+        )
     if total == 0:
         return 0.0
 
@@ -1116,6 +1371,8 @@ def _compute_isolation_ratio(
     uncovered = 0
     ys, xs = np.where(binary)
     for y, x in zip(ys, xs):
+        if (int(x), int(y)) in ignored_pixels:
+            continue
         if (x, y) not in covered:
             uncovered += 1
 
@@ -1293,6 +1550,20 @@ def run(
     nodes, edges = _extract_topology(skeleton, keypoints, max_radius)
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
+    removed_hachures: list[dict] = []
+    if cfg_kp.get("remove_hachures", False) and cfg_kp.get("hachure_pre_pass", False):
+        n0, e0 = len(nodes), len(edges)
+        nodes, edges, removed = _remove_hachure_edges(
+            nodes, edges, cfg_kp, pass_name="pre_simplify"
+        )
+        removed_hachures.extend(removed)
+        if removed:
+            logger.info(
+                f"[{sketch_id}] Hachures pre-simplify: "
+                f"{n0}→{len(nodes)} nodes, {e0}→{len(edges)} edges "
+                f"({len(removed)} removed)"
+            )
+
     # ── Layer 2b: Graph simplification (de-fragmentation) ─────────────────
     # Prune skeleton spurs, dissolve phantom degree-2 junctions, and merge
     # collinear edges that pass straight through real junctions. Without this
@@ -1313,6 +1584,54 @@ def run(
         )
         logger.info(f"[{sketch_id}] Simplified: {n0}→{len(nodes)} nodes, "
                     f"{e0}→{len(edges)} edges")
+
+    run_hachure_post = (
+        cfg_kp.get("remove_hachures", False)
+        and cfg_kp.get("hachure_second_pass", True)
+        and _should_run_hachure_cleanup(edges, cfg_kp)
+    )
+    if run_hachure_post:
+        n0, e0 = len(nodes), len(edges)
+        nodes, edges, removed = _remove_hachure_edges(
+            nodes, edges, cfg_kp, pass_name="post_simplify"
+        )
+        removed_hachures.extend(removed)
+        if removed:
+            logger.info(
+                f"[{sketch_id}] Hachures post-simplify: "
+                f"{n0}→{len(nodes)} nodes, {e0}→{len(edges)} edges "
+                f"({len(removed)} removed)"
+            )
+            min_removed_for_prune = int(
+                cfg_kp.get("hachure_residual_prune_min_removed", 1)
+            )
+            if len(removed_hachures) >= min_removed_for_prune:
+                n2, e2 = len(nodes), len(edges)
+                nodes, edges, residuals = _prune_hachure_residual_edges(
+                    nodes,
+                    edges,
+                    cfg_kp,
+                    pass_name="post_hachure_residual_prune",
+                )
+                removed_hachures.extend(residuals)
+                if residuals:
+                    logger.info(
+                        f"[{sketch_id}] Hachure residuals: "
+                        f"{n2}→{len(nodes)} nodes, {e2}→{len(edges)} edges "
+                        f"({len(residuals)} removed)"
+                    )
+            if cfg_kp.get("simplify_graph", True):
+                n1, e1 = len(nodes), len(edges)
+                nodes, edges = _simplify_graph(
+                    nodes, edges,
+                    spur_min_len          = cfg_kp.get("spur_min_length", 6.0),
+                    collinear_max_angle   = cfg_kp.get("merge_collinear_max_angle", 28.0),
+                    junction_merge_radius = cfg_kp.get("junction_merge_radius", 0.0),
+                )
+                logger.info(
+                    f"[{sketch_id}] Re-simplified after hachures: "
+                    f"{n1}→{len(nodes)} nodes, {e1}→{len(edges)} edges"
+                )
 
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
     rdp_eps        = cfg_kp.get("rdp_epsilon",          1.5)
@@ -1338,25 +1657,23 @@ def run(
                      f"(< {min_loop_px} px, non-circular): edge ids {sorted(noise_ids)}")
 
     # ── Confidence signal ─────────────────────────────────────────────────
-    iso_ratio = _compute_isolation_ratio(skeleton, edges)
+    ignored_hachure_pixels = {
+        (int(px[0]), int(px[1]))
+        for edge in removed_hachures
+        for px in edge.get("pixels", [])
+    }
+    iso_ratio = _compute_isolation_ratio(
+        skeleton,
+        edges,
+        ignored_pixels=ignored_hachure_pixels,
+    )
     threshold = cfg_kp.get("isolation_threshold",
                             config.get("stage2", {}).get("isolation_threshold", 0.05))
-    open_lengths = [
-        _chain_length([(int(p[0]), int(p[1])) for p in e["pixels"]])
-        for e in edges
-        if not e.get("is_closed")
-    ]
+    open_lengths, median_edge_length, micro_edge_ratio, short_edge_ratio = (
+        _open_edge_length_stats(edges)
+    )
     n_open = len(open_lengths)
     n_closed = sum(1 for e in edges if e.get("is_closed"))
-    median_edge_length = float(np.median(open_lengths)) if open_lengths else 0.0
-    micro_edge_ratio = (
-        float(sum(1 for length in open_lengths if length < 6.0) / n_open)
-        if n_open else 0.0
-    )
-    short_edge_ratio = (
-        float(sum(1 for length in open_lengths if length < 15.0) / n_open)
-        if n_open else 0.0
-    )
 
     frag_cfg = cfg_kp.get("fragmentation", {})
     max_micro_ratio = frag_cfg.get("max_micro_edge_ratio", 0.50)
@@ -1389,12 +1706,15 @@ def run(
         "stage2_scale": stage2_scale,
         "metrics": {
             "n_closed_edges": n_closed,
+            "n_hachure_edges_removed": len(removed_hachures),
+            "n_hachure_pixels_ignored": len(ignored_hachure_pixels),
             "median_edge_length": median_edge_length,
             "micro_edge_ratio": micro_edge_ratio,
             "short_edge_ratio": short_edge_ratio,
         },
         "nodes": nodes,
         "edges": edges,
+        "removed_hachures": removed_hachures,
     })
     with open(graph_path, "w") as f:
         json.dump(graph_doc, f, indent=2)
@@ -1422,6 +1742,7 @@ def run(
         n_nodes           = len(nodes),
         n_edges           = len(edges),
         n_closed_edges    = n_closed,
+        n_hachure_edges_removed = len(removed_hachures),
         median_edge_length = median_edge_length,
         micro_edge_ratio  = micro_edge_ratio,
         short_edge_ratio  = short_edge_ratio,

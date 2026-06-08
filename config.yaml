@@ -35,6 +35,61 @@ free2cad:
   device:    "cuda"
   repo_path: "stage3_primitivesfitting/research/repos/Free2CAD/networkTraining"
 
+# ── Stage 0 — Patent reference handling ──────────────────────────────────────
+stage0:
+  enabled: true                 # PatentData: remove reference numerals/leaders
+                                 # before skeletonisation, then reinject them
+                                 # during export as annotations.
+  max_iterations: 10             # Multiple bounded passes catch references that
+                                 # become detectable only after earlier removals.
+  require_leader: true           # Only remove small text clusters linked to a
+                                 # nearby leader/help line, plus strict
+                                 # unleadered text clusters below.
+  remove_unleadered_labels: true
+  unleadered_min_components: 1    # Single-component labels are removed only in
+                                 # margin bands with density limits below.
+  unleadered_max_components: 6
+  unleadered_max_bbox_area: 6500
+  unleadered_max_ink_area: 2200
+  unleadered_allow_single_component: true
+  unleadered_single_margin_ratio: 0.24
+  unleadered_single_min_density: 0.18
+  unleadered_single_max_bbox_area: 3000
+  unleadered_single_max_ink_area: 1400
+  remove_figure_labels: true     # Remove compact FIG/Figure labels at page/panel
+                                 # margins with a separate large-text detector.
+  figure_cluster_max_components: 12
+  figure_cluster_max_bbox_area: 32000
+  figure_cluster_max_ink_area: 18000
+  figure_require_margin: false   # Panel captions can sit between subfigures,
+                                 # not only at the page edge.
+  figure_margin_ratio: 0.22
+  max_reference_labels: 220      # Dense text/formula pages should trip the guard
+                                 # instead of being aggressively erased.
+  max_removed_ink_ratio: 0.70    # Filtered PatentData can be reference-heavy;
+                                 # still guard formula/text pages and bad masks.
+  max_total_removed_ink_ratio: 0.82
+  text_only_on_guard: true       # If full leader removal is too destructive,
+                                 # remove only detected labels and flag the JSON.
+  max_guard_text_only_removed_ink_ratio: 0.20
+  max_guard_text_only_labels: 240
+  text_bbox_pad: 3
+  crop_pad: 2
+  leader_endpoint_margin: 18
+  leader_segment_margin: 12
+  leader_mask_thickness: 5
+  leader_tip_trim: 8
+  leader_min_support_ratio: 0.50
+  leader_support_radius: 1
+  repair_after_removal: true
+  repair_close_kernel: 7
+  hough_min_line_length: 35
+  hough_threshold: 24
+  hough_max_line_gap: 6
+  leader_max_length: 450
+  leader_max_length_ratio: 0.28
+  max_leaders_per_label: 2
+
 # ── Stage 1 — Preprocessing ───────────────────────────────────────────────────
 stage1:
   # Skeleton quality threshold [0.0 – 1.0].
@@ -102,6 +157,31 @@ stage2:
                                   # washers, thin-ring/double-wall outlines),
                                   # destroying them. Only enable (e.g. 3–4) on
                                   # corpora free of close parallel lines.
+  remove_hachures: true           # Patent section hatching creates dense parallel
+                                  # short strokes that split true outlines at every
+                                  # contact. Remove hatch-like edge clusters in
+                                  # Stage 2, store them in graph.removed_hachures,
+                                  # and ignore their pixels in isolation scoring.
+  hachure_pre_pass: false          # Pre-simplify removal can mistake true boundary
+                                  # fragments for hatches; preserve outlines first.
+  hachure_second_pass: true        # Run after simplification, when true outlines
+                                  # have already been reconnected as much as
+                                  # possible.
+  hachure_trigger_min_open_edges: 40
+  hachure_trigger_micro_edge_ratio: 0.20
+  hachure_trigger_short_edge_ratio: 0.80
+  hachure_min_graph_edges: 20
+  hachure_min_length: 5.0
+  hachure_max_length: 80.0
+  hachure_min_straightness: 0.70
+  hachure_max_residual_rms: 2.2
+  hachure_angle_tolerance: 12.0
+  hachure_cluster_radius: 95.0
+  hachure_min_cluster_edges: 4
+  hachure_min_cluster_total_length: 35.0
+  hachure_max_removed_edge_ratio: 0.75
+  hachure_residual_prune_max_length: 6.0
+  hachure_residual_prune_min_removed: 4
   fragmentation:
     max_edges: 2500
     max_micro_edge_ratio: 0.50
@@ -110,6 +190,12 @@ stage2:
 # ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
 stage3:
   confidence_threshold: 0.60  # Primitive confidence below this = flag
+  min_hachure_edges_for_relaxed_confidence: 20
+  confidence_threshold_after_hachure: 0.50
+                              # Main-geometry confidence is not directly
+                              # comparable after hatch extraction: the easy
+                              # hatch-line primitives are now a side layer.
+                              # Relax only for hachure-heavy graphs.
 
 # ── Datasets (Free2CAD training pipeline — research only, not shipped) ───────
 # These directories are gitignored. Populate them with setup.sh / your own
@@ -142,3 +228,9 @@ pipeline:
     stop_on_stage2: true    # Reject heavily fragmented or isolated graphs
     max_primitives: 900     # Hard cap for usable CAD output
     max_low_conf_ratio: 0.25 # Reject exports with too many uncertain primitives
+    min_hachure_edges_for_low_conf_relax: 20
+                              # Removing hatch lines lowers the primitive
+                              # denominator; use the relaxed ratio below only
+                              # when Stage 2 actually removed many hachure
+                              # strokes.
+    max_low_conf_ratio_after_hachure: 0.65
