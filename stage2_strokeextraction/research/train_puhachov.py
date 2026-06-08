@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import math
 import random
 import sys
 import time
@@ -237,6 +238,18 @@ def train(args):
                     pin_memory=True, persistent_workers=args.workers > 0)
 
     model = s2._build_stacked_hourglass().to(device)
+    # Focal-loss output-head init (RetinaNet/CenterNet): tiny weights + negative
+    # prior bias so the *initial* output is ~uniformly `prior` everywhere. This
+    # keeps the initial background loss O(1) instead of ~1e5; without it the
+    # first updates diverge the logits and the model collapses to predicting
+    # "background everywhere" (loss frozen at the -log(1e-6) clamp) and never
+    # recovers. Both the bias AND the weights must be controlled — biasing alone
+    # leaves the default-magnitude weights to dominate the initial logits.
+    prior_bias = -math.log((1 - args.prior) / args.prior)
+    with torch.no_grad():
+        for head in (model.out1, model.out2):
+            torch.nn.init.normal_(head.weight, std=1e-3)
+            torch.nn.init.constant_(head.bias, prior_bias)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     model.train()
 
@@ -297,6 +310,8 @@ def main():
     ap.add_argument("--sigma", type=float, default=3.0)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--grad-clip", type=float, default=5.0)
+    ap.add_argument("--prior", type=float, default=0.01,
+                    help="focal-loss output prior; sets initial output bias")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--val-subset", type=int, default=200)
