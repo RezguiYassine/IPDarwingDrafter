@@ -1,0 +1,126 @@
+data:
+  abc_step_dir: stage3_primitivesfitting/research/data/abc_dataset/step_files
+  deepcad_dir: stage3_primitivesfitting/research/data/deepcad
+  training_dir: stage3_primitivesfitting/research/data/free2cad_training
+  weights_dir: models
+free2cad:
+  device: cuda
+  repo_path: stage3_primitivesfitting/research/repos/Free2CAD/networkTraining
+  weights: models/free2cad_v3_best.pth
+pipeline:
+  log_level: INFO
+  quality_gates:
+    enabled: true
+    max_low_conf_ratio: 0.25
+    max_low_conf_ratio_after_hachure: 0.65
+    max_primitives: 900
+    min_hachure_edges_for_low_conf_relax: 20
+    stop_on_stage1: true
+    stop_on_stage2: true
+  resume: true
+  workers: 4
+puhachov:
+  device: cuda:0
+  fusion: true
+  keypoint_threshold: 0.3
+  nms_radius: 5
+  weights: models/puhachov_d2c.pth
+sketchcleannet:
+  device: cpu
+  weights: models/sketchcleannet.pth
+stage0:
+  crop_pad: 2
+  enabled: true
+  figure_cluster_max_bbox_area: 32000
+  figure_cluster_max_components: 12
+  figure_cluster_max_ink_area: 18000
+  figure_margin_ratio: 0.22
+  figure_require_margin: false
+  hough_max_line_gap: 6
+  hough_min_line_length: 35
+  hough_threshold: 24
+  leader_endpoint_margin: 18
+  leader_mask_thickness: 5
+  leader_max_length: 450
+  leader_max_length_ratio: 0.28
+  leader_min_support_ratio: 0.5
+  leader_segment_margin: 12
+  leader_support_radius: 1
+  leader_tip_trim: 8
+  max_guard_text_only_labels: 240
+  max_guard_text_only_removed_ink_ratio: 0.2
+  max_iterations: 10
+  max_leaders_per_label: 2
+  max_reference_labels: 220
+  max_removed_ink_ratio: 0.7
+  max_total_removed_ink_ratio: 0.82
+  remove_figure_labels: true
+  remove_unleadered_labels: true
+  repair_after_removal: true
+  repair_close_kernel: 7
+  require_leader: true
+  text_bbox_pad: 3
+  text_only_on_guard: true
+  unleadered_allow_single_component: true
+  unleadered_max_bbox_area: 6500
+  unleadered_max_components: 6
+  unleadered_max_ink_area: 2200
+  unleadered_min_components: 1
+  unleadered_single_margin_ratio: 0.24
+  unleadered_single_max_bbox_area: 3000
+  unleadered_single_max_ink_area: 1400
+  unleadered_single_min_density: 0.18
+stage1:
+  classical:
+    adaptive_C: 10
+    adaptive_block: 35
+    blend_alpha: 0.6
+    blur_kernel: 3
+    min_cc_size: 30
+    morph_kernel: 2
+  quality_threshold: 0.7
+stage2:
+  fragmentation:
+    max_edges: 2500
+    max_micro_edge_ratio: 0.5
+    max_short_edge_ratio: 0.8
+  hachure_angle_tolerance: 12.0
+  hachure_cluster_radius: 95.0
+  hachure_max_length: 80.0
+  hachure_max_removed_edge_ratio: 0.75
+  hachure_max_residual_rms: 2.2
+  hachure_min_cluster_edges: 4
+  hachure_min_cluster_total_length: 35.0
+  hachure_min_graph_edges: 20
+  hachure_min_length: 5.0
+  hachure_min_straightness: 0.7
+  hachure_pre_pass: false
+  hachure_residual_prune_max_length: 6.0
+  hachure_residual_prune_min_removed: 4
+  hachure_second_pass: true
+  hachure_trigger_micro_edge_ratio: 0.2
+  hachure_trigger_min_open_edges: 40
+  hachure_trigger_short_edge_ratio: 0.8
+  isolation_threshold: 0.3
+  junction_merge_radius: 0.0
+  max_input_resolution: 1000
+  merge_collinear_max_angle: 28.0
+  min_closed_loop_pixels: 80
+  nms_reference_resolution: 512
+  remove_hachures: true
+  simplify_graph: true
+  spline_overshoot_limit: 5.0
+  spur_min_length: 6.0
+stage3:
+  confidence_threshold: 0.6
+  confidence_threshold_after_hachure: 0.5
+  min_hachure_edges_for_relaxed_confidence: 20
+training:
+  batch_size: 32
+  epochs: 100
+  lr: 0.0001
+  max_pts: 32
+  max_strokes: 20
+  n_samples: 30000
+  noise_std: 0.005
+  splits: 0.85,0.10,0.05

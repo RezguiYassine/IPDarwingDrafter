@@ -17,13 +17,20 @@ sketchcleannet:
 
 # ── Puhachov stroke-extraction CNN (Stage 2) ─────────────────────────────────
 puhachov:
-  # The shipped/local checkpoint is not compatible with the local detector
-  # wrapper, so production uses the CN fallback until a matching checkpoint is
-  # ported or retrained. The loader now refuses incompatible weights instead of
-  # silently running random parameters.
-  weights: ""
+  # Fusion seeding (DEFAULT, validated on Drawing2CAD): CN endpoints/junctions
+  # (near-exact via crossing number) + ONLY the CNN's corners (which CN cannot
+  # detect). On D2C all-views this beats the pure-CN path on every metric
+  # (Chamfer, IoU, primitives) and is far faster on cornered closed shapes; on
+  # out-of-distribution PatentData scans it is neutral. The loader rejects an
+  # absent/incompatible weight and falls back to the pure-CN path automatically.
+  #   • weights: ""    → force pure-CN (e.g. large PatentData batches, where
+  #                      fusion is neutral and the CNN forward is wasted work)
+  #   • fusion: false  → raw CNN keypoints (worse than both — not advised)
+  #   • device: "cuda" → run the CNN on GPU
+  weights: "models/puhachov_d2c.pth"
   device:  "cpu"
-  keypoint_threshold: 0.50
+  fusion:  true
+  keypoint_threshold: 0.30
   nms_radius:          5
 
 # ── Free2CAD primitive-fitting Transformer (Stage 3 — RESEARCH ONLY) ─────────

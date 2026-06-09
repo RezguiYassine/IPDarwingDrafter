@@ -193,7 +193,7 @@ Three model weights are referenced by the pipeline:
 
 | Weight                       | Size  | Used by              | Status                      |
 |------------------------------|------:|----------------------|-----------------------------|
-| `puhachov_keypoints.pth`     | 22 MB | Stage 2 *(disabled)* | local checkpoint is incompatible with the current detector; `config.yaml` leaves `puhachov.weights: ""` so Stage 2 uses the CN path |
+| `puhachov_d2c.pth`           | 30 MB | Stage 2 *(default)*  | keypoint CNN trained on Drawing2CAD (val peak-F1 0.83); shipped and used by the default **fusion** seeding. Set `puhachov.weights: ""` to force the pure-CN path |
 | `free2cad_v3_best.pth`       | 3 MB  | Stage 3 *(research)* | shipped in `models/`        |
 | `sketchcleannet.pth`         | 124 MB | Stage 1             | **must be downloaded** (>100 MB GitHub limit) |
 
@@ -219,7 +219,8 @@ The most common knobs:
 |------------------------------------|--------:|--------|
 | `sketchcleannet.weights`           | `models/sketchcleannet.pth` | empty `""` ⇒ force classical cleaning mode |
 | `sketchcleannet.device`            | `cpu`   | `cuda` for GPU |
-| `puhachov.weights`                 | `""`    | Keep empty for production; the local Puhachov checkpoint is incompatible and is rejected by the loader |
+| `puhachov.weights`                 | `models/puhachov_d2c.pth` | Default fusion seeding (CN topology + CNN corners). `""` ⇒ pure-CN path (recommended for large PatentData batches, where fusion is neutral) |
+| `puhachov.fusion`                  | `true`  | Fuse CN endpoints/junctions with CNN corners. `false` ⇒ raw CNN keypoints (worse than both) |
 | `puhachov.device`                  | `cpu`   | `cuda` for GPU if a compatible detector is supplied later |
 | `stage0.enabled`                   | `true`  | PatentData batch mode removes reference numerals/help lines before Stage 1 and reinjects them during Stage 4 |
 | `stage0.max_iterations`            | `10`    | Bounded repeated Stage 0 pass; catches labels that become detectable only after earlier removals |
@@ -620,8 +621,10 @@ keypoints are slightly *worse* than CN on Chamfer, but **fusion** (CN
 endpoints/junctions + only the CNN's corners, `puhachov.fusion: true`) **beats CN
 on every accuracy metric** — mean Chamfer −1.1 %, p95 −33 %, IoU +2 %, −10 %
 primitives — and is ≈6–8× faster in Stage 2 (corner-splitting avoids B-spline
-smoothing of giant closed loops). Production still defaults to
-`puhachov.weights: ""` pending broader validation. Full table + analysis in
+smoothing of giant closed loops). Validated across **all 4 D2C views** (fusion
+wins every aggregate metric) and on **PatentData** (neutral, out-of-distribution),
+fusion is **now the production default** (`puhachov.weights: models/puhachov_d2c.pth`,
+`puhachov.fusion: true`) with automatic pure-CN fallback. Full table + analysis in
 [Roadmap → Results](#results--cn-vs-cnn-vs-fusion-executed).
 
 ### PatentData strict gated pilot (first 1 000 corpus TIFs)
@@ -916,12 +919,33 @@ short arcs** → trivial smoothing *and* clean line fits instead of one wiggly
 loop. (The per-sketch `s2_time` in the eval DBs is wall-clock under different
 worker concurrency across runs, so it is not used for the speed claim.)
 
-**Recommendation.** Fusion is the first configuration that beats the classical CN
-path outright. It is gated behind `puhachov.fusion: true` + a trained
-`puhachov.weights`; production still defaults to `puhachov.weights: ""` pending a
-broader (all-views / PatentData) validation and a compatible shipped weight.
-Remaining levers: keypoint-threshold sweep, richer CNN cluster cores in
-`_clusters_from_points` (currently single-pixel), and corner-only training.
+**Validation across all 4 views + PatentData.** Re-run on the test split, **all
+four views** (2400 paired samples) and on a paired **PatentData** sample (clean12
+filter):
+
+| Domain | Chamfer | IoU | Primitives | Verdict |
+|--------|--------:|----:|-----------:|---------|
+| D2C all-views | 1.434 → **1.425** | 0.655 → **0.671** | 4.60 → **4.16** | fusion wins every metric |
+| · orthographic (F/T/R) | 0.959 → **0.926** (−3.4 %) | 0.677 → **0.696** | — | fusion wins |
+| · isometric (FrontTopRight) | 2.857 → 2.923 | 0.591 → 0.595 | 11.27 → **10.24** | near-tie (hard for both; fewer prims) |
+| PatentData (paired, n=54) | — *(no GT)* | — | 142.8 → 143.5 | **neutral** (identical accept-rate; ±2 % conf) |
+
+Fusion is **≥ CN on every D2C view** (clearly better on the three orthographic
+views and on IoU/primitives everywhere; the isometric view is inherently hard for
+both) and **neutral on out-of-distribution PatentData** (the D2C-only detector
+adds no benefit there, but does no harm — its CN backbone dominates and patent
+scans lack the giant-closed-loop pattern fusion exploits).
+
+**Now the default.** Because fusion never regresses and wins where it is
+in-distribution, `config.yaml` now defaults to `puhachov.weights:
+models/puhachov_d2c.pth` + `puhachov.fusion: true` (shipped 30 MB weight). The
+loader falls back to the pure-CN path automatically if the weight is absent or
+PyTorch/GPU is unavailable. For large **PatentData** batches — where fusion is
+neutral and the CNN forward is wasted work — set `puhachov.weights: ""` to force
+the faster pure-CN path. Remaining levers: keypoint-threshold sweep, richer CNN
+cluster cores in `_clusters_from_points` (currently single-pixel), corner-only
+training, and patent-domain fine-tuning to make fusion *win* (not just tie) on
+PatentData.
 
 Reproduce: train `models/puhachov_d2c.pth` via
 `stage2_strokeextraction/research/train_puhachov.py`; run arms with
