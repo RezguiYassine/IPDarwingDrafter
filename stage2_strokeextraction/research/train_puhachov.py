@@ -43,6 +43,7 @@ import sys
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -86,17 +87,72 @@ def make_heatmap(kps: np.ndarray, H: int, W: int, g: np.ndarray) -> np.ndarray:
     return hm
 
 
+# ─── Patent-style degradation (domain randomization for fine-tuning) ──────────
+
+def patent_degrade(sk: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Make a clean D2C skeleton look patent-scan-like, WITHOUT moving keypoints.
+
+    The measured OOD gap is *clutter*, not staircase (the CNN already trained on
+    Zhang-Suen-staircased D2C). So the degradations are **additive clutter** that
+    leaves the labelled structure intact — speckle, short spurs, hachure clusters
+    — plus a few mild gaps. No thicken+re-skeletonize: it can merge close parallel
+    rails and clean rather than degrade, moving keypoints off the skeleton.
+    """
+    out = (sk > 0).astype(np.uint8) * 255
+    H, W = out.shape
+    ys, xs = np.where(out > 0)
+    if len(xs) == 0:
+        return out
+
+    # 1. speckle: isolated foreground pixels + tiny blobs (scan noise)
+    if rng.random() < 0.7:
+        for _ in range(int(rng.integers(20, 100))):
+            y, x = int(rng.integers(0, H)), int(rng.integers(0, W))
+            out[y, x] = 255
+            if rng.random() < 0.3:  # occasional 2px blob
+                out[min(H - 1, y + 1), x] = 255
+    # 2. short spurs/barbs off existing strokes
+    if rng.random() < 0.6:
+        for _ in range(int(rng.integers(5, 25))):
+            i = int(rng.integers(0, len(xs)))
+            a = rng.uniform(0, 2 * np.pi); L = int(rng.integers(2, 8))
+            x2 = int(np.clip(xs[i] + L * np.cos(a), 0, W - 1))
+            y2 = int(np.clip(ys[i] + L * np.sin(a), 0, H - 1))
+            cv2.line(out, (int(xs[i]), int(ys[i])), (x2, y2), 255, 1)
+    # 3. hachure clusters: short parallel segments in random regions
+    if rng.random() < 0.5:
+        for _ in range(int(rng.integers(2, 5))):
+            cx, cy = int(rng.integers(0, W)), int(rng.integers(0, H))
+            a = rng.uniform(0, np.pi); L = int(rng.integers(8, 22))
+            gap = int(rng.integers(3, 7)); n = int(rng.integers(3, 9))
+            px, py = np.cos(a + np.pi / 2), np.sin(a + np.pi / 2)
+            for j in range(n):
+                x1 = int(np.clip(cx + j * gap * px, 0, W - 1))
+                y1 = int(np.clip(cy + j * gap * py, 0, H - 1))
+                x2 = int(np.clip(x1 + L * np.cos(a), 0, W - 1))
+                y2 = int(np.clip(y1 + L * np.sin(a), 0, H - 1))
+                cv2.line(out, (x1, y1), (x2, y2), 255, 1)
+    # 4. mild gaps: erase a few tiny patches (broken strokes)
+    if rng.random() < 0.3:
+        for _ in range(int(rng.integers(2, 8))):
+            i = int(rng.integers(0, len(xs)))
+            cv2.circle(out, (int(xs[i]), int(ys[i])), int(rng.integers(1, 3)), 0, -1)
+    return out
+
+
 # ─── Dataset ─────────────────────────────────────────────────────────────────
 
 class KPDataset(Dataset):
     def __init__(self, npz_paths, crop=512, sigma=3.0, augment=True,
-                 pos_crop_prob=0.8):
+                 pos_crop_prob=0.8, patent_aug=0.0):
         self.paths = list(npz_paths)
         self.crop = crop
         self.sigma = sigma
         self.augment = augment
         self.pos_crop_prob = pos_crop_prob
+        self.patent_aug = patent_aug      # P(apply patent degradation per sample)
         self.g = _gaussian2d(sigma)
+        self._rng = np.random.default_rng()
 
     def __len__(self):
         return len(self.paths)
@@ -135,6 +191,10 @@ class KPDataset(Dataset):
             if 0 <= cx < cs and 0 <= cy < cs:
                 kc.append((cx, cy, t))
         kc = np.array(kc, dtype=np.int32) if kc else np.zeros((0, 3), np.int32)
+
+        # Patent-style degradation on the input only (labels stay valid).
+        if self.patent_aug and self._rng.random() < self.patent_aug:
+            sk_c = patent_degrade(sk_c, self._rng)
 
         hm = make_heatmap(kc, cs, cs, self.g)
         img = (sk_c > 0).astype(np.float32)[None]   # (1, cs, cs)
@@ -232,24 +292,32 @@ def train(args):
     print(f"train npz={len(train_paths)}  val npz={len(val_paths)} "
           f"(eval on {len(val_subset)})  device={device}")
 
-    ds = KPDataset(train_paths, crop=args.crop, sigma=args.sigma, augment=True)
+    if args.patent_aug:
+        print(f"patent domain-randomization: degrade {args.patent_aug:.0%} of "
+              f"samples (clean D2C kept for the rest)")
+    ds = KPDataset(train_paths, crop=args.crop, sigma=args.sigma, augment=True,
+                   patent_aug=args.patent_aug)
     dl = DataLoader(ds, batch_size=args.batch, shuffle=True,
                     num_workers=args.workers, drop_last=True,
                     pin_memory=True, persistent_workers=args.workers > 0)
 
     model = s2._build_stacked_hourglass().to(device)
-    # Focal-loss output-head init (RetinaNet/CenterNet): tiny weights + negative
-    # prior bias so the *initial* output is ~uniformly `prior` everywhere. This
-    # keeps the initial background loss O(1) instead of ~1e5; without it the
-    # first updates diverge the logits and the model collapses to predicting
-    # "background everywhere" (loss frozen at the -log(1e-6) clamp) and never
-    # recovers. Both the bias AND the weights must be controlled — biasing alone
-    # leaves the default-magnitude weights to dominate the initial logits.
-    prior_bias = -math.log((1 - args.prior) / args.prior)
-    with torch.no_grad():
-        for head in (model.out1, model.out2):
-            torch.nn.init.normal_(head.weight, std=1e-3)
-            torch.nn.init.constant_(head.bias, prior_bias)
+    if args.init_weights:
+        # Fine-tuning: start from a trained checkpoint instead of random init.
+        sd = torch.load(args.init_weights, map_location=device)
+        model.load_state_dict(sd.get("model_state_dict", sd))
+        print(f"fine-tuning from {args.init_weights}")
+    else:
+        # Focal-loss output-head init (RetinaNet/CenterNet): tiny weights +
+        # negative prior bias so the *initial* output is ~uniformly `prior`.
+        # Keeps the initial background loss O(1) instead of ~1e5; without it the
+        # first updates diverge the logits and the model collapses to predicting
+        # "background everywhere" (loss frozen at the -log(1e-6) clamp).
+        prior_bias = -math.log((1 - args.prior) / args.prior)
+        with torch.no_grad():
+            for head in (model.out1, model.out2):
+                torch.nn.init.normal_(head.weight, std=1e-3)
+                torch.nn.init.constant_(head.bias, prior_bias)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     model.train()
 
@@ -312,6 +380,10 @@ def main():
     ap.add_argument("--grad-clip", type=float, default=5.0)
     ap.add_argument("--prior", type=float, default=0.01,
                     help="focal-loss output prior; sets initial output bias")
+    ap.add_argument("--init-weights", default="",
+                    help="checkpoint to fine-tune from (skips random init)")
+    ap.add_argument("--patent-aug", type=float, default=0.0,
+                    help="P(apply patent-style degradation per sample); 0 = off")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--val-subset", type=int, default=200)

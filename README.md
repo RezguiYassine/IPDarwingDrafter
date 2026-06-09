@@ -947,6 +947,34 @@ cluster cores in `_clusters_from_points` (currently single-pixel), corner-only
 training, and patent-domain fine-tuning to make fusion *win* (not just tie) on
 PatentData.
 
+### Patent-domain fine-tuning (domain randomization — attempted)
+
+To try to make fusion *win* on PatentData, the detector was fine-tuned with
+**domain randomization**: clean D2C skeletons degraded to look patent-scan-like
+(additive speckle, spurs, hachure clusters, mild gaps — no structure removal, so
+labels stay valid), 60 % degraded / 40 % clean, initialised from
+`puhachov_d2c.pth` (`train_puhachov.py --init-weights … --patent-aug 0.6`).
+
+Outcome — a **detector-level success that did not reach the pipeline output**:
+
+| `detect()` on real patent skeletons | endpoints | junctions | corners |
+|-------------------------------------|----------:|----------:|--------:|
+| D2C model | 121.6 | 68.0 | **355.8** |
+| patent-FT model | 103.7 | 64.9 | **145.8** |
+
+The D2C model **over-fires ~356 spurious corners/sketch on patent clutter**; the
+fine-tuned model fires **−59 %** (and *improved* clean-D2C val-F1, 0.828 → 0.832 —
+the degradation acts as regularisation, no forgetting). But the paired PatentData
+*output* metrics were unchanged (primitives 143.5 → 143.0, conf 0.740 → 0.740):
+the fusion corner-dedup + `_simplify_graph` already absorb the D2C model's excess
+corners downstream, and the aggregate intrinsics (~140 prims/sketch) are
+insensitive to corner-only changes. **Conclusion:** domain randomization narrowed
+the OOD gap at the detector but did not change patent vectorisation quality, so
+the patent default is unchanged. Closing it for real needs either real-patent
+pseudo-labels (graph nodes + fitted-primitive corners) or a small gold corner-
+labelled patent eval set to measure the effect directly. The
+`puhachov_d2c_patentft.pth` weight is not shipped.
+
 Reproduce: train `models/puhachov_d2c.pth` via
 `stage2_strokeextraction/research/train_puhachov.py`; run arms with
 `tools/d2c_eval.py --split test --limit 1000 --views Front --seed 42` and
