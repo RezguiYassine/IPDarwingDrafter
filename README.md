@@ -612,14 +612,17 @@ The previous "Puhachov" path was not actually improving topology:
   path. A true Puhachov path requires a compatible model and explicit topology
   integration/retraining.
 
-**Update — a true CNN path was built, trained on D2C, and measured.** Topology
-extraction now genuinely consumes keypoint clusters (so the detector controls the
-graph), and a `_build_stacked_hourglass` model trained on Drawing2CAD (val peak-F1
-0.83; corners 0.96) was compared head-to-head against the CN path. Outcome: the
-CN path still wins the headline **Chamfer** metric (CNN ~13 % worse), while the
-CNN is ~4× faster and slightly less fragmented. Production therefore still uses
-`puhachov.weights: ""`. Full table + analysis in
-[Roadmap → Results](#results--cn-vs-cnn-executed).
+**Update — a true CNN path was built, trained on D2C, measured, and a fusion
+seeding beat the CN path.** Topology extraction now genuinely consumes keypoint
+clusters, and a `_build_stacked_hourglass` model trained on Drawing2CAD (val
+peak-F1 0.83; corners 0.96) was compared head-to-head against CN. Pure-CNN
+keypoints are slightly *worse* than CN on Chamfer, but **fusion** (CN
+endpoints/junctions + only the CNN's corners, `puhachov.fusion: true`) **beats CN
+on every accuracy metric** — mean Chamfer −1.1 %, p95 −33 %, IoU +2 %, −10 %
+primitives — and is ≈6–8× faster in Stage 2 (corner-splitting avoids B-spline
+smoothing of giant closed loops). Production still defaults to
+`puhachov.weights: ""` pending broader validation. Full table + analysis in
+[Roadmap → Results](#results--cn-vs-cnn-vs-fusion-executed).
 
 ### PatentData strict gated pilot (first 1 000 corpus TIFs)
 
@@ -879,7 +882,7 @@ nothing.**
 byte-identical to today. That proves the plumbing before any GPU time is spent on
 training.
 
-### Results — CN vs CNN (executed)
+### Results — CN vs CNN vs fusion (executed)
 
 All phases were run. Labels: 567 324 train + 31 516 val skeletons from D2C
 `svg_raw` (99.8 % zero-drop). The CNN (`_build_stacked_hourglass`, 3 channels)
@@ -887,38 +890,44 @@ trained 60 k steps to **val peak-F1 0.83** — corner **0.96**, junction 0.86,
 endpoint 0.66. Comparison on **1 000 test-split Front samples, seed 42**, paired
 (1000/1000 ok in every arm):
 
-| Metric | A · CN (baseline) | B · CNN + simplify | C · CNN, no simplify |
-|--------|------------------:|-------------------:|---------------------:|
-| **Chamfer sym — mean** | **0.937** | 1.061 (+13.2 %) | 1.093 (+16.7 %) |
-| Chamfer sym — p95 | **1.78** | 2.67 (+49.8 %) | 2.72 (+52.9 %) |
-| Pixel IoU — mean | 0.683 | **0.694** (+1.7 %) | 0.687 (+0.7 %) |
-| Precision / Recall | 0.757 / 0.873 | 0.762 / 0.881 | 0.762 / 0.872 |
-| Primitives / sketch | 2.73 | **2.20** (−19.4 %) | 6.65 (+144 %) |
-| Stage-2 time — mean | 10.1 s | **2.34 s** (−76.9 %) | 2.22 s (−78.1 %) |
+| Metric | A · CN | B · CNN (0.3) | C · CNN no-simplify | **D · fusion** |
+|--------|-------:|--------------:|--------------------:|---------------:|
+| **Chamfer sym — mean** | 0.937 | 1.007 (+7.4 %) | 1.040 (+11.0 %) | **0.927 (−1.1 %)** |
+| **Chamfer sym — p95** | 3.00 | 2.24 | 2.24 | **2.00 (−33 %)** |
+| Pixel IoU — mean | 0.683 | 0.695 | 0.688 | **0.697 (+2.0 %)** |
+| Precision / Recall | 0.757 / 0.873 | 0.764 / 0.881 | 0.763 / 0.872 | **0.767 / 0.881** |
+| Primitives / sketch | 2.73 | 2.27 | 6.93 (+144 %) | **2.45 (−10 %)** |
 
-**Verdict.** The classical **CN path wins the headline Chamfer metric** — the
-learned detector is ~13 % worse on mean Chamfer and ~50 % worse at p95, because
-its keypoint localisation (endpoint F1 0.66, junction 0.86) is less exact than
-crossing-number keypoints on clean D2C skeletons. Pixel IoU/precision/recall are
-a wash. But the CNN has two real upsides: it is **~4× faster** (it suppresses the
-phantom `CN≥3` staircase junctions that make the CN walk + simplify expensive)
-and yields **−19 % primitives** with simplification on. Crucially, arm C shows
-the **CNN does _not_ replace `_simplify_graph`**: without it the CNN graph
-fragments to **+144 % primitives** — the heuristic de-frag pass is still required.
+**Verdict — the fusion arm wins.** Pure CNN keypoints (arm B) are *worse* than CN
+on Chamfer at every threshold (its endpoint/junction localisation, F1 0.66/0.86,
+is less exact than crossing number on clean D2C skeletons). But **fusion — CN's
+near-exact endpoints + junctions plus *only* the CNN's confident corners (F1
+0.96, which CN structurally cannot detect)** — beats CN on **every** accuracy
+metric: mean Chamfer −1.1 %, **p95 Chamfer −33 %**, IoU +2.0 %, precision +1.3 %,
+and −10 % primitives. Arm C confirms the **CNN does _not_ replace
+`_simplify_graph`** (no-simplify fragments to +144 % primitives).
 
-**Recommendation.** Keep the CN path in production (`puhachov.weights: ""`) for
-its Chamfer accuracy. The CNN is a promising **speed** lever, not an accuracy
-one, at this integration depth. Next experiments to recover accuracy while
-keeping the speed: (1) **fusion arm** — CN endpoints/junctions (near-exact) +
-CNN corners (F1 0.96, which CN cannot detect at all); (2) richer CNN cluster
-cores in `_clusters_from_points` (currently single-pixel — Phase-3-proper);
-(3) keypoint-threshold sweep on val.
+**Why it also gets faster.** Controlled single-process Stage 2 (40 samples):
+median **2.32 s → 0.27 s (≈8×)**, mean 9.36 s → 1.47 s (≈6×). Same mechanism as
+the accuracy win: a closed cornered shape (rectangle/polygon) has *no* CN
+endpoints/junctions, so the CN path traces it as **one giant closed loop** and
+spends seconds B-spline-smoothing 2000+ points; the CNN corners **split it into
+short arcs** → trivial smoothing *and* clean line fits instead of one wiggly
+loop. (The per-sketch `s2_time` in the eval DBs is wall-clock under different
+worker concurrency across runs, so it is not used for the speed claim.)
 
-Reproduce: `models/puhachov_d2c.pth` via
-`stage2_strokeextraction/research/train_puhachov.py`; arms via
-`config_d2c_eval_puhachov.yaml` / `config_d2c_eval_puhachov_nosimplify.yaml` with
-`tools/d2c_eval.py --split test --limit 1000 --views Front --seed 42`. Baseline
-DB frozen at `output/Drawing2CAD/cn_baseline/`.
+**Recommendation.** Fusion is the first configuration that beats the classical CN
+path outright. It is gated behind `puhachov.fusion: true` + a trained
+`puhachov.weights`; production still defaults to `puhachov.weights: ""` pending a
+broader (all-views / PatentData) validation and a compatible shipped weight.
+Remaining levers: keypoint-threshold sweep, richer CNN cluster cores in
+`_clusters_from_points` (currently single-pixel), and corner-only training.
+
+Reproduce: train `models/puhachov_d2c.pth` via
+`stage2_strokeextraction/research/train_puhachov.py`; run arms with
+`tools/d2c_eval.py --split test --limit 1000 --views Front --seed 42` and
+`config_d2c_eval_puhachov.yaml` (B), `…_nosimplify.yaml` (C),
+`…_fusion.yaml` (D). Baseline DB frozen at `output/Drawing2CAD/cn_baseline/`.
 
 > **Training note.** Focal loss requires the RetinaNet/CenterNet output-head
 > init (small weights + negative prior bias); without it the model collapses to
