@@ -1,0 +1,53 @@
+data:
+  abc_step_dir: stage3_primitivesfitting/research/data/abc_dataset/step_files
+  deepcad_dir: stage3_primitivesfitting/research/data/deepcad
+  training_dir: stage3_primitivesfitting/research/data/free2cad_training
+  weights_dir: models
+free2cad:
+  device: cuda
+  repo_path: stage3_primitivesfitting/research/repos/Free2CAD/networkTraining
+  weights: models/free2cad_v3_best.pth
+pipeline:
+  log_level: INFO
+  resume: true
+  workers: 4
+puhachov:
+  device: cuda:0
+  fusion: true
+  keypoint_threshold: 0.3
+  nms_radius: 5
+  weights: models/puhachov_d2c.pth
+sketchcleannet:
+  device: cpu
+  weights: models/sketchcleannet.pth
+stage1:
+  classical:
+    adaptive_C: 10
+    adaptive_block: 35
+    blend_alpha: 0.6
+    blur_kernel: 3
+    min_cc_size: 30
+    morph_kernel: 2
+  quality_threshold: 0.7
+stage2:
+  isolation_threshold: 0.3
+  junction_merge_radius: 0.0
+  max_input_resolution: 0
+  merge_collinear_max_angle: 28.0
+  min_closed_loop_pixels: 80
+  nms_reference_resolution: 512
+  remove_hachures: false
+  simplify_graph: true
+  spline_overshoot_limit: 5.0
+  spur_min_length: 6.0
+stage3:
+  confidence_threshold: 0.6
+training:
+  batch_size: 32
+  epochs: 100
+  lr: 0.0001
+  max_pts: 32
+  max_strokes: 20
+  n_samples: 30000
+  noise_std: 0.005
+  splits: 0.85,0.10,0.05

@@ -531,6 +531,28 @@ def _clusters_from_points(
     return list(used.values())
 
 
+def _fuse_cn_cnn_clusters(
+    skeleton: np.ndarray, cnn_keypoints: list[dict], min_corner_dist: float = 5.0
+) -> list[dict]:
+    """
+    Fusion seeding: keep the CN endpoints + junctions (near-exact on clean
+    skeletons via crossing number) and add ONLY the CNN's *corners* — genuine
+    `CN==2` points the crossing number cannot detect. CNN corners within
+    `min_corner_dist` px of an existing CN endpoint/junction are dropped as
+    redundant (so a corner next to a real junction doesn't spawn a tiny spur).
+    """
+    cn = _cn_keypoint_clusters(skeleton)
+    base = [c for c in cn if c["type"] in (KP_ENDPOINT, KP_JUNCTION)]
+    corner_pts = [k for k in cnn_keypoints if k.get("type") == KP_CORNER]
+    corners = _clusters_from_points(corner_pts, skeleton)
+    if base and corners:
+        bx = np.array([[c["x"], c["y"]] for c in base], dtype=np.float64)
+        d2_min = float(min_corner_dist) ** 2
+        corners = [c for c in corners
+                   if ((bx[:, 0] - c["x"]) ** 2 + (bx[:, 1] - c["y"]) ** 2).min() > d2_min]
+    return base + corners
+
+
 def _materialize_keypoint_clusters(
     clusters: list[dict], binary: np.ndarray, H: int, W: int
 ) -> tuple[list[dict], dict, dict]:
@@ -1595,8 +1617,11 @@ def run(
                 f"{int((skeleton > 0).sum())} foreground px")
 
     # ── Layer 1: Keypoint detection ───────────────────────────────────────
-    conf_thresh = cfg_kp.get("keypoint_threshold", 0.50)
-    nms_radius  = cfg_kp.get("nms_radius",         5)
+    # Keypoint detector knobs live in the `puhachov` config block; fall back to
+    # `stage2` then a default for backward compatibility.
+    cfg_puh     = config.get("puhachov", {})
+    conf_thresh = cfg_puh.get("keypoint_threshold", cfg_kp.get("keypoint_threshold", 0.50))
+    nms_radius  = cfg_puh.get("nms_radius",         cfg_kp.get("nms_radius", 5))
 
     # Scale NMS radius up for images larger than the model's training resolution.
     ref_res = cfg_kp.get("nms_reference_resolution", 512)
@@ -1608,13 +1633,20 @@ def run(
     # Keypoint clusters seed topology extraction. The CN path produces the same
     # clusters _extract_topology used to recompute internally (byte-identical);
     # a learned detector returns bare points that are snapped onto the skeleton.
+    fusion        = bool(cfg_puh.get("fusion", False))
+    fusion_dist   = cfg_puh.get("fusion_min_corner_dist", 5.0)
     if model is not None:
         try:
             keypoints   = model.detect(skeleton, conf_thresh, nms_radius)
-            kp_clusters = _clusters_from_points(keypoints, skeleton)
-            kp_source   = "cnn"
+            if fusion:
+                # CN endpoints/junctions + CNN corners only
+                kp_clusters = _fuse_cn_cnn_clusters(skeleton, keypoints, fusion_dist)
+                kp_source   = "fusion"
+            else:
+                kp_clusters = _clusters_from_points(keypoints, skeleton)
+                kp_source   = "cnn"
             logger.info(f"[{sketch_id}] CNN detected {len(keypoints)} keypoints "
-                        f"→ {len(kp_clusters)} clusters")
+                        f"→ {len(kp_clusters)} clusters ({kp_source})")
         except Exception as exc:
             logger.warning(f"[{sketch_id}] CNN keypoint detection failed "
                            f"({exc}), using classical fallback")
