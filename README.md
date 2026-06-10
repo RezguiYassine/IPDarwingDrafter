@@ -678,8 +678,13 @@ high-precision pilot result, not a full-corpus claim.
   crop overlays + leader lines and DXF leader geometry
 - **Stage 1** — SketchCleanNet inference; classical fallback; bottom-edge
   ghost-ink artefact fixed; stroke-width estimation via distance transform
-- **Stage 2** — production CN-cluster skeleton tracing; guarded Puhachov loader
-  rejects incompatible checkpoints instead of silently using bad weights;
+- **Stage 2** — production CN-cluster skeleton tracing; topology extraction now
+  consumes keypoint *clusters* (`_extract_topology(kp_clusters=…)`) so the
+  detector controls the graph; **default fusion seeding** (`puhachov.fusion: true`,
+  shipped `models/puhachov_d2c.pth`) — CN endpoints/junctions + the keypoint CNN's
+  corners — beats the pure-CN path on Drawing2CAD all-views (Chamfer, IoU,
+  primitives) and is much faster on cornered closed shapes, with automatic pure-CN
+  fallback; guarded loader rejects incompatible checkpoints;
   **resolution cap** (`max_input_resolution: 1000`) — skeletons larger than
   1 000 px are dilated, downsampled, and re-skeletonized (Zhang-Suen) before
   topology extraction runs, preventing 100×–300× over-segmentation on large patent TIFs;
@@ -768,11 +773,21 @@ high-precision pilot result, not a full-corpus claim.
    - broaden the residual visual audit from 100 samples to a larger filtered
      PatentData slice before generating the final LLM training manifest.
 
-4. **True Puhachov replacement** — the local checkpoint is incompatible and the old
-   code path did not affect topology. Port/retrain a compatible keypoint detector
-   only after the CN/gated baseline has a clean full-corpus manifest. See the
-   [Roadmap — Puhachov retraining & CN-vs-CNN comparison](#roadmap--puhachov-keypoint-cnn-retraining--cn-vs-cnn-comparison)
-   section below for the concrete plan.
+4. **Keypoint CNN — done; fusion is the default, patent gap is open.** The
+   detector was retrained on Drawing2CAD and the **fusion** seeding (CN
+   endpoints/junctions + CNN corners) now beats the pure-CN path on D2C all-views
+   and is the production default (see
+   [Roadmap → Results](#results--cn-vs-cnn-vs-fusion-executed)). It is **neutral on
+   PatentData** (out-of-distribution). Domain-randomized fine-tuning narrowed the
+   gap at the *detector* (−59 % spurious corners on patent skeletons) but did not
+   change patent *output* metrics. Remaining work to make fusion win on patents:
+   - a **small gold corner-labelled patent eval set** (~50–100 sketches) — the
+     intrinsic metrics used so far are insensitive to corner-only changes, so this
+     is needed just to *measure* progress;
+   - **real-patent pseudo-labels** (cleaned-graph nodes + fitted-primitive corners)
+     to fine-tune on the true patent skeleton distribution;
+   - check whether the bottleneck is **downstream** (fusion corner-dedup +
+     `_simplify_graph` discard the corner gains before Stage 3 sees them).
 
 5. **Stroke fragmentation** *(largely addressed — see "Stroke de-fragmentation"
    above)* — the `_simplify_graph` pass cut D2C primitives −37 % and PatentData
