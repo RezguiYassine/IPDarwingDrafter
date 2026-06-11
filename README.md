@@ -993,26 +993,37 @@ labelled patent eval set to measure the effect directly. The
 ### Accuracy error-attribution (where the Chamfer actually comes from)
 
 Before investing in any one stage, [`tools/error_attribution.py`](tools/error_attribution.py)
-decomposes the headline D2C Chamfer into per-stage contributions — it measures
-the skeleton Chamfer between the GT skeleton and each stage's geometry (Stage-1
-skeleton, Stage-2 graph, Stage-3 primitives) in the same frame. On 140 test
-samples (35/view):
+decomposes the headline D2C Chamfer into per-stage contributions — GT skeleton vs
+each stage's geometry, with Stage 3 rasterized through the **real Stage-4 SVG**
+(cairosvg, the actual eval renderer). On 120 test samples (30/view):
 
 | view | Stage 1 | Stage 2 | Stage 3 |
 |------|--------:|--------:|--------:|
-| Front | 0.000 | 0.002 | **1.24** |
-| Top | 0.000 | 0.003 | **0.72** |
-| Right | 0.000 | 0.003 | **0.20** |
-| FrontTopRight | 0.000 | 0.003 | **3.90** |
-| **all** | **0.000** | **0.003** | **1.56** |
+| Front | 0.000 | 0.002 | **1.23** |
+| Top | 0.000 | 0.003 | **0.86** |
+| Right | 0.000 | 0.003 | **0.84** |
+| FrontTopRight | 0.000 | 0.003 | **2.35** |
+| **all** | **0.000** | **0.003** | **1.32** |
 
-**Stage 1 and Stage 2 add ~zero error; essentially 100 % of the geometric error
-is introduced by Stage 3 primitive fitting** — and the isometric view's blow-up
-is *entirely* a Stage-3 failure. So the next accuracy work belongs in Stage 3
-(CAD-aware regularisation: snap near-axis lines, 90° corners, parallel/concentric
-constraints), not in the skeleton or topology. (Caveat: Stage 1 reads 0 because
-the reference is itself `skeletonize(GT raster)`, so the skeleton-vs-true-geometry
-ceiling is invisible to the *headline* metric.)
+**Stage 1 and Stage 2 add ~zero error; ~100 % of the geometric error is Stage-3
+primitive fitting.** But targeted diagnosis (`/tmp` probes) corrected the *kind*
+of Stage-3 error twice:
+
+- **not axis-tilt** — D2C lines fit near-exactly (per-segment placement: line
+  0.1 px, polyline 0.2 px, polygon 0.6 px); axis-snapping would do ~nothing;
+- **not arcs** — an early "arcs are 40 px off" reading was a *measurement
+  artifact* (hand-drawing arcs mis-renders sweep direction); the real Stage-4
+  arc output is sub-pixel. (`error_attribution.py` now renders via the real SVG.)
+
+The genuine residual is a **tail of curved-feature samples** (fillets, rounded
+edges, cylinder silhouettes — ellipse/arc shapes in isometric projection): the
+**median isometric Chamfer is ~1.0 px (already good)**, but a ~10 % tail of such
+samples reaches 6–10 px where a curve is approximated by a **deviating/oscillating
+polyline** instead of a smooth arc/ellipse. So the real Stage-3 accuracy lever is
+**accurate curve fitting on rounded features**, not CAD line-regularisation — and
+it is tail-reduction, since the median is already sub-px-to-1 px. (Caveat: Stage 1
+reads 0 because the reference is itself `skeletonize(GT raster)`, so the
+skeleton-vs-true-geometry ceiling is invisible to the *headline* metric.)
 
 For the patent domain, which has no GT, [`tools/patent_gold_sample.py`](tools/patent_gold_sample.py)
 builds a **corner-only** gold-labelling pack (CN handles patent endpoints/junctions;

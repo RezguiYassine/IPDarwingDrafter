@@ -39,9 +39,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 for sub in ("stage1_preprocessing", "stage2_strokeextraction",
             "stage3_primitivesfitting", "stage4_export"):
     sys.path.insert(0, str(PROJECT_ROOT / sub))
+import io  # noqa: E402
+
+import cairosvg  # noqa: E402
+from PIL import Image  # noqa: E402
+
 import stage1_preprocess        # noqa: E402
 import stage2_stroke_extract    # noqa: E402
 import stage3_primitive_fit     # noqa: E402
+import stage4_export            # noqa: E402
 from tools.d2c_eval import _rasterize_svg_to_binary, RENDER_RES  # noqa: E402
 
 D2C_ROOT = PROJECT_ROOT / "data" / "Drawing2CAD"
@@ -75,7 +81,17 @@ def _graph_mask(graph_path: Path, shape) -> np.ndarray:
     return m
 
 
-def _prim_mask(prim_path: Path, shape) -> np.ndarray:
+def _svg_skeleton(svg_path: Path) -> np.ndarray:
+    """Rasterize the real Stage-4 output SVG via cairosvg (the actual eval
+    renderer) and skeletonize — this is the faithful Stage-3 geometry. Drawing
+    primitives by hand mis-renders arc sweep direction and inflates the error."""
+    png = cairosvg.svg2png(url=str(svg_path), output_width=RENDER_RES,
+                           output_height=RENDER_RES, background_color="white")
+    g = np.array(Image.open(io.BytesIO(png)).convert("L"))
+    return skeletonize(g < 200)
+
+
+def _prim_mask(prim_path: Path, shape) -> np.ndarray:  # legacy / unused
     d = json.loads(Path(prim_path).read_text())
     canvas = np.zeros(shape, np.uint8)
 
@@ -129,7 +145,9 @@ def attribute_one(svg: Path, cfg, s1m, s2m, work: Path):
     s3 = stage3_primitive_fit.run(graph_path=s2.graph_path, output_dir=work,
                                   sketch_id=sid, config=cfg,
                                   stroke_width=s1.mean_stroke_width)
-    s3_mask = _fit(_prim_mask(s3.primitives_path, shape), shape)
+    s4 = stage4_export.run(input_json=s3.primitives_path, output_dir=work,
+                           sketch_id=sid, formats=("svg",), dxf_mode="basic")
+    s3_mask = _fit(_svg_skeleton(s4.svg_path), shape)   # real renderer
 
     return {
         "stage1": chamfer_sym(gt, s1_skel),
