@@ -990,6 +990,37 @@ pseudo-labels (graph nodes + fitted-primitive corners) or a small gold corner-
 labelled patent eval set to measure the effect directly. The
 `puhachov_d2c_patentft.pth` weight is not shipped.
 
+### Accuracy error-attribution (where the Chamfer actually comes from)
+
+Before investing in any one stage, [`tools/error_attribution.py`](tools/error_attribution.py)
+decomposes the headline D2C Chamfer into per-stage contributions — it measures
+the skeleton Chamfer between the GT skeleton and each stage's geometry (Stage-1
+skeleton, Stage-2 graph, Stage-3 primitives) in the same frame. On 140 test
+samples (35/view):
+
+| view | Stage 1 | Stage 2 | Stage 3 |
+|------|--------:|--------:|--------:|
+| Front | 0.000 | 0.002 | **1.24** |
+| Top | 0.000 | 0.003 | **0.72** |
+| Right | 0.000 | 0.003 | **0.20** |
+| FrontTopRight | 0.000 | 0.003 | **3.90** |
+| **all** | **0.000** | **0.003** | **1.56** |
+
+**Stage 1 and Stage 2 add ~zero error; essentially 100 % of the geometric error
+is introduced by Stage 3 primitive fitting** — and the isometric view's blow-up
+is *entirely* a Stage-3 failure. So the next accuracy work belongs in Stage 3
+(CAD-aware regularisation: snap near-axis lines, 90° corners, parallel/concentric
+constraints), not in the skeleton or topology. (Caveat: Stage 1 reads 0 because
+the reference is itself `skeletonize(GT raster)`, so the skeleton-vs-true-geometry
+ceiling is invisible to the *headline* metric.)
+
+For the patent domain, which has no GT, [`tools/patent_gold_sample.py`](tools/patent_gold_sample.py)
+builds a **corner-only** gold-labelling pack (CN handles patent endpoints/junctions;
+corners are the contested, fine-tuned class) and
+[`tools/patent_gold_eval.py`](tools/patent_gold_eval.py) scores CN vs CNN-D2C vs
+CNN-FT corner precision/recall/F1 against the hand-corrected labels — the direct
+measure the intrinsic output metrics can't provide.
+
 Reproduce: train `models/puhachov_d2c.pth` via
 `stage2_strokeextraction/research/train_puhachov.py`; run arms with
 `tools/d2c_eval.py --split test --limit 1000 --views Front --seed 42` and
