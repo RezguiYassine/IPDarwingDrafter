@@ -1038,7 +1038,13 @@ Result (`error_attribution.py`, real Stage-4 render, 120 test samples):
 The isometric tail collapses (worst-case real Chamfer 10.3 → 1.5 px; isometric mean
 2.5 → 0.8) and the isometric view is **no longer an outlier** — all four views now
 sit at ~0.8 px. 7/7 Stage-2 regression tests still pass. The remaining ~0.8 px is
-sub-pixel/skeletonisation-floor territory. (Caveat: Stage 1 reads 0 because the
+sub-pixel/skeletonisation-floor territory.
+
+Confirmed by the official `d2c_eval` harness, paired on 800 samples (200 × 4
+views, seed 42): all-views **Chamfer mean 1.448 → 0.884 (−39 %)**, **p95 4.75 →
+1.47 (−69 %)**, pixel IoU 0.668 → 0.701, primitive count unchanged — a headline
+accuracy improvement to the production default from a single ~10-line smoothing
+guard. (Caveat: Stage 1 reads 0 because the
 reference is itself `skeletonize(GT raster)`, so the skeleton-vs-true-geometry
 ceiling is invisible to the *headline* metric.)
 
