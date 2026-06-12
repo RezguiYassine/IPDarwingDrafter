@@ -1015,15 +1015,32 @@ of Stage-3 error twice:
   artifact* (hand-drawing arcs mis-renders sweep direction); the real Stage-4
   arc output is sub-pixel. (`error_attribution.py` now renders via the real SVG.)
 
-The genuine residual is a **tail of curved-feature samples** (fillets, rounded
-edges, cylinder silhouettes — ellipse/arc shapes in isometric projection): the
-**median isometric Chamfer is ~1.0 px (already good)**, but a ~10 % tail of such
-samples reaches 6–10 px where a curve is approximated by a **deviating/oscillating
-polyline** instead of a smooth arc/ellipse. So the real Stage-3 accuracy lever is
-**accurate curve fitting on rounded features**, not CAD line-regularisation — and
-it is tail-reduction, since the median is already sub-px-to-1 px. (Caveat: Stage 1
-reads 0 because the reference is itself `skeletonize(GT raster)`, so the
-skeleton-vs-true-geometry ceiling is invisible to the *headline* metric.)
+The genuine residual was a **tail of curved-feature samples** (fillets, rounded
+edges, cylinder silhouettes — ellipse/arc shapes in isometric projection) where a
+curve was approximated by a **deviating polyline** reaching 6–10 px. Root cause
+(found by probing `smooth_pts` vs the raw skeleton): **Stage 2's B-spline
+`smooth_pts` oscillated up to 95 px off the skeleton** (Runge "leaf"), and the
+existing overshoot guard only checked *bbox exit* — the oscillation stayed inside
+the bbox. **Fix:** `_smooth_edges` now also rejects a spline whose samples deviate
+from the raw pixel chain by more than `spline_overshoot_limit`, falling back to
+the on-skeleton RDP points.
+
+Result (`error_attribution.py`, real Stage-4 render, 120 test samples):
+
+| view | Stage-3 before | Stage-3 after |
+|------|---------------:|--------------:|
+| Front | 1.23 | **0.79** |
+| Top | 0.86 | 0.86 |
+| Right | 0.84 | 0.84 |
+| FrontTopRight | 2.35 | **0.82** |
+| **all** | **1.32** | **0.83** |
+
+The isometric tail collapses (worst-case real Chamfer 10.3 → 1.5 px; isometric mean
+2.5 → 0.8) and the isometric view is **no longer an outlier** — all four views now
+sit at ~0.8 px. 7/7 Stage-2 regression tests still pass. The remaining ~0.8 px is
+sub-pixel/skeletonisation-floor territory. (Caveat: Stage 1 reads 0 because the
+reference is itself `skeletonize(GT raster)`, so the skeleton-vs-true-geometry
+ceiling is invisible to the *headline* metric.)
 
 For the patent domain, which has no GT, [`tools/patent_gold_sample.py`](tools/patent_gold_sample.py)
 builds a **corner-only** gold-labelling pack (CN handles patent endpoints/junctions;

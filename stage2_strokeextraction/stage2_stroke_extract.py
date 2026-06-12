@@ -46,6 +46,7 @@ import networkx as nx
 import numpy as np
 from rdp import rdp
 from scipy.interpolate import splev, splprep
+from scipy.spatial import cKDTree
 
 logger = logging.getLogger(__name__)
 
@@ -1421,6 +1422,23 @@ def _smooth_edges(
                     f"(bbox x=[{x_min:.0f},{x_max:.0f}] y=[{y_min:.0f},{y_max:.0f}] "
                     f"spline x=[{x_new.min():.0f},{x_new.max():.0f}] "
                     f"y=[{y_new.min():.0f},{y_new.max():.0f}]) — using RDP fallback"
+                )
+                edge["smooth_pts"] = rdp_pts
+                continue
+
+            # Guard 2: reject the spline if it wanders off the actual skeleton.
+            # The bbox guard above misses *interior* oscillations (the Runge
+            # "leaf"): the spline stays inside the edge bbox yet deviates tens of
+            # px from the raw pixel chain, and the polyline fallback then traces
+            # that garbage. Measure max distance from each spline sample to the
+            # nearest raw skeleton pixel; if it exceeds the overshoot limit the
+            # spline failed — fall back to RDP points, which stay on-skeleton.
+            max_dev = float(cKDTree(pts).query(np.column_stack([x_new, y_new]))[0].max())
+            if max_dev > spline_overshoot_limit:
+                logger.debug(
+                    f"Spline off-skeleton on edge {edge['id']} "
+                    f"(max_dev={max_dev:.1f}px > {spline_overshoot_limit}) — "
+                    f"using RDP fallback"
                 )
                 edge["smooth_pts"] = rdp_pts
                 continue
