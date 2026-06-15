@@ -931,9 +931,93 @@ def _build_removal_mask(
     return mask
 
 
+# ── OCR-based reference detection ─────────────────────────────────────────────
+# The shape heuristic detects "text-like clusters" by component geometry, which
+# over-fires badly on dense figures (180 false labels on a 28-numeral drawing →
+# ~65 % ink wrongly removed). A reference is a *numeral*; an OCR text detector
+# (easyocr/CRAFT) localizes them precisely. We use the detection + a short-
+# numeric filter (recognition is unreliable on small print, but a 1–3 char
+# numeric read is enough to confirm a reference) and keep only numeral-sized
+# boxes — high precision, so it removes references without eating geometry.
+
+_OCR_READER = None
+
+
+def _get_ocr_reader(cfg: dict[str, Any]):
+    global _OCR_READER
+    if _OCR_READER is None:
+        import easyocr
+        _OCR_READER = easyocr.Reader(["en"], gpu=bool(cfg.get("ocr_gpu", False)),
+                                     verbose=False)
+    return _OCR_READER
+
+
+def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    import re
+    reader = _get_ocr_reader(cfg)
+    res = reader.readtext(
+        gray,
+        canvas_size=int(cfg.get("ocr_canvas_size", 4000)),
+        mag_ratio=float(cfg.get("ocr_mag_ratio", 3.0)),
+        text_threshold=float(cfg.get("ocr_text_threshold", 0.4)),
+        low_text=float(cfg.get("ocr_low_text", 0.25)),
+    )
+    # Numeral size scales with image resolution, so the filter is relative to
+    # image height (a numeral is ~0.4–5 % of the page) plus an aspect cap
+    # (1–3 digits ⇒ width ≲ a few × height; rejects long titles like "FIG. 1").
+    H, W = gray.shape
+    min_h = max(6, int(cfg.get("ocr_min_h_frac", 0.004) * H))
+    max_h = int(cfg.get("ocr_max_h_frac", 0.05) * H)
+    max_aspect = float(cfg.get("ocr_max_aspect", 4.0))
+    max_chars = int(cfg.get("ocr_max_chars", 4))
+    conf_th = float(cfg.get("ocr_conf", 0.30))
+    numeric = re.compile(r"\d{1,3}[a-fA-F'.]?$")
+    labels: list[dict[str, Any]] = []
+    for box, txt, conf in res:
+        t = str(txt).strip()
+        if conf < conf_th or not t or len(t) > max_chars or not numeric.match(t):
+            continue
+        xs = [p[0] for p in box]; ys = [p[1] for p in box]
+        x0, y0 = int(min(xs)), int(min(ys))
+        bw, bh = int(max(xs) - x0), int(max(ys) - y0)
+        if not (min_h <= bh <= max_h and 2 <= bw <= max_aspect * bh):
+            continue
+        labels.append({
+            "bbox": [x0, y0, bw, bh],
+            "centroid": [x0 + bw / 2.0, y0 + bh / 2.0],
+            "components": [[x0, y0, bw, bh]],
+            "ink_area": int(bw * bh),
+            "kind": "ocr_numeral",
+            "text": t,
+            "confidence": float(conf),
+            "leader_lines": [],
+        })
+    return labels
+
+
 def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
     ink, background = _ink_mask(gray)
     h, w = gray.shape
+
+    if cfg.get("use_ocr"):
+        labels = _ocr_reference_labels(gray, cfg)
+        mask = (_build_removal_mask((h, w), labels, cfg) if labels
+                else np.zeros((h, w), np.uint8))
+        removed_ink = int(np.count_nonzero((mask > 0) & ink))
+        total_ink = int(np.count_nonzero(ink))
+        removed_ratio = removed_ink / max(1, total_ink)
+        flagged, reason = False, "ok_ocr"
+        if removed_ratio > float(cfg["max_removed_ink_ratio"]):
+            flagged = True
+            reason = f"removed_ink_ratio_too_high:{removed_ratio:.4f}"
+        return {
+            "ink": ink, "background": background, "labels": labels,
+            "n_clusters": len(labels), "n_leadered_labels": 0,
+            "n_unleadered_labels": len(labels), "n_figure_labels": 0,
+            "mask": mask, "removed_ink": removed_ink, "total_ink": total_ink,
+            "removed_ratio": removed_ratio, "flagged": flagged, "reason": reason,
+        }
+
     comps = _component_candidates(ink, cfg)
     clusters = _group_text_clusters(comps, ink, cfg)
     segments = _hough_segments(ink, clusters, cfg)
