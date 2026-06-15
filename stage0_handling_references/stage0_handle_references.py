@@ -32,6 +32,7 @@ from typing import Any, Iterable, Optional
 
 import cv2
 import numpy as np
+from skimage.morphology import skeletonize
 
 logger = logging.getLogger(__name__)
 
@@ -941,14 +942,36 @@ def _build_removal_mask(
 # boxes — high precision, so it removes references without eating geometry.
 
 _OCR_READER = None
+_OCR_AVAILABLE: Optional[bool] = None
+
+
+def _ocr_available() -> bool:
+    """True if easyocr can be imported (so use_ocr can default on safely:
+    falls back to the classical detector when the dependency is absent)."""
+    global _OCR_AVAILABLE
+    if _OCR_AVAILABLE is None:
+        try:
+            import easyocr  # noqa: F401
+            _OCR_AVAILABLE = True
+        except Exception:
+            _OCR_AVAILABLE = False
+            logger.warning("stage0.use_ocr set but easyocr unavailable — "
+                           "falling back to the classical reference detector.")
+    return _OCR_AVAILABLE
 
 
 def _get_ocr_reader(cfg: dict[str, Any]):
     global _OCR_READER
     if _OCR_READER is None:
         import easyocr
-        _OCR_READER = easyocr.Reader(["en"], gpu=bool(cfg.get("ocr_gpu", False)),
-                                     verbose=False)
+        # ocr_gpu may be False, True, or a device string like "cuda:0" (pinning
+        # one device avoids easyocr's DataParallel OOM under multi-worker batch).
+        dev = cfg.get("ocr_gpu", False)
+        try:
+            _OCR_READER = easyocr.Reader(["en"], gpu=dev, verbose=False)
+        except Exception as exc:   # no CUDA / bad device → CPU
+            logger.warning(f"easyocr GPU init failed ({exc}); using CPU.")
+            _OCR_READER = easyocr.Reader(["en"], gpu=False, verbose=False)
     return _OCR_READER
 
 
@@ -995,12 +1018,94 @@ def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[st
     return labels
 
 
+def _skeleton_degree(skel: np.ndarray) -> np.ndarray:
+    """8-neighbour count at each skeleton pixel (≥3 ⇒ junction)."""
+    s = (skel > 0).astype(np.uint8)
+    k = np.ones((3, 3), np.uint8); k[1, 1] = 0
+    return s * cv2.filter2D(s, -1, k, borderType=cv2.BORDER_CONSTANT)
+
+
+def _trace_ocr_leaders(gray: np.ndarray, labels: list[dict[str, Any]],
+                       cfg: dict[str, Any]) -> None:
+    """Conservatively trace the leader line of each OCR numeral and attach it.
+
+    From the numeral box we skeletonize the local ink, seed at skeleton pixels
+    touching the box, and walk outward — stopping at the first junction (where
+    the leader meets the labelled feature), an endpoint, or a length bound. Only
+    a near-straight trace is accepted. This anchors on a CONFIRMED numeral and
+    stops at the feature, so unlike the global-Hough heuristic it cannot swallow
+    real geometry.
+    """
+    ink, _ = _ink_mask(gray)
+    H, W = gray.shape
+    diag = math.hypot(H, W)
+    max_len = float(cfg.get("ocr_leader_max_len", 0) or 0)
+    if max_len <= 0:
+        max_len = min(float(cfg.get("leader_max_length", 400) or 400),
+                      float(cfg.get("leader_max_length_ratio", 0.28) or 0.28) * diag)
+    min_len = float(cfg.get("ocr_leader_min_len", 8))
+    straight_min = float(cfg.get("ocr_leader_straightness", 0.80))
+    pad = int(cfg.get("text_bbox_pad", 3))
+    m = int(max_len) + 6
+    for lab in labels:
+        x, y, bw, bh = lab["bbox"]
+        x0, y0 = max(0, x - m), max(0, y - m)
+        x1, y1 = min(W, x + bw + m), min(H, y + bh + m)
+        sub = (ink[y0:y1, x0:x1] > 0).astype(np.uint8)
+        nx0, ny0 = max(0, x - pad - x0), max(0, y - pad - y0)
+        nx1, ny1 = min(sub.shape[1], x + bw + pad - x0), min(sub.shape[0], y + bh + pad - y0)
+        sub[ny0:ny1, nx0:nx1] = 0           # erase the numeral itself
+        if sub.sum() == 0:
+            continue
+        skel = skeletonize(sub > 0).astype(np.uint8)
+        deg = _skeleton_degree(skel)
+        skset = set(zip(*[a.tolist() for a in np.where(skel > 0)][::-1]))  # (x,y)
+        seeds = [(px, py) for (px, py) in skset
+                 if max(nx0 - px, 0, px - nx1) <= 5 and max(ny0 - py, 0, py - ny1) <= 5]
+        best = None
+        for sx, sy in seeds:
+            visited = {(sx, sy)}; path = [(sx, sy)]; cx, cy = sx, sy; length = 0.0; stop = False
+            while length < max_len:
+                if len(path) > 2 and deg[cy, cx] >= 3:
+                    stop = True; break
+                nbs = [(cx + dx, cy + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                       if (dx or dy) and (cx + dx, cy + dy) in skset
+                       and (cx + dx, cy + dy) not in visited]
+                if not nbs:
+                    stop = True; break
+                nxt = nbs[0]; length += math.hypot(nxt[0] - cx, nxt[1] - cy)
+                visited.add(nxt); path.append(nxt); cx, cy = nxt
+            if not (stop and len(path) >= 3):
+                continue
+            span = math.hypot(path[-1][0] - sx, path[-1][1] - sy)
+            if span < min_len or span / max(1.0, length) < straight_min:
+                continue
+            if best is None or span > best[1]:
+                best = (path, span)
+        if best:
+            p = best[0]
+            p1 = [float(p[0][0] + x0), float(p[0][1] + y0)]
+            p2 = [float(p[-1][0] + x0), float(p[-1][1] + y0)]
+            lab.setdefault("leader_lines", []).append({
+                "p1": p1, "p2": p2,
+                "label_endpoint": p1, "leader_to": p2,
+                "length": float(best[1]),
+                "angle_deg": _angle_deg(tuple(p1), tuple(p2)),
+                "endpoint_distance": 0.0, "segment_distance": 0.0,
+                "match_type": "ocr_trace", "removed": True,
+                "mask_full_segment": True,
+            })
+
+
 def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
     ink, background = _ink_mask(gray)
     h, w = gray.shape
 
-    if cfg.get("use_ocr"):
+    if cfg.get("use_ocr") and _ocr_available():
         labels = _ocr_reference_labels(gray, cfg)
+        if labels and cfg.get("ocr_leaders", True):
+            _trace_ocr_leaders(gray, labels, cfg)
+        n_leadered = sum(1 for lab in labels if lab.get("leader_lines"))
         mask = (_build_removal_mask((h, w), labels, cfg) if labels
                 else np.zeros((h, w), np.uint8))
         removed_ink = int(np.count_nonzero((mask > 0) & ink))
@@ -1012,8 +1117,8 @@ def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, A
             reason = f"removed_ink_ratio_too_high:{removed_ratio:.4f}"
         return {
             "ink": ink, "background": background, "labels": labels,
-            "n_clusters": len(labels), "n_leadered_labels": 0,
-            "n_unleadered_labels": len(labels), "n_figure_labels": 0,
+            "n_clusters": len(labels), "n_leadered_labels": n_leadered,
+            "n_unleadered_labels": len(labels) - n_leadered, "n_figure_labels": 0,
             "mask": mask, "removed_ink": removed_ink, "total_ink": total_ink,
             "removed_ratio": removed_ratio, "flagged": flagged, "reason": reason,
         }

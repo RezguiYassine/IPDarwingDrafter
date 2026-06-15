@@ -47,7 +47,22 @@ stage0:
   enabled: true                 # PatentData: remove reference numerals/leaders
                                  # before skeletonisation, then reinject them
                                  # during export as annotations.
-  max_iterations: 10             # Multiple bounded passes catch references that
+  # ── OCR reference detection (DEFAULT) ──────────────────────────────────────
+  # A reference is a numeral; an OCR text detector localizes them precisely,
+  # where the classical shape heuristic over-fired (median 23% ink removed on
+  # PatentData, destroying drawings). OCR cuts that to ~5% (0/89 sketches >30%).
+  # Falls back to the classical detector automatically if easyocr is absent.
+  use_ocr: true
+  ocr_gpu: "cuda:0"             # False=CPU (robust, slow), True/"cuda:N"=GPU.
+                                 # For multi-worker GPU batches keep a single
+                                 # device (string) + modest --workers to avoid
+                                 # easyocr DataParallel OOM; CPU-falls-back if no CUDA.
+  ocr_canvas_size: 3000         # OCR working resolution (memory vs small-numeral recall)
+  ocr_conf: 0.30                # min OCR confidence for a numeral
+  ocr_leaders: true             # also trace+remove each numeral's leader line
+                                 # (conservative: stops at the feature junction)
+  max_iterations: 10             # Classical-path only; OCR converges in 1 pass.
+                                 # Multiple bounded passes catch references that
                                  # become detectable only after earlier removals.
   require_leader: true           # Only remove small text clusters linked to a
                                  # nearby leader/help line, plus strict
