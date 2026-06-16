@@ -1223,18 +1223,33 @@ def _simplify_graph(
             continue   # recompute adjacency before dissolving
 
         # ── (b) degree-2 dissolution ────────────────────────────────────────
+        # Maintain a LIVE adjacency: each merge in this pass rewrites edge
+        # endpoints, so a once-per-pass static adjacency would let us pop a node
+        # that an earlier merge just made an endpoint of — leaving that edge
+        # pointing at a deleted node (the dangling-reference bug). Updating
+        # incidence after every merge keeps the "exactly two incident edges"
+        # test honest while still dissolving whole chains in one pass.
         adj = build_adj()
-        for nid, idxs in adj.items():
-            alive = [k for k in idxs if E[k] is not None]
-            if len(alive) != 2:
+        live = defaultdict(set)
+        for n_, idxs in adj.items():
+            for k in idxs:
+                if E[k] is not None:
+                    live[n_].add(k)
+        for nid in list(live.keys()):
+            inc = [k for k in live[nid] if E[k] is not None]
+            if len(inc) != 2:
                 continue
-            i, j = alive
+            i, j = inc
             if i == j:
                 continue   # self-loop edge through this node — leave it
-            if other(E[i], nid) == nid or other(E[j], nid) == nid:
+            fa, fb = other(E[i], nid), other(E[j], nid)
+            if fa == nid or fb == nid:
                 continue
-            merge(i, j, nid)
+            merge(i, j, nid)            # E[i] := fa—fb ; E[j] := None
             node_by_id.pop(nid, None)
+            live.pop(nid, None)
+            live[fa].discard(j); live[fb].discard(j)
+            live[fa].add(i);     live[fb].add(i)
             changed = True
         if changed:
             continue
@@ -1291,6 +1306,20 @@ def _simplify_graph(
         used_nodes.add(e["target"])
 
     out_nodes = [node_by_id[nid] for nid in node_by_id if nid in used_nodes]
+
+    # Invariant guard: every edge endpoint must exist as a node. The live-
+    # adjacency dissolution above keeps this true, but synthesize any missing
+    # endpoint from the edge's pixel coords so the contract holds unconditionally
+    # (a dangling reference breaks every downstream topology consumer).
+    have = {n["id"] for n in out_nodes}
+    for e in alive_edges:
+        for nid, px in ((e["a"], e["pix"][0] if e["pix"] else None),
+                        (e["b"], e["pix"][-1] if e["pix"] else None)):
+            if nid not in have:
+                x, y = (int(px[0]), int(px[1])) if px is not None else (0, 0)
+                out_nodes.append({"id": nid, "x": x, "y": y,
+                                  "type": KP_ENDPOINT, "confidence": 1.0})
+                have.add(nid)
 
     out_edges = []
     eid = 0

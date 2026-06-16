@@ -145,6 +145,33 @@ def test_clusters_from_points_dedupes_and_drops_far_points():
     assert 1 <= len(clusters) <= 2, f"expected dedupe + far-point drop, got {len(clusters)}"
 
 
+def _grid(img):
+    # A grid of lines: many junctions joined by degree-2 chains — the structure
+    # that triggered the dangling-reference bug (a once-per-pass static
+    # adjacency popped a node an in-pass merge had just made an edge endpoint).
+    for y in range(40, 220, 30):
+        cv2.line(img, (40, y), (200, y), 255, 2)
+    for x in range(40, 220, 30):
+        cv2.line(img, (x, 40), (x, 190), 255, 2)
+
+
+def test_simplify_graph_has_no_dangling_references():
+    """Every edge endpoint must exist as a node after simplification."""
+    sk = _skeleton(_grid, size=256)
+    nodes, edges = s2._extract_topology(sk, kp_clusters=None)
+    for radius in (0.0, 4.0):           # both the plain and hairball-merge paths
+        n2, e2 = s2._simplify_graph(
+            nodes, edges, spur_min_len=6.0, collinear_max_angle=28.0,
+            junction_merge_radius=radius,
+        )
+        ids = {n["id"] for n in n2}
+        dangling = [e for e in e2
+                    if e["source"] not in ids or e["target"] not in ids]
+        assert not dangling, (
+            f"radius={radius}: {len(dangling)}/{len(e2)} edges reference a "
+            f"missing node")
+
+
 # ─── Standalone runner (no pytest dependency) ────────────────────────────────
 
 if __name__ == "__main__":
