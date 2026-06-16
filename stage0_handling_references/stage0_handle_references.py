@@ -1097,12 +1097,86 @@ def _trace_ocr_leaders(gray: np.ndarray, labels: list[dict[str, Any]],
             })
 
 
+def _recover_missed_numerals(
+    ink: np.ndarray, ocr_labels: list[dict[str, Any]], cfg: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Recover numerals OCR missed, using the OCR hits to calibrate size.
+
+    easyocr/CRAFT localizes only ~60 % of numerals on patent line-art, so the
+    rest degrade into vector noise instead of being reinjected as clean crops.
+    EPO Rule 46 mandates a *uniform* numeral height per drawing, so the
+    OCR-confirmed numerals give us that height; we then accept ONLY isolated
+    connected components that match it, look digit-like, and sit in local
+    whitespace. A numeral touching geometry is part of a large CC and is filtered
+    out by size — so removing + reinjecting a recovered component can never eat
+    connected geometry. If OCR found nothing on this sketch we skip (no
+    calibration ⇒ no safe recovery).
+    """
+    if not ocr_labels or not cfg.get("ocr_cc_recovery", True):
+        return []
+    # Size band is image-relative (a numeral is ~1.2–5 % of page height). We do
+    # NOT calibrate to the OCR boxes' median height: easyocr groups adjacent
+    # numerals into one coarse box ("11 17", "10b -12"), which inflates the
+    # median and excludes the smaller single numerals OCR missed. Precision comes
+    # from the isolation ring-check below, not the size band.
+    H0 = ink.shape[0]
+    lo = float(cfg.get("ocr_cc_min_h_frac", 0.012)) * H0
+    hi = float(cfg.get("ocr_cc_max_h_frac", 0.05)) * H0
+    max_aspect = float(cfg.get("ocr_max_aspect", 4.0))
+    fill_lo = float(cfg.get("ocr_cc_fill_lo", 0.12))
+    fill_hi = float(cfg.get("ocr_cc_fill_hi", 0.85))
+    ring_max = float(cfg.get("ocr_cc_ring_max", 0.08))
+    H, W = ink.shape
+    taken = np.zeros((H, W), np.uint8)
+    for l in ocr_labels:
+        x, y, bw, bh = (int(v) for v in l["bbox"])
+        taken[max(0, y):y + bh, max(0, x):x + bw] = 1
+    n, _lab, stats, cents = cv2.connectedComponentsWithStats(
+        ink.astype(np.uint8), connectivity=8
+    )
+    out: list[dict[str, Any]] = []
+    for idx in range(1, n):
+        x, y, bw, bh, area = (int(v) for v in stats[idx])
+        if not (lo <= bh <= hi):
+            continue
+        if bw < 1 or bw > max_aspect * bh:
+            continue
+        fill = area / float(max(1, bw * bh))
+        if not (fill_lo <= fill <= fill_hi):
+            continue
+        cx, cy = cents[idx]
+        if taken[min(H - 1, max(0, int(cy))), min(W - 1, max(0, int(cx)))]:
+            continue                       # already an OCR label here
+        # isolation: the component must sit in local whitespace, not be embedded
+        # in dense geometry (a thin leader line passing by stays under ring_max).
+        m = max(2, int(0.5 * bh))
+        x0, y0 = max(0, x - m), max(0, y - m)
+        x1, y1 = min(W, x + bw + m), min(H, y + bh + m)
+        ring_ink = int(np.count_nonzero(ink[y0:y1, x0:x1])) - area
+        ring_area = (y1 - y0) * (x1 - x0) - bw * bh
+        if ring_area > 0 and ring_ink / ring_area > ring_max:
+            continue
+        out.append({
+            "bbox": [x, y, bw, bh],
+            "centroid": [float(cx), float(cy)],
+            "components": [[x, y, bw, bh]],
+            "ink_area": area,
+            "kind": "cc_recovered",
+            "text": "",
+            "confidence": 0.5,
+            "leader_lines": [],
+        })
+    return out
+
+
 def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
     ink, background = _ink_mask(gray)
     h, w = gray.shape
 
     if cfg.get("use_ocr") and _ocr_available():
         labels = _ocr_reference_labels(gray, cfg)
+        if labels:
+            labels = labels + _recover_missed_numerals(ink, labels, cfg)
         if labels and cfg.get("ocr_leaders", True):
             _trace_ocr_leaders(gray, labels, cfg)
         n_leadered = sum(1 for lab in labels if lab.get("leader_lines"))

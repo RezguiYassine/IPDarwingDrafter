@@ -61,6 +61,22 @@ stage0:
   ocr_conf: 0.30                # min OCR confidence for a numeral
   ocr_leaders: true             # also trace+remove each numeral's leader line
                                  # (conservative: stops at the feature junction)
+  # ── CC recovery ──────────────────────────────────────────────────────────
+  # easyocr localizes only ~60% of numerals on patent line-art, so the rest used
+  # to degrade into vector noise instead of being reinjected as clean crops.
+  # Recover them with size-banded, isolated, digit-like connected components: a
+  # numeral touching geometry is part of a large CC (filtered by size), and the
+  # isolation ring-check rejects anything embedded in dense geometry — so a
+  # recovered component can never eat connected geometry. Only runs when OCR
+  # already found ≥1 numeral (confirms the drawing has references).
+  ocr_cc_recovery: true
+  ocr_cc_min_h_frac: 0.012      # numeral height band as a fraction of image H
+  ocr_cc_max_h_frac: 0.05
+  ocr_cc_fill_lo: 0.12          # digit-like ink fill of the bbox (reject blobs/scatter)
+  ocr_cc_fill_hi: 0.85
+  ocr_cc_ring_max: 0.08         # max ink density in the margin around the glyph
+                                 # (isolation: numerals sit in whitespace; a thin
+                                 # passing leader stays under this, dense geometry doesn't)
   max_iterations: 10             # Classical-path only; OCR converges in 1 pass.
                                  # Multiple bounded passes catch references that
                                  # become detectable only after earlier removals.
