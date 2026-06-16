@@ -183,6 +183,96 @@ def _arc_endpoints(cx: float, cy: float, r: float,
     return (sx, sy), (ex, ey)
 
 
+def _svg_bezier_d(points: list) -> str:
+    """SVG `d` for a poly-cubic-Bézier control list P0,C1,C2,P1,C1',C2',P2,..."""
+    if not points or len(points) < 4 or (len(points) - 1) % 3 != 0:
+        return ""
+    p0 = points[0]
+    d = [f"M {float(p0[0]):.3f} {float(p0[1]):.3f}"]
+    for i in range(1, len(points), 3):
+        c1, c2, p = points[i], points[i + 1], points[i + 2]
+        d.append(f"C {float(c1[0]):.3f} {float(c1[1]):.3f} "
+                 f"{float(c2[0]):.3f} {float(c2[1]):.3f} "
+                 f"{float(p[0]):.3f} {float(p[1]):.3f}")
+    return " ".join(d)
+
+
+def _seg_endpoints(seg: dict):
+    """Return the two endpoints of a path segment (image space)."""
+    t = seg.get("type")
+    if t == "line":
+        return [float(seg["p1"][0]), float(seg["p1"][1])], [float(seg["p2"][0]), float(seg["p2"][1])]
+    if t == "bezier":
+        pts = seg.get("points") or []
+        return list(pts[0]), list(pts[-1])
+    if t == "arc":
+        cx, cy = seg["center"]
+        (sx, sy), (ex, ey) = _arc_endpoints(cx, cy, float(seg["radius"]),
+                                            seg["start_angle"], seg["end_angle"])
+        return [sx, sy], [ex, ey]
+    return None, None
+
+
+def _svg_segment_body(seg: dict, reverse: bool) -> str:
+    """SVG `d` body (no leading M) drawing a segment start→end, honouring reverse."""
+    t = seg.get("type")
+    if t == "line":
+        p = seg["p1"] if reverse else seg["p2"]
+        return f"L {float(p[0]):.3f} {float(p[1]):.3f}"
+    if t == "bezier":
+        pts = list(seg.get("points") or [])
+        if reverse:
+            pts = pts[::-1]
+        out = []
+        for i in range(1, len(pts), 3):
+            c1, c2, p = pts[i], pts[i + 1], pts[i + 2]
+            out.append(f"C {float(c1[0]):.3f} {float(c1[1]):.3f} "
+                       f"{float(c2[0]):.3f} {float(c2[1]):.3f} "
+                       f"{float(p[0]):.3f} {float(p[1]):.3f}")
+        return " ".join(out)
+    if t == "arc":
+        cx, cy = seg["center"]
+        r = float(seg["radius"])
+        (sx, sy), (ex, ey) = _arc_endpoints(cx, cy, r, seg["start_angle"], seg["end_angle"])
+        large_arc = 1 if ((seg["end_angle"] - seg["start_angle"]) % 360) > 180 else 0
+        if reverse:
+            return f"A {r:.3f} {r:.3f} 0 {large_arc} 0 {sx:.3f} {sy:.3f}"
+        return f"A {r:.3f} {r:.3f} 0 {large_arc} 1 {ex:.3f} {ey:.3f}"
+    return ""
+
+
+def _svg_path_continuous(segments: list) -> str:
+    """One continuous `d` across all segments — proper joins, no seam notches.
+
+    Segments come from a contiguous corner-split chain. Each is oriented by
+    nearest endpoint to the running pen position; tiny endpoint mismatches are
+    bridged with an `L` so the stroke stays a single connected path.
+    """
+    d = []
+    cur = None
+    for seg in segments:
+        a, b = _seg_endpoints(seg)
+        if a is None:
+            continue
+        if cur is None:
+            start, reverse, end = a, False, b
+            d.append(f"M {a[0]:.3f} {a[1]:.3f}")
+        else:
+            da = (cur[0] - a[0]) ** 2 + (cur[1] - a[1]) ** 2
+            db = (cur[0] - b[0]) ** 2 + (cur[1] - b[1]) ** 2
+            if da <= db:
+                start, reverse, end = a, False, b
+            else:
+                start, reverse, end = b, True, a
+            if (cur[0] - start[0]) ** 2 + (cur[1] - start[1]) ** 2 > 0.01:
+                d.append(f"L {start[0]:.3f} {start[1]:.3f}")
+        body = _svg_segment_body(seg, reverse)
+        if body:
+            d.append(body)
+        cur = end
+    return " ".join(d)
+
+
 def _export_svg(data: dict, out_path: Path,
                 default_sw: Optional[float] = None) -> int:
     """
@@ -274,6 +364,23 @@ def _export_svg(data: dict, out_path: Path,
                     el["transform"] = f"rotate({angle} {cx} {cy})"
                 dwg.add(el)
 
+            elif ptype == "bezier":
+                d = _svg_bezier_d(prim.get("points") or [])
+                if d:
+                    dwg.add(dwg.path(d=d, **stroke_kw))
+
+            elif ptype == "path":
+                # Compound stroke rendered as ONE continuous path so segment
+                # seams use proper line joins. (Separate per-segment elements
+                # left a ~1px missing-ink notch at every join that
+                # systematically inflated D2C Chamfer.) DXF still gets native
+                # LINE/ARC/SPLINE entities per segment.
+                d = _svg_path_continuous(prim.get("segments", []))
+                if d:
+                    skw = dict(stroke_kw)
+                    skw["stroke_linejoin"] = "round"
+                    dwg.add(dwg.path(d=d, **skw))
+
             else:
                 logger.warning(f"SVG: skipping unknown primitive type '{ptype}'")
                 continue
@@ -334,6 +441,48 @@ def _export_svg(data: dict, out_path: Path,
 
 
 # ─── DXF export — basic mode ─────────────────────────────────────────────────
+
+def _bezier_sample(points: list, per: int = 10) -> list:
+    """Sample a poly-cubic-Bézier control list into a smooth point list."""
+    if not points or len(points) < 4 or (len(points) - 1) % 3 != 0:
+        return [list(p) for p in points]
+    out = [list(points[0])]
+    for i in range(1, len(points), 3):
+        p0, c1, c2, p1 = points[i - 1], points[i], points[i + 1], points[i + 2]
+        for k in range(1, per + 1):
+            t = k / per
+            mt = 1.0 - t
+            x = (mt**3 * p0[0] + 3*mt**2*t * c1[0] + 3*mt*t**2 * c2[0] + t**3 * p1[0])
+            y = (mt**3 * p0[1] + 3*mt**2*t * c1[1] + 3*mt*t**2 * c2[1] + t**3 * p1[1])
+            out.append([x, y])
+    return out
+
+
+def _dxf_add_segment(msp, seg: dict, H: float, dxfattribs: Optional[dict] = None) -> None:
+    """Add one path segment to the modelspace as a native LINE / ARC / SPLINE."""
+    kw = {"dxfattribs": dxfattribs} if dxfattribs else {}
+    t = seg.get("type")
+    if t == "line":
+        msp.add_line(_flip_y_point(seg["p1"], H), _flip_y_point(seg["p2"], H), **kw)
+    elif t == "arc":
+        c = _flip_y_point(seg["center"], H)
+        s_new, e_new = _flip_y_arc_angles(seg["start_angle"], seg["end_angle"])
+        msp.add_arc(center=c, radius=seg["radius"],
+                    start_angle=s_new, end_angle=e_new, **kw)
+    elif t == "bezier":
+        pts = [_flip_y_point(p, H) for p in _bezier_sample(seg.get("points") or [])]
+        if len(pts) < 2:
+            return
+        try:
+            msp.add_spline(fit_points=pts, **kw)        # smooth native spline
+        except Exception:
+            msp.add_lwpolyline(pts, **kw)               # robust fallback
+
+
+def _dxf_add_path(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None) -> None:
+    for seg in prim.get("segments", []):
+        _dxf_add_segment(msp, seg, H, dxfattribs)
+
 
 def _export_dxf_basic(data: dict, out_path: Path) -> int:
     """
@@ -402,6 +551,12 @@ def _export_dxf_basic(data: dict, out_path: Path) -> int:
                 major_end = (a * math.cos(angle), a * math.sin(angle))
                 ratio    = max(min(b / a, 1.0), 1e-6) if a > 0 else 1.0
                 msp.add_ellipse(center=c, major_axis=major_end, ratio=ratio)
+
+            elif ptype == "bezier":
+                _dxf_add_segment(msp, prim, H)
+
+            elif ptype == "path":
+                _dxf_add_path(msp, prim, H)
 
             else:
                 logger.warning(f"DXF basic: skipping unknown type '{ptype}'")
@@ -554,6 +709,12 @@ def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
                     center=c, major_axis=major_end, ratio=ratio,
                     dxfattribs=attribs,
                 )
+
+            elif ptype == "bezier":
+                _dxf_add_segment(msp, prim, H, attribs)
+
+            elif ptype == "path":
+                _dxf_add_path(msp, prim, H, attribs)
 
             else:
                 logger.warning(f"DXF patent: skipping unknown type '{ptype}'")

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -454,6 +455,247 @@ def _refit_arc_as_line(edge: dict, edge_id) -> dict | None:
     return raw_line
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPOUND-PATH FITTER  (corner-split → per-segment line / arc / cubic Bézier)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Why this exists: ~21% of patent primitives were raw polylines — and 100% of
+# the *curved* ones had single-arc fit confidence < 0.45 (median 0.00). A single
+# circular arc cannot represent a compound curve (fillets, isometric silhouettes,
+# S-curves), and a single global Bézier would round the *sharp* corners that
+# also produce low chord ratios (L-shapes). The fix splits the dense skeleton at
+# tangent-discontinuity corners (keeping them sharp), then fits each piece with
+# line → arc → cubic Bézier, emitting one compound "path" primitive. Measured on
+# PatentData: 56% of curve length is line/arc-recoverable after the split, the
+# remaining 44% genuinely needs Béziers.
+
+_CORNER_TURN_DEG    = 35.0   # turn above this, *concentrated* over CORNER_WIN px,
+                             # = a sharp corner → split (catches 45° chamfers)
+_CORNER_WIN_PX      = 3.0    # arc-length window for the corner turn measurement.
+                             # Short on purpose: it measures whether the turn is
+                             # *concentrated* (corner) vs spread over many px
+                             # (smooth curvature, which must NOT be split).
+_SEG_MIN_PTS        = 4      # don't make sub-segments shorter than this
+_PATH_LINE_CONF     = 0.80   # per-segment line accept (stricter than top-level)
+_PATH_ARC_CONF      = 0.70   # per-segment arc accept
+_BEZIER_MAX_ERR     = 1.0    # px — max allowed deviation of a cubic from pixels.
+                             # Tight on purpose: the old polyline fallback traced
+                             # the skeleton within ~1px, so the Bézier must hug it
+                             # at least as closely or D2C Chamfer regresses.
+_BEZIER_MAX_DEPTH   = 6      # recursion cap (≤2^6 cubics/sub-seg, anti blow-up)
+
+# A/B kill-switch: STAGE3_NO_COMPOUND=1 reverts to the raw-polyline fallback.
+import os as _os
+_COMPOUND_PATH_ENABLED = _os.environ.get("STAGE3_NO_COMPOUND", "") != "1"
+
+
+def _unit(v: np.ndarray) -> np.ndarray:
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-9 else np.array([0.0, 0.0])
+
+
+def _split_at_corners(pts: np.ndarray) -> list[np.ndarray]:
+    """Split an ordered dense pixel chain at sharp tangent discontinuities only.
+
+    A *corner* is a large direction change concentrated within a short arc-length
+    window (_CORNER_WIN_PX); a *smooth curve* turns the same total angle but
+    spread over a long arc, so its windowed turn stays small. Measuring the turn
+    over a fixed arc length — not a fixed index window — is what separates the two
+    (an index window conflates curvature with corners and shatters smooth curves
+    into line-soup). Local-maximum suppression keeps one cut per corner.
+    """
+    n = len(pts)
+    if n < 2 * _SEG_MIN_PTS + 1:
+        return [pts]
+    seg_d = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    arclen = np.concatenate([[0.0], np.cumsum(seg_d)])
+    turns = np.zeros(n)
+    for i in range(1, n - 1):
+        a = i
+        while a > 0 and (arclen[i] - arclen[a]) < _CORNER_WIN_PX:
+            a -= 1
+        b = i
+        while b < n - 1 and (arclen[b] - arclen[i]) < _CORNER_WIN_PX:
+            b += 1
+        d1 = _unit(pts[i] - pts[a])
+        d2 = _unit(pts[b] - pts[i])
+        if (d1[0] or d1[1]) and (d2[0] or d2[1]):
+            turns[i] = math.degrees(math.acos(max(-1.0, min(1.0, float(np.dot(d1, d2))))))
+    # candidate corners = turns over threshold, kept only at local maxima
+    cuts = [0]
+    last_cut = 0
+    for i in range(1, n - 1):
+        if turns[i] <= _CORNER_TURN_DEG:
+            continue
+        lo = max(1, i - 2); hi = min(n - 1, i + 3)
+        if turns[i] < turns[lo:hi].max():
+            continue                       # not the local peak of this corner
+        if (i - last_cut) >= _SEG_MIN_PTS:
+            cuts.append(i)
+            last_cut = i
+    cuts.append(n - 1)
+    segs = []
+    for k in range(len(cuts) - 1):
+        seg = pts[cuts[k]: cuts[k + 1] + 1]
+        if len(seg) >= 2:
+            segs.append(seg)
+    return segs or [pts]
+
+
+# ── Cubic Bézier fitting (Schneider, Graphics Gems) ───────────────────────────
+
+def _bezier_eval(ctrl: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """Evaluate a cubic Bézier (4×2 control) at parameters t (vectorised)."""
+    mt = 1.0 - t
+    b0 = mt ** 3
+    b1 = 3 * mt ** 2 * t
+    b2 = 3 * mt * t ** 2
+    b3 = t ** 3
+    return (np.outer(b0, ctrl[0]) + np.outer(b1, ctrl[1])
+            + np.outer(b2, ctrl[2]) + np.outer(b3, ctrl[3]))
+
+
+def _chord_param(pts: np.ndarray) -> np.ndarray:
+    d = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    u = np.concatenate([[0.0], np.cumsum(d)])
+    return u / u[-1] if u[-1] > 1e-12 else np.linspace(0, 1, len(pts))
+
+
+def _generate_bezier(pts, u, that1, that2):
+    """Least-squares cubic with fixed endpoints and given end tangents."""
+    p0, p3 = pts[0], pts[-1]
+    mt = 1.0 - u
+    b0 = mt ** 3
+    b1 = 3 * mt ** 2 * u
+    b2 = 3 * mt * u ** 2
+    b3 = u ** 3
+    a1 = that1[None, :] * b1[:, None]
+    a2 = that2[None, :] * b2[:, None]
+    tmp = pts - ((p0[None, :] * (b0 + b1)[:, None]) + (p3[None, :] * (b2 + b3)[:, None]))
+    c00 = float(np.sum(a1 * a1)); c01 = float(np.sum(a1 * a2)); c11 = float(np.sum(a2 * a2))
+    x0  = float(np.sum(a1 * tmp)); x1 = float(np.sum(a2 * tmp))
+    det = c00 * c11 - c01 * c01
+    seg_len = float(np.linalg.norm(p3 - p0))
+    if abs(det) < 1e-12:
+        alpha1 = alpha2 = seg_len / 3.0
+    else:
+        alpha1 = (x0 * c11 - c01 * x1) / det
+        alpha2 = (c00 * x1 - c01 * x0) / det
+    if alpha1 < 1e-6 or alpha2 < 1e-6:
+        alpha1 = alpha2 = seg_len / 3.0
+    return np.array([p0, p0 + that1 * alpha1, p3 + that2 * alpha2, p3])
+
+
+def _max_error(pts, ctrl, u):
+    q = _bezier_eval(ctrl, u)
+    d = np.linalg.norm(q - pts, axis=1)
+    i = int(np.argmax(d))
+    return float(d[i]), i
+
+
+def _fit_cubic_chain(pts, that1, that2, max_err, depth=0):
+    """Recursively fit a chain of cubic Béziers; returns list of 4×2 controls."""
+    if len(pts) < 2:
+        return []
+    if len(pts) == 2:
+        dist = float(np.linalg.norm(pts[1] - pts[0])) / 3.0
+        return [np.array([pts[0], pts[0] + that1 * dist, pts[1] + that2 * dist, pts[1]])]
+    u = _chord_param(pts)
+    ctrl = _generate_bezier(pts, u, that1, that2)
+    err, split = _max_error(pts, ctrl, u)
+    if err < max_err:
+        return [ctrl]
+    if depth >= _BEZIER_MAX_DEPTH or split <= 0 or split >= len(pts) - 1:
+        return [ctrl]
+    that_c = _unit(pts[split - 1] - pts[split + 1])   # centre tangent (into left seg)
+    left  = _fit_cubic_chain(pts[:split + 1], that1, that_c, max_err, depth + 1)
+    right = _fit_cubic_chain(pts[split:], -that_c, that2, max_err, depth + 1)
+    return left + right
+
+
+def _fit_bezier_segment(sub: np.ndarray):
+    """Fit a sub-chain as a poly-cubic-Bézier. Returns (segment_dict, confidence)."""
+    k = min(4, len(sub) - 1)
+    that1 = _unit(sub[k] - sub[0])
+    that2 = _unit(sub[-1 - k] - sub[-1])
+    chain = _fit_cubic_chain(sub, that1, that2, _BEZIER_MAX_ERR)
+    if not chain:
+        return None, 0.0
+    # flat control-point list: P0,C1,C2,P1,C1',C2',P2,...  (SVG cubic path)
+    flat = [chain[0][0].tolist()]
+    for c in chain:
+        flat.extend([c[1].tolist(), c[2].tolist(), c[3].tolist()])
+    # confidence from densely-sampled deviation vs the pixels
+    samp = []
+    for c in chain:
+        samp.append(_bezier_eval(c, np.linspace(0, 1, 24)))
+    s = np.vstack(samp)
+    from scipy.spatial import cKDTree
+    dev = cKDTree(sub).query(s)[0]
+    rms = float(np.sqrt((dev ** 2).mean()))
+    conf = max(0.0, 1.0 - rms / _MAX_RMS)
+    return {"type": "bezier", "points": flat}, conf
+
+
+def _fit_subsegment(sub: np.ndarray):
+    """Fit one corner-split sub-chain: line → arc → cubic Bézier.
+
+    Returns (segment_dict, confidence). Segment dicts are the path-local form:
+    line {p1,p2}, arc {center,radius,start_angle,end_angle}, bezier {points}.
+    """
+    # line
+    try:
+        r = _fit_line_ransac(sub)
+        if r["confidence"] >= _PATH_LINE_CONF:
+            return {"type": "line", "p1": r["p1"], "p2": r["p2"]}, r["confidence"]
+    except ValueError:
+        pass
+    # arc — but only if the chain actually bows (else a straight noisy chain)
+    if len(sub) >= _MIN_PTS_ARC:
+        try:
+            r = _fit_arc_ransac(sub)
+            chord = float(np.linalg.norm(sub[-1] - sub[0]))
+            if r["confidence"] >= _PATH_ARC_CONF and chord > 5:
+                nrm = np.array([-(sub[-1] - sub[0])[1], (sub[-1] - sub[0])[0]]) / chord
+                sag = float(np.abs(((sub - sub[0]) @ nrm)).max())
+                if (sag / chord) >= _ARC_MIN_SAGITTA_RATIO or sag >= _ARC_MIN_SAGITTA_PX:
+                    return ({"type": "arc", "center": r["center"], "radius": r["radius"],
+                             "start_angle": r["start_angle"], "end_angle": r["end_angle"]},
+                            r["confidence"])
+        except ValueError:
+            pass
+    # cubic Bézier fallback (smooth, handles freeform + near-straight gracefully)
+    return _fit_bezier_segment(sub)
+
+
+def _fit_compound_path(edge: dict, edge_id) -> dict | None:
+    """Corner-split the dense skeleton and fit each piece line/arc/Bézier.
+
+    Returns a 'path' primitive {segments:[...]} or None to defer to a raw
+    polyline. Operates on raw pixels (not smooth_pts) to avoid the B-spline
+    oscillation Stage 2 already guards against.
+    """
+    pts = np.array(edge.get("pixels") or edge.get("smooth_pts") or [], dtype=np.float64)
+    if len(pts) < _SEG_MIN_PTS:
+        return None
+    segments, confs, weights = [], [], []
+    for sub in _split_at_corners(pts):
+        if len(sub) < 2:
+            continue
+        seg, conf = _fit_subsegment(sub)
+        if seg is None:
+            continue
+        segments.append(seg)
+        confs.append(conf)
+        weights.append(len(sub))
+    if not segments:
+        return None
+    w = np.array(weights, dtype=np.float64)
+    conf = float(np.average(confs, weights=w)) if confs else 0.0
+    return {"edge_id": edge_id, "type": "path", "segments": segments,
+            "confidence": conf}
+
+
 # ── Priority selector ─────────────────────────────────────────────────────────
 
 def fit_edge_ransac(edge: dict) -> dict:
@@ -602,9 +844,19 @@ def fit_edge_ransac(edge: dict) -> dict:
         else:
             return best
 
+    # ── Compound-path fallback ────────────────────────────────────────────────
+    # No single line/arc/ellipse fit it. Rather than dump a raw jagged polyline,
+    # corner-split the dense skeleton (keeping sharp corners sharp) and fit each
+    # piece as line / arc / cubic Bézier. This recovers compound curves (fillets,
+    # isometric silhouettes, S-curves) as smooth segments and angular chains
+    # (L-shapes, rectangles) as exact lines — the single biggest quality lever on
+    # PatentData, where 21% of primitives were raw polylines.
+    if _COMPOUND_PATH_ENABLED:
+        path = _fit_compound_path(edge, edge_id)
+        if path is not None:
+            return path
+
     raw_poly = edge.get("smooth_pts") or edge["pixels"]
-    # For sparse RDP-fallback edges the raw_poly corners accurately represent
-    # the shape (rectangle, L-shape, etc.) — assign a decent confidence.
     poly_conf = 0.65 if _spline_sparse else 0.3
     return {
         "edge_id":    edge_id,
@@ -641,6 +893,10 @@ def _scale_primitive(prim: dict, scale: float) -> dict:
         p["b"] = float(p["b"]) * scale
     elif ptype in ("polyline", "polygon"):
         p["points"] = [_scale_point(pt, scale) for pt in p.get("points", [])]
+    elif ptype == "bezier":
+        p["points"] = [_scale_point(pt, scale) for pt in p.get("points", [])]
+    elif ptype == "path":
+        p["segments"] = [_scale_primitive(seg, scale) for seg in p.get("segments", [])]
     return p
 
 

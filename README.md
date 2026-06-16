@@ -36,7 +36,7 @@ engineering sketch as input and produces clean, ISO 128–styled vector files
 | 0     | Raw patent TIF/PNG   | Reference-free PNG + reference JSON + mask/crops | Conservative connected-component + Hough leader detector; removes reference numerals/help lines before skeletonisation; reinjects annotations during export |
 | 1     | Raw raster (PNG/TIF) | Cleaned image + 1-px skeleton + stroke-width estimate | SketchCleanNet (or classical fallback) |
 | 2     | 1-px skeleton       | Stroke graph + side-layer hachures (JSON) | **Vectorised CN path** (NumPy ring-slice shifts, ~1 000× vs Python loop); incompatible Puhachov weights are rejected instead of silently ignored; parallel-edge walk; **graph de-fragmentation** (spur prune + degree-2 dissolve + collinear through-merge); patent hachure extraction; fragmentation metrics/gates; deterministic scale metadata |
-| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon** / polyline); primitives are rescaled back to the original image frame after Stage 2 downsampling; removed hachures are reinserted as `style: "hachure"` primitives and excluded from main-geometry confidence gates |
+| 3     | Stroke graph        | Geometric primitives (JSON) | RANSAC cascade (line / circle / arc / ellipse / **polygon**); compound curves/angular chains that fit none of those are corner-split and fitted line/arc/**cubic Bézier** as one `path` primitive (replaces the old jagged-polyline fallback); primitives are rescaled back to the original image frame after Stage 2 downsampling; removed hachures are reinserted as `style: "hachure"` primitives and excluded from main-geometry confidence gates |
 | 4     | Geometric primitives + optional annotations | SVG and/or DXF              | `svgwrite`, `ezdxf` (ISO 128 layered, including `HACHURE`); polygon primitive rendered as closed shape; Stage 0 references are reinserted as SVG crop overlays + leader lines and DXF leader geometry |
 
 ---
@@ -696,10 +696,14 @@ high-precision pilot result, not a full-corpus claim.
   D2C primitives −37 %, PatentData −67 %, IoU/Chamfer unchanged-to-better);
   **patent hachure extraction** separates dense hatch clusters into
   `removed_hachures` so long outlines fit as main geometry
-- **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon** /
-  polyline); closed polygon fitter; sparse-smooth_pts guard; geometric arc guard;
-  hachure side-layer reinjection as styled primitives; Free2CAD Transformer
-  evaluated and retired
+- **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon**);
+  **compound-path fitter** — curves/angular chains that fit no single primitive
+  are corner-split (sharp corners preserved) and fitted line / arc / **cubic
+  Bézier** as one `path`, replacing the raw-polyline fallback (PatentData jagged
+  polylines 16 % → 0 %, 83 % of curved edges now smooth; D2C Chamfer mean +2.4 %
+  / p95 −12 %, paired); closed polygon fitter; sparse-smooth_pts guard; geometric
+  arc guard; hachure side-layer reinjection as styled primitives; Free2CAD
+  Transformer evaluated and retired
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF, including a
   dedicated `HACHURE` layer
 - **Content classifier** (`tools/filter_patent_data.py`) — deterministic,
@@ -731,6 +735,7 @@ high-precision pilot result, not a full-corpus claim.
 | 5 | Small circles missing | `min_closed_loop_pixels=80` removed genuine small circles (radius ~7–13 px) as noise | Added circularity check: only remove loops that are geometrically non-circular (RMS radial deviation > 30 % of mean radius) |
 | 6 | Stage 2 hangs on large patent TIFs (2 000–2 700 px) | Puhachov CNN trained on ~512 px; at 2 700 px it detects 100 k–300 k keypoints; pixel graph has millions of nodes | Resolution cap: dilate 1-px skeleton → resize to ≤ 1 000 px → re-skeletonize (restores 1-px width); reduces edges from ~20 k → ~1 500 per sketch (15×), time from ~190 s → ~13 s |
 | 7 | Stage 2 slow under multi-worker batch despite resolution cap | PyTorch uses all CPU cores per process by default; 8 workers × all cores = severe contention | `torch.set_num_threads(1)` in `load_model()`: forces process-level parallelism |
+| 8 | Curved strokes → jagged polylines (21 % of patent primitives) | Stage 3 only tried a single arc/ellipse; compound curves (fillets, isometric silhouettes, S-curves) had single-arc conf < 0.45 (median 0.00) → raw-polyline fallback | Compound-path fitter: corner-split the dense skeleton (arc-length window, so genuine corners split but smooth curvature does not), fit each piece line/arc/cubic-Bézier, emit one connected `path` (SVG `L`/`A`/`C`, DXF LINE/ARC/SPLINE). Patent polylines 16 % → 0 %; D2C mean +2.4 % / p95 −12 % (inherent representation trade, not a bug — 5-run A/B isolation) |
 | 8 | S2 isolation flag rate 93 % on patent data | `isolation_threshold: 0.05` calibrated for clean SVG inputs; patent TIF scan noise produces 10–20 % orphaned pixels on valid drawings | Recalibrated to `0.30` (flags only top ~5 % of sketches — genuinely noisy scans) |
 | 9 | CN map O(H×W) Python loop bottleneck | `_cn_map_vectorized` and `_extract_topology` step 1 used a Python loop over every pixel | Replaced with NumPy ring-slice shifts: ~1 000× speedup at 1 000 px resolution |
 | 10 | O(n_clusters × H×W) cluster groupby bottleneck | `np.where(labels == c)` inside `_add_cluster` loop scanned full image once per cluster | Single-pass argsort groupby: O(n_fg × log n_fg) total; _extract_topology time 95 s → 0.3 s |
