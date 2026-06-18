@@ -273,6 +273,40 @@ def _svg_path_continuous(segments: list) -> str:
     return " ".join(d)
 
 
+def _svg_add_hatch(dwg, prim: dict, sw: float, uid: int) -> None:
+    """Render a hatch region: boundary outline + parallel line family(ies),
+    clipped to the boundary. One/two angles ⇒ single/cross hatch."""
+    boundary = prim.get("boundary") or []
+    if len(boundary) < 3:
+        return
+    pts = [(float(p[0]), float(p[1])) for p in boundary]
+    dstr = "M " + " L ".join(f"{x:.2f} {y:.2f}" for x, y in pts) + " Z"
+    # thin boundary outline (the region edge is real geometry)
+    dwg.add(dwg.path(d=dstr, fill="none", stroke="black", stroke_width=sw))
+    angles = prim.get("angles") or []
+    spacing = float(prim.get("spacing") or 0.0)
+    if spacing < 1.0 or not angles:
+        return
+    cid = f"hclip{uid}"
+    clip = dwg.defs.add(dwg.clipPath(id=cid))
+    clip.add(dwg.path(d=dstr))
+    xs = [x for x, _ in pts]; ys = [y for _, y in pts]
+    cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+    diag = math.hypot(max(xs) - min(xs), max(ys) - min(ys)) + spacing
+    g = dwg.g(clip_path=f"url(#{cid})")
+    for a in angles:
+        th = math.radians(a)
+        dx, dy = math.cos(th), math.sin(th)         # line direction
+        px, py = -dy, dx                            # perpendicular (offset)
+        n = int(diag / max(spacing, 1e-6)) + 2
+        for k in range(-n, n + 1):
+            ox, oy = cx + px * k * spacing, cy + py * k * spacing
+            g.add(dwg.line(start=(ox - dx * diag, oy - dy * diag),
+                           end=(ox + dx * diag, oy + dy * diag),
+                           stroke="black", stroke_width=max(0.5, sw * 0.7)))
+    dwg.add(g)
+
+
 def _export_svg(data: dict, out_path: Path,
                 default_sw: Optional[float] = None) -> int:
     """
@@ -381,6 +415,9 @@ def _export_svg(data: dict, out_path: Path,
                     skw["stroke_linejoin"] = "round"
                     dwg.add(dwg.path(d=d, **skw))
 
+            elif ptype == "hatch":
+                _svg_add_hatch(dwg, prim, sw, n_written)
+
             else:
                 logger.warning(f"SVG: skipping unknown primitive type '{ptype}'")
                 continue
@@ -484,6 +521,39 @@ def _dxf_add_path(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None) 
         _dxf_add_segment(msp, seg, H, dxfattribs)
 
 
+def _dxf_add_hatch(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None) -> None:
+    """Emit a hatch region as a native HATCH (boundary + parametric pattern).
+
+    One pattern line per detected angle (single hatch ⇒ 1, cross-hatch ⇒ 2),
+    each offset perpendicular by the detected spacing. DXF Y is up vs the image's
+    Y-down, so the angle is negated. The region boundary is also emitted as a
+    closed polyline (it is real geometry, not just the fill border).
+    """
+    boundary = prim.get("boundary") or []
+    if len(boundary) < 3:
+        return
+    pts = [_flip_y_point(p, H) for p in boundary]
+    attribs = dict(dxfattribs or {})
+    msp.add_lwpolyline(pts, close=True, dxfattribs=attribs)
+    angles = prim.get("angles") or []
+    spacing = float(prim.get("spacing") or 0.0)
+    if spacing < 1e-6 or not angles:
+        return
+    hatch = msp.add_hatch(dxfattribs=attribs)
+    hatch.paths.add_polyline_path(pts, is_closed=True)
+    definition = []
+    for a in angles:
+        a_dxf = -float(a)
+        th = math.radians(a_dxf)
+        offset = (-spacing * math.sin(th), spacing * math.cos(th))  # ⟂, mag=spacing
+        definition.append([a_dxf, (0.0, 0.0), offset, []])
+    try:
+        hatch.set_pattern_fill("CUSTOM", definition=definition)
+    except Exception:
+        hatch.set_pattern_fill("ANSI31", scale=max(1.0, spacing / 3.175),
+                               angle=-float(angles[0]))
+
+
 def _export_dxf_basic(data: dict, out_path: Path) -> int:
     """
     Single-layer DXF for AutoCAD/SolidWorks/KiCad import.
@@ -557,6 +627,9 @@ def _export_dxf_basic(data: dict, out_path: Path) -> int:
 
             elif ptype == "path":
                 _dxf_add_path(msp, prim, H)
+
+            elif ptype == "hatch":
+                _dxf_add_hatch(msp, prim, H)
 
             else:
                 logger.warning(f"DXF basic: skipping unknown type '{ptype}'")
@@ -715,6 +788,9 @@ def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
 
             elif ptype == "path":
                 _dxf_add_path(msp, prim, H, attribs)
+
+            elif ptype == "hatch":
+                _dxf_add_hatch(msp, prim, H, {"layer": "HACHURE"})
 
             else:
                 logger.warning(f"DXF patent: skipping unknown type '{ptype}'")

@@ -825,6 +825,142 @@ def _drop_unused_nodes(
     return [node for node in nodes if node["id"] in used], edges
 
 
+def _line_angle_from_pix(pix) -> float | None:
+    """Orientation in [0,180) of a pixel chain via PCA (robust; ignores stored
+    meta, which is missing on ~35 % of removed hatch edges)."""
+    p = np.asarray(pix, dtype=np.float64)
+    if len(p) < 2:
+        return None
+    c = p - p.mean(axis=0)
+    if len(p) == 2:
+        d = p[-1] - p[0]
+    else:
+        _, _, vt = np.linalg.svd(c, full_matrices=False)
+        d = vt[0]
+    return float(np.degrees(np.arctan2(d[1], d[0])) % 180.0)
+
+
+def _hatch_region_params(members: list[dict], cfg: dict) -> tuple[list[float], float]:
+    """Estimate hatch pattern angle(s) and spacing for one region.
+
+    Returns (angles_deg, spacing_px). Two angles ⇒ cross-hatch. Angle is the
+    line orientation in [0,180); spacing is the median perpendicular gap between
+    adjacent parallel lines.
+    """
+    ang_list, cen_list = [], []
+    for m in members:
+        a = _line_angle_from_pix(m.get("pixels") or [])
+        if a is None:
+            continue
+        ang_list.append(a)
+        cen_list.append(np.asarray(m["pixels"], dtype=np.float64).mean(axis=0))
+    if not ang_list:
+        return [], 0.0
+    angs = np.array(ang_list)
+    cen = np.array(cen_list)
+    # angle histogram in 12° bins over [0,180); pick dominant, then a distinct
+    # second mode if it's substantial (cross-hatch).
+    edges_b = np.arange(0.0, 180.0 + 12.0, 12.0)
+    hist, _ = np.histogram(angs % 180.0, bins=edges_b)
+    order = list(np.argsort(hist)[::-1])
+    peaks: list[float] = []
+    for bi in order:
+        if hist[bi] == 0:
+            break
+        c = (edges_b[bi] + edges_b[bi + 1]) / 2.0
+        if not peaks:
+            peaks.append(c)
+        elif (all(_angle_delta_deg(c, p) > 25.0 for p in peaks)
+              and hist[bi] >= float(cfg.get("hachure_crosshatch_ratio", 0.45)) * hist[order[0]]):
+            peaks.append(c)
+            break
+    angles: list[float] = []
+    spacings: list[float] = []
+    for c in peaks:
+        sel = np.array([_angle_delta_deg(a, c) <= 12.0 for a in angs])
+        if sel.sum() == 0:
+            continue
+        a2 = np.radians(2.0 * angs[sel])             # circular mean (double angle)
+        amean = (np.degrees(np.arctan2(np.sin(a2).mean(),
+                                       np.cos(a2).mean())) / 2.0) % 180.0
+        angles.append(round(float(amean), 2))
+        th = np.radians(amean)
+        perp = np.array([-np.sin(th), np.cos(th)])   # ⟂ to the lines
+        proj = np.sort(cen[sel] @ perp)
+        gaps = np.diff(proj)
+        gaps = gaps[gaps > 1.0]
+        if len(gaps):
+            spacings.append(float(np.median(gaps)))
+    spacing = round(float(np.median(spacings)), 2) if spacings else 0.0
+    return angles, spacing
+
+
+def _aggregate_hachure_regions(
+    removed_hachures: list[dict], image_shape: tuple[int, int], cfg: dict
+) -> list[dict]:
+    """Group removed hatch edges into filled regions for parametric HATCH export.
+
+    Vectorising hatching line-by-line fragments at every cross-hatch intersection
+    and bloats the output (≈45 % of all primitives). Instead we collapse each
+    contiguous block of hatch lines into ONE region descriptor — a boundary plus
+    a pattern (angle(s) + spacing) — which Stage 4 emits as a native DXF HATCH /
+    SVG pattern fill. Contiguity is found by dilating the hatch-pixel mask and
+    connected-component labelling (dilation ≈ hatch spacing joins lines in a
+    region but keeps distinct regions apart).
+    """
+    if not removed_hachures:
+        return []
+    H, W = int(image_shape[0]), int(image_shape[1])
+    dilate = int(cfg.get("hachure_region_dilate", 5))
+    min_lines = int(cfg.get("hachure_region_min_lines", 6))
+    mask = np.zeros((H, W), np.uint8)
+    arrs: list[np.ndarray | None] = []
+    for e in removed_hachures:
+        pix = e.get("pixels") or []
+        if pix:
+            a = np.asarray(pix, dtype=np.int64)
+            arrs.append(a)
+            xs = np.clip(a[:, 0], 0, W - 1)
+            ys = np.clip(a[:, 1], 0, H - 1)
+            mask[ys, xs] = 1
+        else:
+            arrs.append(None)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate + 1, 2 * dilate + 1))
+    n_lab, lab = cv2.connectedComponents(cv2.dilate(mask, k), connectivity=8)
+    regions: list[dict] = []
+    for rid in range(1, n_lab):
+        members, allpix = [], []
+        for e, a in zip(removed_hachures, arrs):
+            if a is None or len(a) == 0:
+                continue
+            cx = int(np.clip(a[:, 0].mean(), 0, W - 1))
+            cy = int(np.clip(a[:, 1].mean(), 0, H - 1))
+            if lab[cy, cx] == rid:
+                members.append(e)
+                allpix.append(a)
+        if len(members) < min_lines:
+            continue
+        pix_all = np.vstack(allpix).astype(np.int32)
+        try:
+            angles, spacing = _hatch_region_params(members, cfg)
+        except Exception:                       # never let detection break Stage 2
+            continue
+        if not angles:
+            continue
+        hull = cv2.convexHull(pix_all)
+        boundary = [[int(p[0][0]), int(p[0][1])] for p in hull]
+        if len(boundary) < 3:
+            continue
+        regions.append({
+            "boundary": boundary,
+            "angles": angles,
+            "spacing": spacing,
+            "double": len(angles) > 1,
+            "n_lines": len(members),
+        })
+    return regions
+
+
 def _remove_hachure_edges(
     nodes: list[dict],
     edges: list[dict],
@@ -1858,6 +1994,22 @@ def run(
             return float(obj)
         return obj
 
+    # Aggregate removed hatch lines into parametric regions (boundary + pattern)
+    # for native HATCH export — collapses the per-line bloat/fragmentation.
+    hachure_regions: list[dict] = []
+    if cfg_kp.get("hachure_mode", "region") == "region" and removed_hachures:
+        try:
+            hachure_regions = _aggregate_hachure_regions(removed_hachures, (H, W), cfg_kp)
+            if hachure_regions:
+                logger.info(
+                    f"[{sketch_id}] Hachure regions: {len(hachure_regions)} "
+                    f"from {len(removed_hachures)} lines "
+                    f"({sum(r['n_lines'] for r in hachure_regions)} grouped)"
+                )
+        except Exception as exc:
+            logger.warning(f"[{sketch_id}] Hachure region aggregation failed: {exc}")
+            hachure_regions = []
+
     graph_doc = _to_python({
         "sketch_id":   sketch_id,
         "image_shape": [H, W],
@@ -1867,6 +2019,7 @@ def run(
             "n_closed_edges": n_closed,
             "n_hachure_edges_removed": len(removed_hachures),
             "n_hachure_pixels_ignored": len(ignored_hachure_pixels),
+            "n_hachure_regions": len(hachure_regions),
             "median_edge_length": median_edge_length,
             "micro_edge_ratio": micro_edge_ratio,
             "short_edge_ratio": short_edge_ratio,
@@ -1874,6 +2027,7 @@ def run(
         "nodes": nodes,
         "edges": edges,
         "removed_hachures": removed_hachures,
+        "hachure_regions": hachure_regions,
     })
     with open(graph_path, "w") as f:
         json.dump(graph_doc, f, indent=2)

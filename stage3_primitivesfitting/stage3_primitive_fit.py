@@ -897,6 +897,9 @@ def _scale_primitive(prim: dict, scale: float) -> dict:
         p["points"] = [_scale_point(pt, scale) for pt in p.get("points", [])]
     elif ptype == "path":
         p["segments"] = [_scale_primitive(seg, scale) for seg in p.get("segments", [])]
+    elif ptype == "hatch":
+        p["boundary"] = [_scale_point(pt, scale) for pt in p.get("boundary", [])]
+        p["spacing"] = float(p.get("spacing", 0.0)) * scale   # angles are scale-invariant
     return p
 
 
@@ -928,6 +931,21 @@ def _fit_removed_hachure(edge: dict) -> dict | None:
     if "hachure" in edge:
         prim["hachure"] = edge["hachure"]
     return prim
+
+
+def _hatch_region_to_primitive(region: dict) -> dict:
+    """Stage 2 hachure region → a 'hatch' primitive (boundary + parametric fill)."""
+    return {
+        "type":       "hatch",
+        "boundary":   [[float(p[0]), float(p[1])] for p in region.get("boundary", [])],
+        "angles":     [float(a) for a in region.get("angles", [])],
+        "spacing":    float(region.get("spacing", 0.0)),
+        "double":     bool(region.get("double", False)),
+        "n_lines":    int(region.get("n_lines", 0)),
+        "style":      "hachure",
+        "source":     "hachure_region",
+        "confidence": 0.6,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1008,12 +1026,23 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
 
     main_primitives = [_scale_primitive(fit_edge_ransac(edge), coord_scale)
                        for edge in edges]
-    hachure_primitives = [
-        _scale_primitive(prim, coord_scale)
-        for edge in removed_hachures
-        for prim in [_fit_removed_hachure(edge)]
-        if prim is not None
-    ]
+    # Hachures: prefer parametric regions (one HATCH per filled area) over
+    # per-line fitting, which fragments at cross-hatch intersections and bloats
+    # the output (~45% of all primitives). Fall back to per-line if Stage 2
+    # produced no regions (e.g. hachure_mode="line").
+    hachure_regions = graph.get("hachure_regions") or []
+    if hachure_regions:
+        hachure_primitives = [
+            _scale_primitive(_hatch_region_to_primitive(r), coord_scale)
+            for r in hachure_regions
+        ]
+    else:
+        hachure_primitives = [
+            _scale_primitive(prim, coord_scale)
+            for edge in removed_hachures
+            for prim in [_fit_removed_hachure(edge)]
+            if prim is not None
+        ]
     primitives = main_primitives + hachure_primitives
 
     confidences = [p.get("confidence", 0.0) for p in main_primitives]
