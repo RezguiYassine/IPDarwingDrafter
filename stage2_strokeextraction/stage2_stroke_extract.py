@@ -961,6 +961,53 @@ def _aggregate_hachure_regions(
     return regions
 
 
+def _cleanup_hatch_residue(
+    nodes: list[dict], edges: list[dict], regions: list[dict],
+    image_shape: tuple[int, int], cfg: dict,
+) -> tuple[list[dict], list[dict]]:
+    """Drop leftover open edges that lie inside a hatch region and match its angle.
+
+    The hatch detector (_remove_hachure_edges) misses some lines (sparser
+    diagonal fills), which then survive as fragmented main-graph edges sitting on
+    top of the clean HATCH fill. Once regions are known we can safely remove any
+    remaining edge that is mostly inside a region AND oriented like that region's
+    hatch — the region fill already represents it. Conservative: requires both
+    high inside-fraction and an angle match, so a real feature line crossing the
+    region (different angle, or only partly inside) is kept.
+    """
+    if not regions:
+        return nodes, edges
+    H, W = int(image_shape[0]), int(image_shape[1])
+    angle_tol = float(cfg.get("hachure_cleanup_angle_tol", 14.0))
+    inside_frac = float(cfg.get("hachure_cleanup_inside_frac", 0.80))
+    regmask = np.zeros((H, W), np.int32)
+    for i, r in enumerate(regions):
+        cv2.fillPoly(regmask, [np.asarray(r["boundary"], dtype=np.int32)], i + 1)
+    kept: list[dict] = []
+    for e in edges:
+        pix = e.get("pixels") or []
+        if e.get("is_closed") or len(pix) < 2:
+            kept.append(e)
+            continue
+        a = np.asarray(pix, dtype=np.int64)
+        xs = np.clip(a[:, 0], 0, W - 1)
+        ys = np.clip(a[:, 1], 0, H - 1)
+        ids = regmask[ys, xs]
+        inside = ids > 0
+        if inside.mean() < inside_frac:
+            kept.append(e)
+            continue
+        rid = int(np.bincount(ids[inside]).argmax())
+        angles = regions[rid - 1].get("angles") or []
+        ang = _line_angle_from_pix(pix)
+        if ang is not None and angles and \
+                min(_angle_delta_deg(ang, ra) for ra in angles) <= angle_tol:
+            continue                      # leftover hatch fragment → drop
+        kept.append(e)
+    nodes, kept = _drop_unused_nodes(nodes, kept)
+    return nodes, kept
+
+
 def _remove_hachure_edges(
     nodes: list[dict],
     edges: list[dict],
@@ -2001,10 +2048,14 @@ def run(
         try:
             hachure_regions = _aggregate_hachure_regions(removed_hachures, (H, W), cfg_kp)
             if hachure_regions:
+                n_before = len(edges)
+                nodes, edges = _cleanup_hatch_residue(
+                    nodes, edges, hachure_regions, (H, W), cfg_kp)
                 logger.info(
                     f"[{sketch_id}] Hachure regions: {len(hachure_regions)} "
                     f"from {len(removed_hachures)} lines "
-                    f"({sum(r['n_lines'] for r in hachure_regions)} grouped)"
+                    f"({sum(r['n_lines'] for r in hachure_regions)} grouped); "
+                    f"residue cleanup {n_before}→{len(edges)} edges"
                 )
         except Exception as exc:
             logger.warning(f"[{sketch_id}] Hachure region aggregation failed: {exc}")

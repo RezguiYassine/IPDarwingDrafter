@@ -231,6 +231,10 @@ stage2:
                                    # region while keeping distinct fills apart
   hachure_region_min_lines: 6      # ignore tiny accidental clusters
   hachure_crosshatch_ratio: 0.45   # 2nd angle mode ≥ this × dominant ⇒ cross-hatch
+  # Region-guided residue cleanup: drop leftover edges the hatch detector missed
+  # that sit inside a region and match its angle (covered by the fill anyway).
+  hachure_cleanup_inside_frac: 0.80  # ≥ this fraction of the edge inside a region
+  hachure_cleanup_angle_tol: 14.0    # and within this of a region's hatch angle
   fragmentation:
     max_edges: 2500
     max_micro_edge_ratio: 0.50
