@@ -226,7 +226,14 @@ stage2:
   # area, instead of vectorizing every hatch line (which fragments at cross-hatch
   # intersections and was ~45% of all primitives). "line" keeps the old per-line
   # behaviour.
-  hachure_mode: region
+  hachure_mode: line              # "line" = re-draw removed hatch edges as line
+                                  # primitives (geometry-safe). "region" emits
+                                  # parametric HATCH fills — currently UNSAFE: it
+                                  # amplifies the hachure DETECTOR's false
+                                  # positives (dense mechanical detail flagged as
+                                  # hatching) into fills smeared over real
+                                  # geometry. Re-enable only after detector
+                                  # precision is fixed.
   hachure_region_dilate: 5         # px (Stage-2 coords) to bridge lines within a
                                    # region while keeping distinct fills apart
   hachure_region_min_lines: 6      # ignore tiny accidental clusters
