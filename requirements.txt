@@ -28,3 +28,4 @@ matplotlib>=3.7
 cairosvg>=2.7
 open_clip_torch>=3.3
 easyocr  # optional: Stage 0 OCR reference detection (stage0.use_ocr)
+scikit-learn  # optional: learned hatch-region detector de-risk (tools/hatch_train.py)
