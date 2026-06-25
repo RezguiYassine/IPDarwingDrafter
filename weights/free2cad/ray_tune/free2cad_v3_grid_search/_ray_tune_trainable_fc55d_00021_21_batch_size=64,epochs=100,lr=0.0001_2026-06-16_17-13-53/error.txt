@@ -1,0 +1,17 @@
+Failure # 1 (occurred at 2026-06-16_17-26-12)
+[36mray::ImplicitFunc.train()[39m (pid=41321, ip=192.168.0.231, actor_id=29824488f16e31f0035eb6c101000000, repr=_ray_tune_trainable)
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/trainable.py", line 324, in train
+    raise skipped from exception_cause(skipped)
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/air/_internal/util.py", line 98, in run
+    self._ret = self._target(*self._args, **self._kwargs)
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/function_trainable.py", line 44, in <lambda>
+    training_func=lambda: self._trainable_func(self.config),
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/function_trainable.py", line 249, in _trainable_func
+    output = fn()
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/util.py", line 130, in inner
+    return trainable(config, **fn_kwargs)
+  File "/home/idp/IPDarwingDrafter/stage3_primitivesfitting/research/./train_free2cad_v3.py", line 760, in _ray_tune_trainable
+    tune.report(val_loss=avg_val, train_loss=avg_train,
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/train/_internal/session.py", line 682, in wrapper
+    return fn(*args, **kwargs)
+TypeError: report() got an unexpected keyword argument 'val_loss'

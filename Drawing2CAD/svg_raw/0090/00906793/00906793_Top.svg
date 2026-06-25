@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 56.11000000000001,84.60000000000001 L 49.95,84.60000000000001 L 49.95,115.4 L 56.11000000000001,115.4" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 56.11000000000001,88.912 L 150.05,88.912 L 150.05,84.60000000000001 L 56.11000000000001,84.60000000000001 L 56.11000000000001,88.912" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 56.11000000000001,88.912 L 56.11000000000001,111.08800000000002 L 150.05,111.08800000000002 L 150.05,88.912" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 56.11000000000001,115.4 L 56.11000000000001,111.08800000000002 M 56.11000000000001,115.4 L 150.05,115.4 L 150.05,111.08800000000002" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 134.26500000000001,100.0 C 134.26500000000001,98.086335 135.81635000000003,96.53500000000001 137.73,96.53500000000001 C 139.64365,96.53500000000001 141.19500000000002,98.086335 141.19500000000002,100.0 C 141.19500000000002,101.91366500000001 139.64365,103.46500000000002 137.73,103.46500000000002 C 135.81635000000003,103.46500000000002 134.26500000000001,101.91366500000001 134.26500000000001,100.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 123.97945,88.912 L 123.97945,111.08800000000002" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

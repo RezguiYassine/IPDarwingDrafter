@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 86.6678,52.8552 L 109.96565000000001,66.3062 L 111.64890000000001,65.3344 L 88.3511,51.88335 L 86.6678,52.8552" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 109.96565000000001,66.3062 L 109.96565000000001,75.15145 L 111.64890000000001,74.17965 L 111.64890000000001,65.3344" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 103.768205,80.67320000000001 L 102.084945,79.7014 L 102.084945,143.83175000000003 L 103.768205,144.80360000000002 L 103.768205,80.67320000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 109.96565000000001,75.15145 L 102.084945,79.7014 M 111.64890000000001,74.17965 L 113.33220000000001,75.15145" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 113.33220000000001,75.15145 L 113.33220000000001,139.2818 L 103.768205,144.80360000000002 M 103.768205,80.67320000000001 L 113.33220000000001,75.15145" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 111.64890000000001,140.25365 L 111.64890000000001,147.1448 M 109.96565000000001,141.2255 L 109.96565000000001,148.11665000000002 L 111.64890000000001,147.1448 M 86.6678,52.8552 L 86.6678,134.6656 M 109.96565000000001,148.11665000000002 L 103.99774000000001,144.67105 M 102.084945,143.5667 L 86.6678,134.6656" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

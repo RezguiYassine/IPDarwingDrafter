@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 50.0,85.0 L 150.0,85.0 L 150.0,115.0 L 50.0,115.0 L 50.0,85.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 76.681,90.0 C 82.20385,90.0 86.681,94.47715000000001 86.681,100.0 C 86.681,105.52285 82.20385,110.0 76.681,110.0 C 71.15815,110.0 66.681,105.52285 66.681,100.0 C 66.681,94.47715000000001 71.15815,90.0 76.681,90.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 80.80415,109.11040000000001 C 81.903,108.61310000000002 82.90280000000001,107.92110000000001 83.7553,107.06785 M 83.7553,92.93215000000001 C 82.90280000000001,92.0789 81.903,91.38690000000001 80.80415,90.8896 M 83.7553,107.06785 C 87.65625,103.16335500000001 87.65625,96.836645 83.7553,92.93215000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

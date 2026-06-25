@@ -1,0 +1,21 @@
+==================================================
+SCRIPT STARTED
+==================================================
+Python version: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+Attempting to import numpy...
+✅ Numpy imported successfully (version: 2.2.6)
+Attempting to import cv2 (OpenCV)...
+✅ OpenCV imported successfully (version: 4.12.0)
+Attempting to import matplotlib...
+✅ Matplotlib imported successfully
+
+Looking for image at: /home/idp/IPDarwingDrafter/test2.png
+✅ File found. Loading image...
+✅ Image loaded. Size: (440, 660), Data type: uint8
+Running a simple test (inverting colors)...
+✅ Test successful! Inverted image saved to: /home/idp/IPDarwingDrafter/cleaned.png
+
+==================================================
+EVERYTHING WORKS! The script ran perfectly.
+If you still see no changes, check the output path above.
+==================================================

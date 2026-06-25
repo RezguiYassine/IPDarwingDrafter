@@ -1,0 +1,19 @@
+{
+  "sketch_id": "sample_028510",
+  "primitives": [
+    {
+      "edge_id": 0,
+      "type": "line",
+      "start": [
+        0.1,
+        0.32099
+      ],
+      "end": [
+        0.9,
+        0.67901
+      ],
+      "confidence": 1.0,
+      "fitter": "geometric_2pt"
+    }
+  ]
+}

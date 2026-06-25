@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 76.9483,66.68695000000001 L 105.2326,50.357 L 123.05170000000001,60.64485 M 119.37475,61.13475000000001 L 105.2326,52.9698 L 79.21105,67.99335 L 76.9483,66.68695000000001 M 113.1522,64.72735 L 119.37475,61.13475000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 113.1522,64.72735 L 114.5664,65.54385 M 113.1522,64.72735 L 113.1522,146.377 L 114.5664,147.1935" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 114.5664,65.54385 L 123.05170000000001,60.64485 L 123.05170000000001,142.2945 L 114.5664,147.1935 L 114.5664,65.54385" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 76.9483,148.3366 L 76.9483,66.68695000000001 M 76.9483,148.3366 L 79.21105,149.643" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 79.21105,149.643 L 105.2326,134.61945 L 105.2326,52.9698 M 79.21105,67.99335 L 79.21105,149.643" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 105.2326,134.61945 L 113.1522,139.19185000000002" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

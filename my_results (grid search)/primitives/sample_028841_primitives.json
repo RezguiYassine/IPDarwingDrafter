@@ -1,0 +1,18 @@
+{
+  "sketch_id": "sample_028841",
+  "primitives": [
+    {
+      "edge_id": 0,
+      "type": "arc",
+      "center": [
+        0.486113977432251,
+        0.3479370594024658
+      ],
+      "radius": 0.4248783111572266,
+      "start_angle": 121.19591474533081,
+      "end_angle": 58.18941414356232,
+      "confidence": 0.8529500961303711,
+      "fitter": "free2cad_v3"
+    }
+  ]
+}

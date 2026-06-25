@@ -1,0 +1,11 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 82.5,50.0 L 80.0,50.0 L 80.0,150.0 L 82.5,150.0 L 82.5,50.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 82.5,50.0 L 117.5,50.0 L 117.5,150.0 L 82.5,150.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 88.5,59.0 C 88.5,58.17155 89.17155000000001,57.5 90.0,57.5 C 90.82845,57.5 91.5,58.17155 91.5,59.0 C 91.5,59.828450000000004 90.82845,60.5 90.0,60.5 C 89.17155000000001,60.5 88.5,59.828450000000004 88.5,59.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 108.5,59.0 C 108.5,58.17155 109.17155000000001,57.5 110.0,57.5 C 110.82845,57.5 111.5,58.17155 111.5,59.0 C 111.5,59.828450000000004 110.82845,60.5 110.0,60.5 C 109.17155000000001,60.5 108.5,59.828450000000004 108.5,59.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 120.0,50.0 L 117.5,50.0 M 120.0,50.0 L 120.0,150.0 L 117.5,150.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 90.0,139.5 C 90.82845,139.5 91.5,140.17155 91.5,141.0 C 91.5,141.82845 90.82845,142.5 90.0,142.5 C 89.17155000000001,142.5 88.5,141.82845 88.5,141.0 C 88.5,140.17155 89.17155000000001,139.5 90.0,139.5" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 110.0,139.5 C 110.82845,139.5 111.5,140.17155 111.5,141.0 C 111.5,141.82845 110.82845,142.5 110.0,142.5 C 109.17155000000001,142.5 108.5,141.82845 108.5,141.0 C 108.5,140.17155 109.17155000000001,139.5 110.0,139.5" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 58.760400000000004,73.4241 L 109.58395000000002,99.99137105 L 104.15945500000001,103.1232 M 113.24225000000001,118.1838 L 132.8915,128.45520000000002 M 113.24225000000001,118.1838 L 108.09970000000001,121.46305000000001 M 141.2396,107.3553 L 82.46900000000001,73.4241 C 75.162,70.9184 66.06745000000001,70.9184 58.760400000000004,73.4241" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 108.09970000000001,105.1829 L 104.15945500000001,103.1232 L 104.15945500000001,119.4033 L 108.09970000000001,121.46305000000001 L 108.09970000000001,105.1829" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 113.24225000000001,101.90369 L 108.09970000000001,105.1829" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 113.24225000000001,118.1838 L 113.24225000000001,101.90369 L 132.8915,112.17505000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 141.2396,107.3553 L 132.8915,112.17505000000001 L 132.8915,128.45520000000002 L 141.2396,123.6354 L 141.2396,107.3553" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 58.760400000000004,89.70420000000001 L 58.760400000000004,73.4241 M 58.760400000000004,89.70420000000001 L 104.15945500000001,113.4359" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

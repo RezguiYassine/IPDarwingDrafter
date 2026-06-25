@@ -1,0 +1,17 @@
+Failure # 1 (occurred at 2026-06-16_17-07-07)
+[36mray::ImplicitFunc.train()[39m (pid=27808, ip=192.168.0.231, actor_id=c2812de7cd5b026e31e8437d01000000, repr=_ray_tune_trainable)
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/trainable.py", line 324, in train
+    raise skipped from exception_cause(skipped)
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/air/_internal/util.py", line 98, in run
+    self._ret = self._target(*self._args, **self._kwargs)
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/function_trainable.py", line 44, in <lambda>
+    training_func=lambda: self._trainable_func(self.config),
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/function_trainable.py", line 249, in _trainable_func
+    output = fn()
+  File "/home/idp/.local/lib/python3.10/site-packages/ray/tune/trainable/util.py", line 130, in inner
+    return trainable(config, **fn_kwargs)
+  File "/home/idp/IPDarwingDrafter/stage3_primitivesfitting/research/./train_free2cad_v3.py", line 661, in _ray_tune_trainable
+    train_data = load_dataset(args.data_dir, "train", args.max_pts)
+  File "/home/idp/IPDarwingDrafter/stage3_primitivesfitting/research/./train_free2cad_v3.py", line 242, in load_dataset
+    raise FileNotFoundError(
+FileNotFoundError: No JSON files in /home/IPDarwingDrafter/stage3_primitivesfitting/research/data/free2cad_training_v3/train. Run generate_sketches_v3.py first.

@@ -1,0 +1,11 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 32.3765,84.69220000000001 L 64.5143,66.13735 L 69.87060000000001,69.2298 L 43.089,84.69220000000001 L 62.639550000000014,95.979775 L 121.55925,61.962500000000006 L 167.62350000000004,88.5578 L 135.4857,107.1127 M 121.55925,68.14745 L 62.639550000000014,102.16473500000001 L 32.3765,84.69220000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 32.3765,115.61705 L 32.3765,84.69220000000001 M 32.3765,115.61705 L 62.639550000000014,133.08955 L 62.639550000000014,102.16473500000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 121.55925,99.072255 L 121.55925,68.14745 L 156.91100000000003,88.5578 L 130.1294,104.02022500000001 L 121.55925,99.072255" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 121.55925,99.072255 L 62.639550000000014,133.08955" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 135.4857,107.1127 L 130.1294,104.02022500000001 L 130.1294,134.94505 L 135.4857,138.0375 L 135.4857,107.1127" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 167.62350000000004,119.48265000000002 L 167.62350000000004,88.5578 M 167.62350000000004,119.48265000000002 L 135.4857,138.0375" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 69.87060000000001,91.80495 L 69.87060000000001,69.2298" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

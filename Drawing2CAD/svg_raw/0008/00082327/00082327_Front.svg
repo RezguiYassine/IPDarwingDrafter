@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 74.854,49.708 L 125.14600000000002,49.708 L 125.14600000000002,116.764 L 125.14600000000002,133.528 L 125.14600000000002,150.292 L 74.854,150.292 L 74.854,133.528 L 74.854,116.764 L 74.854,49.708" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 91.61800000000001,116.764 L 108.382,116.764 L 125.14600000000002,116.764 M 91.61800000000001,116.764 L 74.854,116.764" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 100.0,119.27860000000001 C 103.240475,119.27860000000001 105.8674,121.90550000000002 105.8674,125.14600000000002 C 105.8674,128.3865 103.240475,131.01340000000002 100.0,131.01340000000002 C 96.759525,131.01340000000002 94.13260000000001,128.3865 94.13260000000001,125.14600000000002 C 94.13260000000001,121.90550000000002 96.759525,119.27860000000001 100.0,119.27860000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 91.61800000000001,133.528 L 108.382,133.528 L 125.14600000000002,133.528 M 91.61800000000001,133.528 L 91.61800000000001,116.764" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 91.61800000000001,133.528 L 74.854,133.528" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 108.382,133.528 L 108.382,116.764" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

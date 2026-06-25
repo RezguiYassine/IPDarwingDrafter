@@ -27,10 +27,9 @@ puhachov:
 # This config block is consumed only by stage3_primitivesfitting/research/
 # (training + Free2CAD-based inference). See docs/archive/free2cad_handoff.md.
 free2cad:
-  weights:   "models/free2cad_v3_best.pth"
-  device:    "cuda"
-  repo_path: "stage3_primitivesfitting/research/repos/Free2CAD/networkTraining"
-
+  weights:   "weights/free2cad/free2cad_v3_best.pth"
+  device:    "cpu"
+  
 # ── Stage 1 — Preprocessing ───────────────────────────────────────────────────
 stage1:
   # Skeleton quality threshold [0.0 – 1.0].
@@ -73,7 +72,7 @@ stage3:
 # These directories are gitignored. Populate them with setup.sh / your own
 # generator before training. See docs/archive/free2cad_handoff.md.
 data:
-  training_dir: "stage3_primitivesfitting/research/data/free2cad_training"
+  training_dir: "stage3_primitivesfitting/research/data/free2cad_training_v3"
   abc_step_dir: "stage3_primitivesfitting/research/data/abc_dataset/step_files"
   deepcad_dir:  "stage3_primitivesfitting/research/data/deepcad"
   weights_dir:  "models"

@@ -1,0 +1,16 @@
+{
+  "sketch_id": "sample_029224",
+  "primitives": [
+    {
+      "edge_id": 0,
+      "type": "circle",
+      "center": [
+        0.37026712894439695,
+        0.3839195966720581
+      ],
+      "radius": 0.41805219650268555,
+      "confidence": 0.9769630432128906,
+      "fitter": "free2cad_v3"
+    }
+  ]
+}

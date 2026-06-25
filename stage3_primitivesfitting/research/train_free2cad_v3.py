@@ -100,6 +100,7 @@ import json
 import math
 import time
 import argparse
+import re
 from pathlib import Path
 from collections import Counter
 
@@ -118,6 +119,23 @@ PARAM_CLASSES = {CMD_TYPES["LINE"], CMD_TYPES["ARC"], CMD_TYPES["CIRCLE"]}
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
+
+def _parse_list_arg(values: list[str], dtype, name: str):
+    if not values:
+        return []
+    parsed = []
+    for token in values:
+        for part in re.split(r"[,+]", str(token)):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                parsed.append(dtype(part))
+            except ValueError as exc:
+                raise argparse.ArgumentTypeError(
+                    f"Invalid value for {name}: '{part}'") from exc
+    return parsed
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -145,7 +163,24 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--resume",       type=str,   default="")
     p.add_argument("--seed",         type=int,   default=42)
     p.add_argument("--log_every",    type=int,   default=1)
-    return p.parse_args()
+
+    p.add_argument("--tune", action="store_true",
+                   help="Use Ray Tune for grid search over batch size, lr, and epochs")
+    p.add_argument("--tune_dir", type=str,
+                   default="",
+                   help="Root directory for Ray Tune results. Defaults to <output_dir>/ray_tune")
+    p.add_argument("--tune_batch_size", type=str, nargs="*", default=[],
+                   help="List of batch sizes to grid search. Accepts space, comma, or plus separators.")
+    p.add_argument("--tune_lr", type=str, nargs="*", default=[],
+                   help="List of learning rates to grid search. Accepts space, comma, or plus separators.")
+    p.add_argument("--tune_epochs", type=str, nargs="*", default=[],
+                   help="List of epoch counts to grid search. Accepts space, comma, or plus separators.")
+
+    args = p.parse_args()
+    args.tune_batch_size = _parse_list_arg(args.tune_batch_size, int, "--tune_batch_size")
+    args.tune_lr = _parse_list_arg(args.tune_lr, float, "--tune_lr")
+    args.tune_epochs = _parse_list_arg(args.tune_epochs, int, "--tune_epochs")
+    return args
 
 
 # ─── Data loading ─────────────────────────────────────────────────────────────
@@ -607,11 +642,183 @@ def train(args: argparse.Namespace) -> None:
     print(f"See the patch note at the bottom of train_free2cad_v3.py.")
 
 
+def _ray_tune_trainable(config, args):
+    import torch
+    import torch.nn as nn
+    from torch.optim import AdamW
+    from torch.optim.lr_scheduler import CosineAnnealingLR
+    from ray import tune
+
+    if args.device == "cuda" and not torch.cuda.is_available():
+        print("CUDA unavailable — falling back to CPU.")
+        device = torch.device("cpu")
+    else:
+        device = torch.device(args.device)
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    train_data = load_dataset(args.data_dir, "train", args.max_pts)
+    val_data = load_dataset(args.data_dir, "val", args.max_pts)
+
+    class_weights = compute_class_weights(train_data, args.max_class_weight)
+    cw_tensor = torch.from_numpy(class_weights).to(device)
+
+    model = build_model(
+        max_pts      = args.max_pts,
+        d_model      = args.d_model,
+        n_heads      = args.n_heads,
+        n_enc_layers = args.n_enc_layers,
+        dropout      = args.dropout,
+    ).to(device)
+
+    type_loss_fn = nn.CrossEntropyLoss(
+        weight          = cw_tensor,
+        label_smoothing = args.label_smoothing,
+    )
+    optim = AdamW(model.parameters(), lr=config["lr"],
+                  weight_decay=args.weight_decay)
+    scheduler = CosineAnnealingLR(optim, T_max=config["epochs"], eta_min=1e-6)
+
+    best_val_loss = float("inf")
+    trial_dir = Path(tune.get_trial_dir()) if hasattr(tune, "get_trial_dir") else Path(args.output_dir)
+    trial_dir.mkdir(parents=True, exist_ok=True)
+
+    rng = np.random.default_rng(args.seed)
+    print(f"\nStarting Ray Tune trial: batch_size={config['batch_size']}, lr={config['lr']}, epochs={config['epochs']}")
+
+    for epoch in range(config["epochs"]):
+        t0 = time.time()
+        model.train()
+
+        indices = list(range(len(train_data)))
+        rng.shuffle(indices)
+
+        train_loss = 0.0
+        n_batches = 0
+        for s in range(0, len(indices), config["batch_size"]):
+            idx = indices[s : s + config["batch_size"]]
+            pts, mask, types, params = make_batch(train_data, idx, device)
+
+            optim.zero_grad()
+            type_logits, param_pred = model(pts, mask)
+
+            t_loss = type_loss_fn(type_logits, types)
+            valid = torch.zeros_like(types, dtype=torch.float)
+            for cls in PARAM_CLASSES:
+                valid = valid + (types == cls).float()
+            n_valid = valid.sum().clamp(min=1)
+            p_loss = (
+                torch.abs(param_pred - params).sum(dim=-1) * valid
+            ).sum() / n_valid
+
+            loss = t_loss + args.param_weight * p_loss
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optim.step()
+
+            train_loss += loss.item()
+            n_batches += 1
+
+        scheduler.step()
+        avg_train = train_loss / max(n_batches, 1)
+
+        metrics = evaluate(model, val_data, device, config["batch_size"],
+                           type_loss_fn, args.param_weight)
+        avg_val = metrics["val_loss"]
+
+        elapsed = time.time() - t0
+        lr_now = scheduler.get_last_lr()[0]
+        print(f"\nEpoch {epoch+1:3d}/{config['epochs']}  "
+              f"train={avg_train:.4f}  val={avg_val:.4f}  "
+              f"lr={lr_now:.2e}  t={elapsed:.1f}s")
+        print_metrics(metrics)
+
+        if avg_val < best_val_loss:
+            best_val_loss = avg_val
+            ckpt = {
+                "model_state_dict": model.state_dict(),
+                "epoch":            epoch,
+                "val_loss":         avg_val,
+                "version":          3,
+                "architecture":     "encoder_only",
+                "config": {
+                    "max_pts":      args.max_pts,
+                    "n_cmd_types":  N_CMD_TYPES,
+                    "d_model":      args.d_model,
+                    "n_heads":      args.n_heads,
+                    "n_enc_layers": args.n_enc_layers,
+                    "dropout":      args.dropout,
+                },
+                "cmd_types":     CMD_TYPES,
+                "class_weights": class_weights.tolist(),
+                "metrics":       metrics,
+            }
+            torch.save(ckpt, trial_dir / "free2cad_v3_best.pth")
+            print(f"  → New best (val_loss={best_val_loss:.4f})")
+
+        tune.report(val_loss=avg_val, train_loss=avg_train,
+                    lr=lr_now, epoch=epoch + 1)
+
+    print(f"\nTrial complete. Best val_loss={best_val_loss:.4f}")
+
+
+def train_with_ray_tune(args: argparse.Namespace) -> None:
+    try:
+        import ray
+        from ray import tune
+    except ImportError as exc:
+        raise ImportError(
+            "Ray Tune is required for grid search. Install it with 'pip install ray[tune]'."
+        ) from exc
+
+    tune_dir = args.tune_dir or str(Path(args.output_dir) / "ray_tune")
+    tune_dir = str(Path(tune_dir).resolve())
+
+    batch_sizes = args.tune_batch_size or [args.batch_size]
+    lrs = args.tune_lr or [args.lr]
+    epoch_counts = args.tune_epochs or [args.epochs]
+
+    config = {
+        "batch_size": tune.grid_search(batch_sizes),
+        "lr":         tune.grid_search(lrs),
+        "epochs":     tune.grid_search(epoch_counts),
+    }
+
+    print(f"\nRay Tune grid search configuration:")
+    print(f"  batch_size: {batch_sizes}")
+    print(f"  lr:         {lrs}")
+    print(f"  epochs:     {epoch_counts}")
+    print(f"  results:    {tune_dir}")
+
+    ray.init(ignore_reinit_error=True, include_dashboard=False)
+    analysis = tune.run(
+        tune.with_parameters(_ray_tune_trainable, args=args),
+        config=config,
+        metric="val_loss",
+        mode="min",
+        storage_path=tune_dir,
+        name="free2cad_v3_grid_search",
+        resources_per_trial={"cpu": 1, "gpu": 0},
+        raise_on_failed_trial=False,
+    )
+
+    best_trial = analysis.get_best_trial(metric="val_loss", mode="min", scope="last")
+    print(f"\nBest Ray Tune trial:")
+    print(f"  config: {best_trial.config}")
+    print(f"  val_loss: {best_trial.metric_analysis['val_loss']['min']}")
+    print(f"  logdir: {best_trial.logdir}")
+    print(f"  best checkpoint: {Path(best_trial.logdir) / 'free2cad_v3_best.pth'}")
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     args = parse_args()
-    train(args)
+    if args.tune:
+        train_with_ray_tune(args)
+    else:
+        train(args)
 
 
 # =============================================================================

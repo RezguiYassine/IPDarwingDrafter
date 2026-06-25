@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 63.05395,120.1407 L 63.09115,120.16215 M 63.05395,120.1407 L 135.5618,78.27825000000001 C 135.5951,78.25895000000001 135.6281,78.25565 135.6516,78.26935" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 63.09115,120.16215 L 64.3484,120.88800000000002 M 63.09115,120.16215 L 135.6516,78.26935 L 136.90885,78.99520000000001" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 64.3484,120.88800000000002 L 136.90885,78.99520000000001 C 136.93235,79.00895000000001 136.94595,79.039 136.94605,79.07745 C 136.94595,79.116 136.93235,79.16175000000001 136.90885,79.20260000000002 M 64.528,120.9917 L 64.3484,120.88800000000002" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 64.528,120.9917 L 136.90885,79.20260000000002 L 135.6516,81.3802 L 65.7852,121.7176 L 64.528,120.9917" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 65.8224,121.73905 L 65.7852,121.7176 M 65.8224,121.73905 L 135.5618,81.47500000000001 C 135.5951,81.45585 135.6281,81.421 135.6516,81.3802" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 63.09115,120.16215 L 63.05395,120.1407 M 64.3484,120.88800000000002 L 64.3933,120.91395 M 64.48310000000001,120.9658 L 64.528,120.9917" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

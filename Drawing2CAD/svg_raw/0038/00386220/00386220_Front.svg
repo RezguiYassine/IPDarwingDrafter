@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 100.0,50.0 C 127.61425,50.0 150.0,72.38575000000002 150.0,100.0 L 150.0,50.0 L 100.0,50.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 50.0,100.0 C 50.0,72.38575000000002 72.38575000000002,50.0 100.0,50.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 100.0,50.0 L 50.0,50.0 L 50.0,100.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 92.59855,70.6878 L 107.85355,70.6878 L 128.7132,129.8009 L 115.262,129.8009 L 110.9973,115.78280000000001 L 89.53210000000001,115.78280000000001 L 85.26740000000001,129.8009 L 71.81620000000001,129.8009 L 92.59855,70.6878" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 100.2775805,79.83565 C 99.39286,83.27145000000002 96.85895000000001,91.76650000000001 92.67585000000001,105.32075 L 108.00815,105.32075 C 104.06556,92.62545 101.84517,85.44460000000001 101.346975,83.77825000000001 C 100.848785,82.11185 100.49231850000001,80.79765 100.2775805,79.83565" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 50.0,150.0 L 50.0,100.0 C 50.0,127.61425 72.38575000000002,150.0 100.0,150.0 C 127.61425,150.0 150.0,127.61425 150.0,100.0 L 150.0,150.0 L 100.00000000000001,150.0 L 50.0,150.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 90.0,96.25 C 92.07105000000001,96.25 93.75,97.92893000000001 93.75,100.0 C 93.75,102.07107 92.07105000000001,103.75 90.0,103.75 C 87.92895,103.75 86.25,102.07107 86.25,100.0 C 86.25,97.92893000000001 87.92895,96.25 90.0,96.25" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 75.0,110.0 L 75.0,90.0 L 125.0,90.0 L 125.0,110.0 L 75.0,110.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 106.25,100.0 C 106.25,97.92893000000001 107.92895000000001,96.25 110.0,96.25 C 112.07105,96.25 113.75,97.92893000000001 113.75,100.0 C 113.75,102.07107 112.07105,103.75 110.0,103.75 C 107.92895000000001,103.75 106.25,102.07107 106.25,100.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>

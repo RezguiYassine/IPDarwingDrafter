@@ -1,0 +1,11 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" version="1.1" viewBox="0 0 200 200" width="200">
+	<defs/>
+	<path d="M 87.625,87.625 L 87.625,91.75 M 87.625,87.625 L 91.75,87.625" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 91.75,87.625 C 89.47185,87.625 87.625,89.47185 87.625,91.75 L 87.625,95.875 M 91.75,87.625 L 95.875,87.625" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 95.875,87.625 C 91.31865,87.625 87.625,91.31865 87.625,95.875 L 87.625,100.0 C 87.625,93.16550000000001 93.16550000000001,87.625 100.0,87.625 L 95.875,87.625" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 87.625,100.0 C 87.625,106.8345 93.16550000000001,112.375 100.0,112.375 L 95.875,112.375 C 91.31865,112.375 87.625,108.68135000000001 87.625,104.125 L 87.625,100.0" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 87.625,104.125 L 87.625,108.25 M 91.75,112.375 L 95.875,112.375" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 87.625,108.25 C 87.625,110.52815000000001 89.47185,112.375 91.75,112.375 L 87.625,112.375 L 87.625,108.25" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+	<path d="M 112.375,87.625 L 100.0,87.625 M 112.375,87.625 L 112.375,112.375 L 100.0,112.375" fill="none" fill-rule="evenodd" stroke="#000000" stroke-linecap="round" stroke-linejoin="bevel" stroke-opacity="1" stroke-width="0.75"/>
+</svg>
