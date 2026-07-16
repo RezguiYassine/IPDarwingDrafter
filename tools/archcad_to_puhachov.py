@@ -36,6 +36,15 @@ import math
 import os
 import random
 import sys
+
+# Cap internal thread pools BEFORE importing cv2/numpy — we parallelise at the
+# process level, so each worker must stay single-threaded. Without this, cv2 and
+# the BLAS backends each grab all cores, so N workers spawn N×cores threads and
+# the kernel thrashes on context switches (observed: sys≫real, server hangs).
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+           "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_v, "1")
+
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -43,6 +52,8 @@ import cv2
 import numpy as np
 from skimage.morphology import skeletonize as _skeletonize
 from tqdm import tqdm
+
+cv2.setNumThreads(0)   # disable OpenCV's internal threading in every worker
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -52,7 +63,13 @@ from tools.d2c_keypoint_labels import (  # noqa: E402
 
 logger = logging.getLogger("archcad_kp")
 
-RENDER_DEFAULT = 980   # ArchCAD native raster frame
+RENDER_DEFAULT = 980    # ArchCAD native raster frame
+# Hard cap on samples per curved primitive. ArchCAD radii reach 870k px (arcs
+# whose visible sliver crosses the ~980px frame), so `n = 2πr` would allocate
+# multi-million-point arrays for ONE primitive → per-worker OOM → server crash.
+# No primitive needs more than ~4×frame points to be pixel-accurate on-canvas;
+# any off-canvas remainder is clipped in rasterize() anyway.
+MAX_SAMPLES = 4 * RENDER_DEFAULT
 
 
 # ─── Primitive → polyline ─────────────────────────────────────────────────────
@@ -62,7 +79,7 @@ def _arc_points(cx, cy, r, a0_deg, a1_deg):
     a0, a1 = math.radians(a0_deg), math.radians(a1_deg)
     if a1 <= a0:
         a1 += 2 * math.pi
-    n = max(4, int(r * (a1 - a0)))          # ≈ 1 px per segment
+    n = min(MAX_SAMPLES, max(4, int(r * (a1 - a0))))    # ≈ 1 px/seg, capped
     return [(cx + r * math.cos(a), cy + r * math.sin(a))
             for a in np.linspace(a0, a1, n)]
 
@@ -77,7 +94,7 @@ def entity_to_polyline(e: dict) -> list[tuple[float, float]] | None:
                            e["start_angle"], e["end_angle"])
     if t == "CIRCLE":
         cx, cy, r = e["center"][0], e["center"][1], e["radius"]
-        n = max(8, int(2 * math.pi * r))
+        n = min(MAX_SAMPLES, max(8, int(2 * math.pi * r)))
         pts = [(cx + r * math.cos(a), cy + r * math.sin(a))
                for a in np.linspace(0, 2 * math.pi, n)]
         return pts                                      # closed (first≈last)
@@ -91,7 +108,7 @@ def entity_to_polyline(e: dict) -> list[tuple[float, float]] | None:
         p0 = float(e.get("start_param", 0.0)); p1 = float(e.get("end_param", 2 * math.pi))
         if p1 <= p0:
             p1 += 2 * math.pi
-        n = max(8, int(max(ra, rb) * (p1 - p0)))
+        n = min(MAX_SAMPLES, max(8, int(max(ra, rb) * (p1 - p0))))
         pts = []
         for a in np.linspace(p0, p1, n):
             x, y = ra * math.cos(a), rb * math.sin(a)
@@ -159,13 +176,18 @@ _ARGS: dict | None = None
 def _init(a: dict) -> None:
     global _ARGS
     _ARGS = a
+    cv2.setNumThreads(0)   # keep each worker single-threaded (fork may reset it)
 
 
 def _process_one(job: tuple) -> dict:
     json_path, out_path = job
     a = _ARGS
     try:
+        if a.get("resume") and os.path.exists(out_path):
+            return {"file": os.path.basename(json_path), "status": "skipped"}
         ents = json.load(open(json_path)).get("entities", [])
+        if a["max_entities"] and len(ents) > a["max_entities"]:
+            return {"file": os.path.basename(json_path), "status": "too_large"}
         subpaths = [pl for e in ents if (pl := entity_to_polyline(e)) and len(pl) >= 2]
         if not subpaths:
             return {"file": os.path.basename(json_path), "status": "empty"}
@@ -189,11 +211,14 @@ def _process_one(job: tuple) -> dict:
         corners_snapped, n_dropped = snap_keypoints(corners, skeleton, a["snap_radius"])
 
         # Drop corners that coincide with a junction (a crossing dominates a bend).
-        jset = {(x, y) for x, y, _ in junctions}
-        rad = a["snap_radius"]
+        # O(n) grid-hash: a corner is near a junction if any junction falls in its
+        # 3×3 cell neighbourhood on a `rad`-sized grid.
+        rad = max(1, a["snap_radius"])
+        jcells = {(jx // rad, jy // rad) for jx, jy, _ in junctions}
         corners_snapped = [
             (x, y, t) for (x, y, t) in corners_snapped
-            if not any(abs(x - jx) <= rad and abs(y - jy) <= rad for jx, jy in jset)
+            if not any((x // rad + dx, y // rad + dy) in jcells
+                       for dx in (-1, 0, 1) for dy in (-1, 0, 1))
         ]
 
         all_kps = endpoints + junctions + corners_snapped
@@ -227,6 +252,9 @@ def main() -> None:
     ap.add_argument("--corner-angle", type=float, default=35.0)
     ap.add_argument("--merge-tol",    type=float, default=0.5)
     ap.add_argument("--snap-radius",  type=int,   default=5)
+    ap.add_argument("--max-entities", type=int,   default=8000,
+                    help="skip pathological drawings above this entity count (0=off)")
+    ap.add_argument("--resume", action="store_true", help="skip files already written")
     ap.add_argument("--seed",     type=int, default=42)
     a = ap.parse_args()
 
@@ -249,7 +277,8 @@ def main() -> None:
                 f"merge_tol={a.merge_tol}, snap_radius={a.snap_radius})")
 
     cfg = dict(render=a.render, corner_angle=a.corner_angle,
-               merge_tol=a.merge_tol, snap_radius=a.snap_radius)
+               merge_tol=a.merge_tol, snap_radius=a.snap_radius,
+               max_entities=a.max_entities, resume=a.resume)
     stats = {"ok": 0, "empty": 0, "empty_skeleton": 0, "error": 0}
     agg = {k: 0 for k in ("n_endpoint", "n_junction", "n_corner", "n_kps", "n_dropped")}
     with ProcessPoolExecutor(max_workers=a.workers, initializer=_init,
