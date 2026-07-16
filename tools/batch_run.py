@@ -66,11 +66,12 @@ logger = logging.getLogger("batch_run")
 _WORKER_CFG = None
 _WORKER_S1_MODEL = None
 _WORKER_S2_MODEL = None
+_WORKER_HATCH_MODEL = None
 
 
 def _worker_init(config_path: str) -> None:
     """Initialise per-process state: load config, load Stage-1/2 ML models."""
-    global _WORKER_CFG, _WORKER_S1_MODEL, _WORKER_S2_MODEL
+    global _WORKER_CFG, _WORKER_S1_MODEL, _WORKER_S2_MODEL, _WORKER_HATCH_MODEL
 
     with open(config_path) as f:
         _WORKER_CFG = yaml.safe_load(f) or {}
@@ -90,6 +91,7 @@ def _worker_init(config_path: str) -> None:
 
     _WORKER_S1_MODEL = stage1_preprocess.load_model(_WORKER_CFG)
     _WORKER_S2_MODEL = stage2_stroke_extract.load_model(_WORKER_CFG)
+    _WORKER_HATCH_MODEL = stage2_stroke_extract.load_hatch_model(_WORKER_CFG)
 
 
 def _process_one(job: tuple[str, str, str, str]) -> dict:
@@ -164,6 +166,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         s2 = stage2_stroke_extract.run(
             skeleton_path=s1.skeleton_path, output_dir=output_dir,
             sketch_id=sketch_id, config=_WORKER_CFG, model=_WORKER_S2_MODEL,
+            source_image_path=stage1_input, hatch_model=_WORKER_HATCH_MODEL,
         )
         row.update({
             "s2_time":         s2.processing_time_s,

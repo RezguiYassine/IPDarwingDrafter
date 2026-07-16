@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -1008,6 +1009,182 @@ def _cleanup_hatch_residue(
     return nodes, kept
 
 
+# ─── Learned hatch-region detector (Phase 2 CNN) ─────────────────────────────
+
+_HATCH_PATCH  = 512
+_HATCH_STRIDE = 256
+
+
+def load_hatch_model(config: dict):
+    """
+    Load the Phase 2 HatchUNet hatch-region detector (called once at batch
+    start, mirroring ``load_model``).
+
+    Returns None — so Stage 2 transparently falls back to the geometric
+    hachure heuristic — when the detector is disabled
+    (``stage2.hachure_use_cnn`` is false), the checkpoint is missing, or the
+    weights fail to load.
+    """
+    cfg = config.get("stage2", {})
+    if not bool(cfg.get("hachure_use_cnn", False)):
+        return None
+
+    ckpt_path = cfg.get("hachure_cnn_model", "models/hatch_unet.pth")
+    if not os.path.exists(ckpt_path):
+        logger.warning(
+            f"Hatch CNN weights not found ({ckpt_path}); "
+            "falling back to geometric hachure removal."
+        )
+        return None
+
+    try:
+        import sys
+        root = str(Path(__file__).resolve().parent.parent)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        import torch
+        from tools.hatch_model import HatchUNet
+
+        device = cfg.get("hachure_cnn_device",
+                         "cuda" if torch.cuda.is_available() else "cpu")
+        ck    = torch.load(ckpt_path, map_location=device)
+        model = HatchUNet(freeze_encoder=False).to(device)
+        model.load_state_dict(ck["model_state"])
+        model.eval()
+        model._hatch_device = torch.device(device)   # stashed for inference
+        logger.info(
+            f"Hatch CNN ready ({ckpt_path}, device={device}, "
+            f"val_iou_pos={ck.get('val_iou_pos', '?')})."
+        )
+        return model
+    except Exception as exc:
+        logger.warning(
+            f"Hatch CNN load failed ({exc}); "
+            "falling back to geometric hachure removal."
+        )
+        return None
+
+
+def _cnn_hatch_mask(
+    gray: np.ndarray,
+    model,
+    threshold: float,
+    patch: int = _HATCH_PATCH,
+    stride: int = _HATCH_STRIDE,
+) -> np.ndarray:
+    """
+    Sliding-window hatch-region inference on a full grayscale image.
+
+    Returns a uint8 {0, 1} mask with the same shape as ``gray`` — 1 where the
+    learned detector predicts hatching (prob ≥ threshold).  Mirrors
+    ``tools.hatch_infer.infer_tif`` but operates on an in-memory array.
+    """
+    import torch
+
+    device = getattr(model, "_hatch_device", None) or next(model.parameters()).device
+    H, W  = gray.shape
+    acc   = np.zeros((H, W), np.float32)
+    count = np.zeros((H, W), np.float32)
+
+    ys = list(range(0, max(1, H - patch), stride)) + [max(0, H - patch)]
+    xs = list(range(0, max(1, W - patch), stride)) + [max(0, W - patch)]
+
+    model.eval()
+    with torch.no_grad():
+        for y0 in dict.fromkeys(ys):
+            for x0 in dict.fromkeys(xs):
+                y1, x1 = y0 + patch, x0 + patch
+                p = gray[y0:y1, x0:x1].astype(np.float32) / 255.0
+                ph, pw = p.shape
+                if ph < patch or pw < patch:
+                    pad = np.zeros((patch, patch), np.float32)
+                    pad[:ph, :pw] = p
+                    p = pad
+                t = torch.from_numpy(p[None, None]).to(device)
+                prob = torch.sigmoid(model(t))[0, 0].cpu().numpy()
+                acc[y0:y0 + ph, x0:x0 + pw]   += prob[:ph, :pw]
+                count[y0:y0 + ph, x0:x0 + pw] += 1.0
+
+    prob_map = acc / np.maximum(count, 1e-6)
+    return (prob_map >= threshold).astype(np.uint8)
+
+
+def _remove_hachures_cnn(
+    nodes: list[dict],
+    edges: list[dict],
+    hatch_mask: np.ndarray,
+    cfg: dict,
+    *,
+    pass_name: str,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Remove open graph edges that lie inside the learned hatch-region mask.
+
+    An open edge is a hachure iff at least ``hachure_cnn_inside_frac`` of its
+    pixels fall inside the CNN mask.  This replaces the geometric clustering
+    heuristic when the Phase 2 detector is available.  A high inside-fraction
+    keeps outlines that merely clip or cross a hatched region — only strokes
+    that lie *within* the hatch fill are dropped.  Removed edges carry
+    ``is_hachure=True`` so the isolation metric and region aggregation treat
+    them exactly like geometrically detected hachures.
+    """
+    inside_frac = float(cfg.get("hachure_cnn_inside_frac", 0.60))
+    min_len     = float(cfg.get("hachure_cnn_min_length", 4.0))
+    H, W = hatch_mask.shape
+
+    selected_ids: set[int] = set()
+    selected_meta: dict[int, dict] = {}
+    for edge in edges:
+        if edge.get("is_closed"):
+            continue
+        pix = edge.get("pixels") or []
+        if len(pix) < 2:
+            continue
+        if _chain_length(pix) < min_len:
+            continue
+        inside = 0
+        for px in pix:                       # pixels are [x, y] → index [y, x]
+            x, y = int(px[0]), int(px[1])
+            if 0 <= y < H and 0 <= x < W and hatch_mask[y, x]:
+                inside += 1
+        frac = inside / len(pix)
+        if frac >= inside_frac:
+            selected_ids.add(int(edge["id"]))
+            selected_meta[int(edge["id"])] = {
+                "pass":        pass_name,
+                "inside_frac": round(frac, 3),
+                "n_pixels":    len(pix),
+            }
+
+    if not selected_ids:
+        return nodes, edges, []
+
+    # Guard: a bad or mis-aligned mask must never nuke most of the drawing.
+    open_edges = [e for e in edges if not e.get("is_closed")]
+    max_ratio  = float(cfg.get("hachure_max_removed_edge_ratio", 0.75))
+    if max_ratio > 0 and len(selected_ids) / max(1, len(open_edges)) > max_ratio:
+        logger.warning(
+            "CNN hachure removal skipped: candidate ratio %.3f exceeds guard %.3f",
+            len(selected_ids) / max(1, len(open_edges)),
+            max_ratio,
+        )
+        return nodes, edges, []
+
+    kept: list[dict] = []
+    removed: list[dict] = []
+    for edge in edges:
+        if int(edge["id"]) not in selected_ids:
+            kept.append(edge)
+            continue
+        item = dict(edge)
+        item["is_hachure"] = True
+        item["hachure"] = selected_meta.get(int(edge["id"]), {"pass": pass_name})
+        removed.append(item)
+
+    nodes, kept = _drop_unused_nodes(nodes, kept)
+    return nodes, kept, removed
+
+
 def _remove_hachure_edges(
     nodes: list[dict],
     edges: list[dict],
@@ -1782,6 +1959,9 @@ def run(
     sketch_id: str,
     config: dict,
     model: Optional[PuhachovKeypointDetector] = None,
+    *,
+    source_image_path: Optional[Path] = None,
+    hatch_model=None,
 ) -> Stage2Result:
     """
     Run Stage 2 on a single skeleton image.
@@ -1798,6 +1978,14 @@ def run(
         Parsed config.yaml content.
     model : PuhachovKeypointDetector | None
         Pre-loaded CNN instance; None → classical fallback.
+    source_image_path : Path | None
+        The grayscale image Stage 1 consumed (same coordinate frame as the
+        skeleton).  Required for the learned hatch detector; None → geometric
+        hachure removal.
+    hatch_model : HatchUNet | None
+        Pre-loaded Phase 2 hatch-region detector (see ``load_hatch_model``).
+        When present alongside ``source_image_path``, its mask is the primary
+        hachure signal; otherwise the geometric heuristic runs.
 
     Returns
     -------
@@ -1892,8 +2080,37 @@ def run(
     nodes, edges = _extract_topology(skeleton, kp_clusters, max_radius)
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
+    # ── Learned hatch-region mask (Phase 2 CNN) ───────────────────────────
+    # Run the detector on the same image Stage 1 consumed (identical coordinate
+    # frame as the skeleton), then downscale the mask by stage2_scale so it
+    # aligns with the possibly resolution-capped skeleton the graph lives in.
+    hatch_mask = None
+    if (hatch_model is not None and source_image_path is not None
+            and cfg_kp.get("remove_hachures", False)):
+        try:
+            src_gray = cv2.imread(str(source_image_path), cv2.IMREAD_GRAYSCALE)
+            if src_gray is None:
+                raise FileNotFoundError(source_image_path)
+            thr  = float(cfg_kp.get("hachure_cnn_threshold", 0.70))
+            mask = _cnn_hatch_mask(src_gray, hatch_model, thr)
+            if mask.shape != (H, W):
+                mask = cv2.resize(mask, (W, H), interpolation=cv2.INTER_NEAREST)
+            hatch_mask = mask
+            logger.info(
+                f"[{sketch_id}] Hatch CNN mask: {int(hatch_mask.sum())}/{H*W} px "
+                f"({hatch_mask.mean()*100:.1f}%) @ thr={thr}"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"[{sketch_id}] Hatch CNN inference failed ({exc}); "
+                "using geometric hachure removal."
+            )
+            hatch_mask = None
+    use_cnn_hatch = hatch_mask is not None
+
     removed_hachures: list[dict] = []
-    if cfg_kp.get("remove_hachures", False) and cfg_kp.get("hachure_pre_pass", False):
+    if (cfg_kp.get("remove_hachures", False) and cfg_kp.get("hachure_pre_pass", False)
+            and not use_cnn_hatch):
         n0, e0 = len(nodes), len(edges)
         nodes, edges, removed = _remove_hachure_edges(
             nodes, edges, cfg_kp, pass_name="pre_simplify"
@@ -1927,53 +2144,76 @@ def run(
         logger.info(f"[{sketch_id}] Simplified: {n0}→{len(nodes)} nodes, "
                     f"{e0}→{len(edges)} edges")
 
-    run_hachure_post = (
-        cfg_kp.get("remove_hachures", False)
-        and cfg_kp.get("hachure_second_pass", True)
-        and _should_run_hachure_cleanup(edges, cfg_kp)
-    )
-    if run_hachure_post:
+    # ── Hachure removal: learned mask (primary) or geometric (fallback) ────
+    # The CNN mask is the primary signal when the Phase 2 detector is loaded;
+    # the geometric clustering heuristic runs only when no mask is available.
+    if use_cnn_hatch:
         n0, e0 = len(nodes), len(edges)
-        nodes, edges, removed = _remove_hachure_edges(
-            nodes, edges, cfg_kp, pass_name="post_simplify"
+        nodes, edges, removed = _remove_hachures_cnn(
+            nodes, edges, hatch_mask, cfg_kp, pass_name="cnn"
         )
         removed_hachures.extend(removed)
+        did_remove_hachures = bool(removed)
         if removed:
             logger.info(
-                f"[{sketch_id}] Hachures post-simplify: "
+                f"[{sketch_id}] Hachures (CNN): "
                 f"{n0}→{len(nodes)} nodes, {e0}→{len(edges)} edges "
                 f"({len(removed)} removed)"
             )
-            min_removed_for_prune = int(
-                cfg_kp.get("hachure_residual_prune_min_removed", 1)
+    else:
+        did_remove_hachures = False
+        run_hachure_post = (
+            cfg_kp.get("remove_hachures", False)
+            and cfg_kp.get("hachure_second_pass", True)
+            and _should_run_hachure_cleanup(edges, cfg_kp)
+        )
+        if run_hachure_post:
+            n0, e0 = len(nodes), len(edges)
+            nodes, edges, removed = _remove_hachure_edges(
+                nodes, edges, cfg_kp, pass_name="post_simplify"
             )
-            if len(removed_hachures) >= min_removed_for_prune:
-                n2, e2 = len(nodes), len(edges)
-                nodes, edges, residuals = _prune_hachure_residual_edges(
-                    nodes,
-                    edges,
-                    cfg_kp,
-                    pass_name="post_hachure_residual_prune",
-                )
-                removed_hachures.extend(residuals)
-                if residuals:
-                    logger.info(
-                        f"[{sketch_id}] Hachure residuals: "
-                        f"{n2}→{len(nodes)} nodes, {e2}→{len(edges)} edges "
-                        f"({len(residuals)} removed)"
-                    )
-            if cfg_kp.get("simplify_graph", True):
-                n1, e1 = len(nodes), len(edges)
-                nodes, edges = _simplify_graph(
-                    nodes, edges,
-                    spur_min_len          = cfg_kp.get("spur_min_length", 6.0),
-                    collinear_max_angle   = cfg_kp.get("merge_collinear_max_angle", 28.0),
-                    junction_merge_radius = cfg_kp.get("junction_merge_radius", 0.0),
-                )
+            removed_hachures.extend(removed)
+            if removed:
+                did_remove_hachures = True
                 logger.info(
-                    f"[{sketch_id}] Re-simplified after hachures: "
-                    f"{n1}→{len(nodes)} nodes, {e1}→{len(edges)} edges"
+                    f"[{sketch_id}] Hachures post-simplify: "
+                    f"{n0}→{len(nodes)} nodes, {e0}→{len(edges)} edges "
+                    f"({len(removed)} removed)"
                 )
+
+    # Shared post-removal cleanup (residual crumbs + re-simplify) — identical
+    # for both the learned and geometric paths.
+    if did_remove_hachures:
+        min_removed_for_prune = int(
+            cfg_kp.get("hachure_residual_prune_min_removed", 1)
+        )
+        if len(removed_hachures) >= min_removed_for_prune:
+            n2, e2 = len(nodes), len(edges)
+            nodes, edges, residuals = _prune_hachure_residual_edges(
+                nodes,
+                edges,
+                cfg_kp,
+                pass_name="post_hachure_residual_prune",
+            )
+            removed_hachures.extend(residuals)
+            if residuals:
+                logger.info(
+                    f"[{sketch_id}] Hachure residuals: "
+                    f"{n2}→{len(nodes)} nodes, {e2}→{len(edges)} edges "
+                    f"({len(residuals)} removed)"
+                )
+        if cfg_kp.get("simplify_graph", True):
+            n1, e1 = len(nodes), len(edges)
+            nodes, edges = _simplify_graph(
+                nodes, edges,
+                spur_min_len          = cfg_kp.get("spur_min_length", 6.0),
+                collinear_max_angle   = cfg_kp.get("merge_collinear_max_angle", 28.0),
+                junction_merge_radius = cfg_kp.get("junction_merge_radius", 0.0),
+            )
+            logger.info(
+                f"[{sketch_id}] Re-simplified after hachures: "
+                f"{n1}→{len(nodes)} nodes, {e1}→{len(edges)} edges"
+            )
 
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
     rdp_eps        = cfg_kp.get("rdp_epsilon",          1.5)
