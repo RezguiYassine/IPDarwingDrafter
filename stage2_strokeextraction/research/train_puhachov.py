@@ -286,6 +286,25 @@ def train(args):
     if not train_paths:
         raise SystemExit(f"No train npz under {labels/'train'} — run "
                          "tools.d2c_keypoint_labels first.")
+
+    # Mixed-corpus training: blend a second label root (e.g. ArchCAD) with the
+    # primary (D2C) at a controlled ratio. D2C is ~52× larger, so a plain merge
+    # would drown the second corpus; instead we sample-with-replacement to a
+    # fixed mixed-epoch size at the requested D2C fraction. Validation stays on
+    # the primary (D2C) so we directly track whether forgetting is prevented.
+    if args.labels_archcad:
+        arch_paths = _collect(Path(args.labels_archcad), "train")
+        if not arch_paths:
+            raise SystemExit(f"No train npz under {args.labels_archcad}/train")
+        rng_mix = random.Random(args.seed)
+        n_d2c = int(round(args.mix * args.mix_size))
+        n_arch = args.mix_size - n_d2c
+        mixed = rng_mix.choices(train_paths, k=n_d2c) + rng_mix.choices(arch_paths, k=n_arch)
+        rng_mix.shuffle(mixed)
+        print(f"MIXED training: D2C pool={len(train_paths)} + ArchCAD pool={len(arch_paths)} "
+              f"→ {args.mix_size} samples/epoch ({args.mix:.0%} D2C / {1-args.mix:.0%} ArchCAD); "
+              f"validation on D2C")
+        train_paths = mixed
     rng = random.Random(args.seed)
     rng.shuffle(val_paths)
     val_subset = val_paths[:args.val_subset]
@@ -380,6 +399,13 @@ def main():
     ap.add_argument("--grad-clip", type=float, default=5.0)
     ap.add_argument("--prior", type=float, default=0.01,
                     help="focal-loss output prior; sets initial output bias")
+    ap.add_argument("--labels-archcad", default="",
+                    help="second label root to blend with --labels (e.g. "
+                         "output/ArchCAD/kp_labels); validation stays on --labels")
+    ap.add_argument("--mix", type=float, default=0.5,
+                    help="fraction of D2C (--labels) samples per mixed epoch")
+    ap.add_argument("--mix-size", type=int, default=40000,
+                    help="mixed-epoch size (paths sampled with replacement)")
     ap.add_argument("--init-weights", default="",
                     help="checkpoint to fine-tune from (skips random init)")
     ap.add_argument("--patent-aug", type=float, default=0.0,
