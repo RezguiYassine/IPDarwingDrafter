@@ -13,6 +13,14 @@ you through them one at a time.
     python -m tools.hatch_mask_label --pack-source output/PatentData/hatch_pilot \
         --out output/PatentData/hatch_gt
 
+To fix specific mislabeled drawings found via tools/hatch_review.py (read-only --
+it cannot edit) without re-reviewing everything, target them directly:
+
+    python -m tools.hatch_mask_label --out output/PatentData/hatch_gt \
+        --only EP123B1__F0002__d1 EP456A1__F0003
+
+(a bare patent__sketch, with no __dN, redoes all of that sheet's sub-drawings.)
+
 Two drawing modes, toggled with spacebar:
     polygon mode (default)  click vertices, enter to close -- for any shape
     circle mode              for circular hatching (e.g. tube cross-sections):
@@ -63,6 +71,7 @@ for _k in ("keymap.save", "keymap.quit", "keymap.home", "keymap.fullscreen",
     mpl.rcParams[_k] = []
 
 _DEFAULT_TIF_ROOT = "data/PatentData/ReorganisedData"
+_DEFAULT_SELECTED_TIF_ROOT = None   # when --selected-file is used the tif path is inside the JSON
 _INSTRUCTIONS = (
     "click: vertex/circle | scroll: zoom | mid/right-drag: pan | space: mode | f: fit | "
     "enter: close | z: undo | r: reset | g: guides | n/d: done | q: save+quit"
@@ -77,6 +86,30 @@ def _circle_to_polygon(center, radius, n=_CIRCLE_SIDES):
     cx, cy = center
     return [(cx + radius * np.cos(t), cy + radius * np.sin(t))
             for t in np.linspace(0, 2 * np.pi, n, endpoint=False)]
+
+
+def _hachure_overlay(tif_rgb: np.ndarray, graph_path: str) -> np.ndarray:
+    """Bake removed_hachures edge pixels (orange tint) onto a copy of tif_rgb.
+    Returns tif_rgb unchanged if the graph has no hachure edges."""
+    if not graph_path or not os.path.exists(graph_path):
+        return tif_rgb
+    d = json.load(open(graph_path))
+    edges = d.get("removed_hachures", [])
+    if not edges:
+        return tif_rgb
+    scale = 1.0 / d.get("stage2_scale", 1.0)
+    H, W = tif_rgb.shape[:2]
+    mask = np.zeros((H, W), np.uint8)
+    for e in edges:
+        for px, py in e.get("pixels", []):
+            x, y = int(round(px * scale)), int(round(py * scale))
+            if 0 <= x < W and 0 <= y < H:
+                mask[y, x] = 1
+    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8))
+    overlay = tif_rgb.copy()
+    where = mask > 0
+    overlay[where] = (overlay[where] * 0.35 + np.array([255, 120, 0]) * 0.65).clip(0, 255).astype(np.uint8)
+    return overlay
 
 
 def _figure_list(pack_source):
@@ -164,11 +197,13 @@ def split_subdrawings(gray, min_area=4000, dilate_px=35, gap_px=40, pad=15):
 
 
 class _Session:
-    def __init__(self, ax, img_shape, edge_mask, guides=None):
+    def __init__(self, ax, img_shape, edge_mask, guides=None, img_overlay=None):
         self.ax = ax
         self.H, self.W = img_shape[:2]
         self.edge_mask = edge_mask
         self.guides = guides or []
+        self.img_overlay = img_overlay   # pre-baked image with hachure tint (full-figure mode)
+        # guides on by default if polygon guides exist; overlay off by default (toggle with g)
         self.show_guides = bool(self.guides)
         self.mode = "polygon"  # or "circle"
         self.polygons = []   # list of list[(x,y)]
@@ -231,8 +266,12 @@ class _Session:
         if not reset_view:
             xlim, ylim = self.ax.get_xlim(), self.ax.get_ylim()
         self.ax.clear()
-        self.ax.imshow(img)
-        if self.show_guides:
+        # In full-figure mode img_overlay holds the hachure-tinted image; the g
+        # key switches between raw and tinted.  In pack-source mode the overlay
+        # is None and show_guides controls the cyan polygon guide lines instead.
+        display = (self.img_overlay if (self.show_guides and self.img_overlay is not None) else img)
+        self.ax.imshow(display)
+        if self.show_guides and self.img_overlay is None:
             for poly in self.guides:
                 xs = [p[0] for p in poly] + [poly[0][0]]
                 ys = [p[1] for p in poly] + [poly[0][1]]
@@ -257,7 +296,12 @@ class _Session:
             self.ax.set_xlim(xlim); self.ax.set_ylim(ylim)
         self.ax.axis("off")
         n_lab = len(self.polygons) + len(self.circles)
-        g_tag = f"  guides:{'on' if self.show_guides else 'off'}" if self.guides else ""
+        if self.img_overlay is not None:
+            g_tag = f"  hachures:{'on' if self.show_guides else 'off'}"
+        elif self.guides:
+            g_tag = f"  guides:{'on' if self.show_guides else 'off'}"
+        else:
+            g_tag = ""
         self.ax.set_title(f"{title}\nmode:{self.mode}  {n_lab} hatch area(s) marked{g_tag}  "
                            f"|  {_INSTRUCTIONS}", fontsize=9)
         self.ax.figure.canvas.draw_idle()
@@ -402,6 +446,7 @@ class _Session:
     def run(self, fig, img, title):
         self._img, self._title = img, title
         self.redraw(img, title, reset_view=True)
+
         cids = [
             fig.canvas.mpl_connect("button_press_event", self.on_press),
             fig.canvas.mpl_connect("button_release_event", self.on_release),
@@ -424,71 +469,199 @@ def _edge_mask(gray_crop):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pack-source", default="output/PatentData/hatch_pilot",
-                     help="existing candidate pack, used only for the figure list")
-    ap.add_argument("--tif-root", default=_DEFAULT_TIF_ROOT)
+                     help="existing candidate pack, used only for the figure list "
+                          "(ignored when --selected-file is given)")
+    ap.add_argument("--tif-root", default=_DEFAULT_TIF_ROOT,
+                     help="TIF root for --pack-source mode (ignored with --selected-file)")
+    ap.add_argument("--selected-file", default=None,
+                     help="JSON produced by tools/hatch_select.py -- label selected "
+                          "figures as full images (no sub-drawing split). The TIF and "
+                          "graph paths stored in the JSON are used directly.")
     ap.add_argument("--out", default="output/PatentData/hatch_gt")
-    ap.add_argument("--redo", action="store_true", help="revisit already-reviewed drawings")
+    ap.add_argument("--redo", action="store_true", help="revisit ALL already-reviewed drawings")
+    ap.add_argument("--only", nargs="+", default=None,
+                     help="only (re)label these specific drawings, e.g. "
+                          "--only EP123B1__F0002__d1 EP456A1__F0003 "
+                          "(a bare patent__sketch redoes all its sub-drawings). "
+                          "Everything else is skipped, even if unreviewed.")
+    ap.add_argument("--only-file", default=None,
+                     help="newline-separated file of stems (same format as --only), "
+                          "e.g. the to_fix.txt written by tools/hatch_review.py's "
+                          "flag key. Merged with --only if both are given.")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
-    figures = _figure_list(a.pack_source)
-    if not figures:
-        print("no figures found via", a.pack_source); return
+    full_figure_mode = bool(a.selected_file)
+
+    only_list = list(a.only or [])
+    if a.only_file:
+        only_list += [ln.strip() for ln in open(a.only_file) if ln.strip()]
+
+    only_whole, only_stems = set(), set()
+    for o in only_list:
+        tail = o.rsplit("__", 1)[-1]
+        if tail.startswith("d") and tail[1:].isdigit():
+            only_stems.add(o)
+        else:
+            only_whole.add(o)
+
+    # ------------------------------------------------------------------ figure list
+    if full_figure_mode:
+        selected = json.load(open(a.selected_file))
+        # each entry: {patent, sketch, tif, graph}
+        figures_full = [
+            (e["patent"], e["sketch"], e["tif"], e.get("graph"))
+            for e in selected
+        ]
+        if only_list:
+            figures_full = [
+                (p, s, t, g) for p, s, t, g in figures_full
+                if f"{p}__{s}" in only_whole
+                or any(st.startswith(f"{p}__{s}__d") for st in only_stems)
+            ]
+        if not figures_full:
+            print("no figures to process"); return
+    else:
+        figures = _figure_list(a.pack_source)
+        if not figures:
+            print("no figures found via", a.pack_source); return
+        if only_list:
+            figures = [(p, s) for p, s in figures if f"{p}__{s}" in only_whole
+                       or any(st.startswith(f"{p}__{s}__d") for st in only_stems)]
+            if not figures:
+                print("--only/--only-file matched no figures in", a.pack_source); return
 
     parts = _INSTRUCTIONS.split(" | ")
     print(__doc__.split("Mouse:")[0])
     print("Mouse: " + ", ".join(parts[:3]))
     print("Keys: " + " | ".join(parts[3:]) + "\n")
 
-    fig, ax = plt.subplots(figsize=(9, 9))
+    fig_win, ax = plt.subplots(figsize=(9, 9))
     plt.ion()
-    fig.show()
+    fig_win.show()
+
+    remaining_flags = set(only_list) if a.only_file else None
+
+    def _persist_flags():
+        if remaining_flags is None:
+            return
+        with open(a.only_file, "w") as fh:
+            fh.write("\n".join(sorted(remaining_flags)) + ("\n" if remaining_flags else ""))
 
     n_done, quit_all = 0, False
-    for patent, sketch in figures:
-        if quit_all:
-            break
-        tif = os.path.join(a.tif_root, patent, f"{patent}_{sketch}.tif")
-        gray = cv2.imread(tif, cv2.IMREAD_GRAYSCALE)
-        if gray is None:
-            print(f"skip {patent}__{sketch}: tif not found at {tif}")
-            continue
 
-        boxes = split_subdrawings(gray)
-        for di, (x0, y0, x1, y1) in enumerate(boxes):
-            stem = f"{patent}__{sketch}__d{di}"
+    # ------------------------------------------------------------------ full-figure loop
+    if full_figure_mode:
+        total = len(figures_full)
+        for patent, sketch, tif_path, graph_path in figures_full:
+            if quit_all:
+                break
+            stem = f"{patent}__{sketch}__d0"
             out_path = os.path.join(a.out, f"{stem}_mask.json")
-            if os.path.exists(out_path) and not a.redo:
+            force = bool(only_list)
+            if os.path.exists(out_path) and not a.redo and not force:
                 if json.load(open(out_path)).get("reviewed"):
                     n_done += 1
                     continue
 
-            crop_gray = gray[y0:y1, x0:x1]
-            crop_rgb = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGB)
-            edges = _edge_mask(crop_gray)
-            guides = _candidate_guides(a.pack_source, patent, sketch, (x0, y0, x1, y1))
+            gray = cv2.imread(tif_path, cv2.IMREAD_GRAYSCALE)
+            if gray is None:
+                print(f"skip {patent}__{sketch}: tif not found at {tif_path}")
+                continue
+            H, W = gray.shape
+            crop_rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+            edges = _edge_mask(gray)
+            overlay = _hachure_overlay(crop_rgb, graph_path)
+            has_overlay = overlay is not crop_rgb
 
-            sess = _Session(ax, crop_gray.shape, edges, guides=guides)
-            title = (f"[{n_done+1}] {patent}__{sketch}  "
-                     f"(drawing {di+1}/{len(boxes)} on this sheet)")
-            sess.run(fig, crop_rgb, title)
+            sess = _Session(ax, gray.shape, edges, img_overlay=(overlay if has_overlay else None))
+            sess.show_guides = False   # overlay off by default (toggle with g)
+            title = (f"[{n_done+1}/{total}] {patent}__{sketch}  "
+                     f"(full figure  {W}x{H}px)"
+                     + ("  |  g: toggle hachure overlay" if has_overlay else ""))
+            sess.run(fig_win, crop_rgb, title)
 
             all_shapes = sess.polygons + [_circle_to_polygon(c["center"], c["radius"])
                                           for c in sess.circles]
-            polys = [[[round(x + x0, 1), round(y + y0, 1)] for x, y in poly]
+            polys = [[[round(float(x), 1), round(float(y), 1)] for x, y in poly]
                      for poly in all_shapes]
-            json.dump({"patent": patent, "sketch": sketch, "subdrawing_index": di,
-                       "crop_box": [int(x0), int(y0), int(x1), int(y1)],
+            json.dump({"patent": patent, "sketch": sketch, "subdrawing_index": 0,
+                       "crop_box": [0, 0, int(W), int(H)],
                        "reviewed": True, "polygons": polys},
                       open(out_path, "w"), indent=2)
             n_done += 1
             print(f"  saved {stem}: {len(polys)} hatch area(s) -> {out_path}")
+            if remaining_flags is not None and stem in remaining_flags:
+                remaining_flags.discard(stem)
+                _persist_flags()
             if sess.quit_all:
                 quit_all = True
-                break
 
-    plt.close(fig)
+    # ------------------------------------------------------------------ pack-source loop (original)
+    else:
+        for patent, sketch in figures:
+            if quit_all:
+                break
+            tif = os.path.join(a.tif_root, patent, f"{patent}_{sketch}.tif")
+            gray = cv2.imread(tif, cv2.IMREAD_GRAYSCALE)
+            if gray is None:
+                print(f"skip {patent}__{sketch}: tif not found at {tif}")
+                continue
+
+            boxes = split_subdrawings(gray)
+            for di, (x0, y0, x1, y1) in enumerate(boxes):
+                stem = f"{patent}__{sketch}__d{di}"
+                wanted = (not only_list or f"{patent}__{sketch}" in only_whole
+                          or stem in only_stems)
+                out_path = os.path.join(a.out, f"{stem}_mask.json")
+                if not wanted:
+                    continue
+                force = bool(only_list)
+                if os.path.exists(out_path) and not a.redo and not force:
+                    if json.load(open(out_path)).get("reviewed"):
+                        n_done += 1
+                        continue
+
+                crop_gray = gray[y0:y1, x0:x1]
+                crop_rgb = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGB)
+                edges = _edge_mask(crop_gray)
+                guides = _candidate_guides(a.pack_source, patent, sketch, (x0, y0, x1, y1))
+
+                sess = _Session(ax, crop_gray.shape, edges, guides=guides)
+                title = (f"[{n_done+1}] {patent}__{sketch}  "
+                         f"(drawing {di+1}/{len(boxes)} on this sheet)")
+                sess.run(fig_win, crop_rgb, title)
+
+                all_shapes = sess.polygons + [_circle_to_polygon(c["center"], c["radius"])
+                                              for c in sess.circles]
+                polys = [[[round(x + x0, 1), round(y + y0, 1)] for x, y in poly]
+                         for poly in all_shapes]
+                json.dump({"patent": patent, "sketch": sketch, "subdrawing_index": di,
+                           "crop_box": [int(x0), int(y0), int(x1), int(y1)],
+                           "reviewed": True, "polygons": polys},
+                          open(out_path, "w"), indent=2)
+                n_done += 1
+                print(f"  saved {stem}: {len(polys)} hatch area(s) -> {out_path}")
+                if remaining_flags is not None and stem in remaining_flags:
+                    remaining_flags.discard(stem)
+                    _persist_flags()
+                if sess.quit_all:
+                    quit_all = True
+                    break
+            else:
+                fig_key = f"{patent}__{sketch}"
+                if remaining_flags is not None and fig_key in remaining_flags:
+                    remaining_flags.discard(fig_key)
+                    _persist_flags()
+
+    plt.close(fig_win)
     print(f"\n{n_done} drawing(s) reviewed -> {a.out}")
+    if remaining_flags is not None:
+        if remaining_flags:
+            print(f"{len(remaining_flags)} flagged drawing(s) still unresolved in {a.only_file} "
+                  f"(re-run the same command to continue)")
+        else:
+            print(f"all flagged drawings resolved -> {a.only_file} is now empty")
 
 
 if __name__ == "__main__":

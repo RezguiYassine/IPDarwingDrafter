@@ -32,6 +32,13 @@ models/sketchcleannet_last.pth
 models/*_ep[0-9]*.pth
 models/free2cad_best.pth
 
+# Hatch-detector checkpoints + grid-search artifacts (large, regenerable)
+models/hatch_unet.pth
+models/hatch_grid/
+models/hatch_grid_v2/
+models/hatch_grid_*/
+models/puhachov_d2c_patentft.pth
+
 # Free2CAD research checkpoints + tensorboard
 **/weights/free2cad/free2cad_ep*.pth
 **/weights/free2cad/free2cad_v3_ep*.pth
