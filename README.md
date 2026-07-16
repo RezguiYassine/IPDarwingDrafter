@@ -833,6 +833,59 @@ high-precision pilot result, not a full-corpus claim.
 
 ---
 
+### Active next steps (current focus)
+
+These three items are the near-term priorities agreed after shipping the learned
+hatch-region detector (Phase 2 `HatchUNet`, test IoU 0.816, wired into Stage 2 as
+the primary hachure signal with a geometric fallback — see the hatch tooling under
+`tools/hatch_*.py` and `stage2.hachure_use_cnn`).
+
+9. **Stage 0 — close the numeral-recall gap.** OCR-first reference removal fixed
+   *over*-removal (median ink removed 23 %→5 %, 0/89 sketches >30 %), but the code
+   itself notes easyocr localizes only ~60 % of numerals on patent line-art, and
+   CC-recovery only fires once OCR has already found ≥1 numeral. There is currently
+   no recall metric, so the ~40 % miss rate is unmeasured. Plan, in order:
+   - **Build a small numeral GT set + a recall metric** (~40–60 patent figures,
+     boxed numerals) — same labeling recipe as the hatch GT. Highest leverage:
+     turns every later change into a measurable one and unblocks the rest.
+   - Cheap recall wins measured against it: multi-scale/upscaled OCR passes, lower
+     `low_text`, widened height band — re-verifying the ink-ratio guard holds.
+   - **Decouple CC-recovery from the "OCR ≥ 1" gate** (its ring-isolation check is
+     already safe against eating connected geometry).
+   - If those plateau → a **learned digit detector**, fine-tuned on the GT from
+     step 1 (mirrors the hatch-CNN approach; paper-grade solution).
+
+10. **Stage 2 — run Puhachov at native TIF resolution via tiling.** Root cause of
+    "Stage 2 is purely geometric on patents" is *distribution*, not a crash:
+    `detect()` runs the CNN on the full skeleton, but Puhachov was trained on
+    ~512 px synthetic sketches, so on 2000–2700 px patent TIFs it over-segments
+    (10–300 k edges vs an expected 200–2 k). Current workarounds — cap to
+    `max_input_resolution: 1000` and force `puhachov.weights: ''` on patents — lose
+    detail and disable the CNN. Plan:
+    - Add `detect_tiled()`: **512×512 sliding-window inference with 50 % overlap**,
+      accumulate/average the endpoint/junction/corner heatmaps across seams, then
+      NMS on the stitched map — the exact pattern already shipped for `HatchUNet`.
+      Keeps the CNN in its trained receptive field *at full resolution*.
+    - Dedup keypoints within `nms_radius` across overlaps; validate patent edge
+      counts drop into range and D2C fusion does **not** regress.
+    - If patch inference still over-fires (synthetic-vs-scan gap independent of
+      resolution), fall back to **fine-tuning Puhachov on patent-scale patches**.
+
+11. **Stage 3 — evaluate the retrained Free2CAD model vs RANSAC.** Production
+    Stage 3 is RANSAC-only by decision (the earlier Free2CAD-v3 was 86.9 %
+    type-agreement, ~6× slower, geometrically inexact on closed loops). A student
+    retrained `free2cad_v3_best.pth` (grid search, on the `mohamed` branch). v3
+    inference is self-contained (`research/stage3_primitive_fit_free2cad.py`
+    builds the encoder-only arch — no external repo needed at inference). Plan:
+    - Extract the checkpoint from `mohamed`; smoke-test load + run on existing
+      `_graph.json` files.
+    - Paired comparison on a Drawing2CAD sample (GT available): **RANSAC vs
+      Free2CAD-v3** on identical Stage-2 graphs, reporting **Chamfer-vs-GT** (not
+      just agreement with RANSAC), type distribution, per-primitive param accuracy,
+      and runtime → verdict on whether to revisit the parked decision.
+
+---
+
 ## Roadmap — Puhachov keypoint CNN: retraining & CN-vs-CNN comparison
 
 **Goal.** Retrain the keypoint detector on the **Drawing2CAD** dataset, then
