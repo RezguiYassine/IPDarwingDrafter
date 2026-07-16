@@ -855,21 +855,24 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
    - If those plateau → a **learned digit detector**, fine-tuned on the GT from
      step 1 (mirrors the hatch-CNN approach; paper-grade solution).
 
-10. **Stage 2 — run Puhachov at native TIF resolution via tiling.** Root cause of
-    "Stage 2 is purely geometric on patents" is *distribution*, not a crash:
-    `detect()` runs the CNN on the full skeleton, but Puhachov was trained on
-    ~512 px synthetic sketches, so on 2000–2700 px patent TIFs it over-segments
-    (10–300 k edges vs an expected 200–2 k). Current workarounds — cap to
-    `max_input_resolution: 1000` and force `puhachov.weights: ''` on patents — lose
-    detail and disable the CNN. Plan:
-    - Add `detect_tiled()`: **512×512 sliding-window inference with 50 % overlap**,
-      accumulate/average the endpoint/junction/corner heatmaps across seams, then
-      NMS on the stitched map — the exact pattern already shipped for `HatchUNet`.
-      Keeps the CNN in its trained receptive field *at full resolution*.
-    - Dedup keypoints within `nms_radius` across overlaps; validate patent edge
-      counts drop into range and D2C fusion does **not** regress.
-    - If patch inference still over-fires (synthetic-vs-scan gap independent of
-      resolution), fall back to **fine-tuning Puhachov on patent-scale patches**.
+10. **Stage 2 — run Puhachov at native TIF resolution via tiling.** *(implemented,
+    opt-in via `puhachov.tiled`.)* `PuhachovKeypointDetector.detect_tiled()` runs
+    the CNN on **512×512 tiles with 50 % overlap**, averages the
+    endpoint/junction/corner heatmaps across seams, and extracts peaks once on the
+    stitched full-resolution map (cross-seam dedup falls out of the global NMS) —
+    the same sliding-window pattern shipped for `HatchUNet`. When
+    `puhachov.tiled: true`, `run()` skips the `max_input_resolution` cap and calls
+    the tiled path (`tile_size`/`tile_stride` configurable). Measured on a
+    2752 px patent TIF: keeps the CNN in-distribution at native resolution and
+    cuts **peak GPU memory 1887 MB → 136 MB (14×)**, bounded regardless of image
+    size — which is what actually blocked native-resolution CNN inference on large
+    TIFs (full-image OOMs under multi-worker batches). Keypoint counts match the
+    full-image path; D2C-scale (1024 px) results are identical (no regression).
+    Note: the old "10–300 k edge" over-segmentation no longer reproduces (the
+    loader now rejects the incompatible checkpoints that emitted random heatmaps).
+    Remaining: a **corner-GT patent eval set** (item 4) to confirm the
+    in-distribution corners are measurably *better*, then enable `tiled` in the
+    patent config; if a synthetic-vs-scan gap persists, fine-tune on patent tiles.
 
 11. **Stage 3 — evaluate the retrained Free2CAD model vs RANSAC.** Production
     Stage 3 is RANSAC-only by decision (the earlier Free2CAD-v3 was 86.9 %

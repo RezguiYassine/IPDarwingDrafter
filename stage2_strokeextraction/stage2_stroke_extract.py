@@ -220,6 +220,67 @@ class PuhachovKeypointDetector:
                                    "type": kp_type, "confidence": float(conf)})
         return keypoints
 
+    def detect_tiled(
+        self,
+        skeleton: np.ndarray,
+        conf_threshold: float = 0.5,
+        nms_radius: int = 5,
+        patch_size: int = 512,
+        stride: int = 256,
+    ) -> list[dict]:
+        """
+        Sliding-window keypoint detection for images far larger than the CNN's
+        ~512 px training resolution.
+
+        The stacked hourglass was trained on ~512 px sketches; run whole on a
+        2000–2700 px patent TIF it sees features at the wrong scale and
+        over-segments massively (10–300 k edges vs an expected 200–2 k). Here the
+        CNN runs on `patch_size` tiles with 50 % overlap, the three keypoint
+        heatmaps are averaged across the seams, and peaks are extracted once on
+        the stitched full-resolution map — so the detector stays inside its
+        trained receptive field while the graph is built at native resolution.
+        Cross-seam duplicates are removed for free because NMS runs on the
+        stitched map, not per tile. Mirrors the HatchUNet sliding-window path.
+
+        `patch_size` must be a multiple of 64 (the hourglass downsamples 64×).
+        """
+        import torch
+
+        H, W = skeleton.shape
+        img  = skeleton.astype(np.float32) / 255.0
+
+        n_ch = 3
+        acc  = np.zeros((n_ch, H, W), np.float32)
+        cnt  = np.zeros((H, W), np.float32)
+
+        ys = list(range(0, max(1, H - patch_size), stride)) + [max(0, H - patch_size)]
+        xs = list(range(0, max(1, W - patch_size), stride)) + [max(0, W - patch_size)]
+
+        with torch.no_grad():
+            for y0 in dict.fromkeys(ys):
+                for x0 in dict.fromkeys(xs):
+                    y1, x1 = y0 + patch_size, x0 + patch_size
+                    tile   = img[y0:y1, x0:x1]
+                    th, tw = tile.shape
+                    if th < patch_size or tw < patch_size:
+                        pad = np.zeros((patch_size, patch_size), np.float32)
+                        pad[:th, :tw] = tile
+                        tile = pad
+                    t  = torch.from_numpy(tile[None, None]).to(self._device)
+                    hm = torch.sigmoid(self._model(t))[0].cpu().numpy()   # (3, P, P)
+                    acc[:, y0:y0 + th, x0:x0 + tw] += hm[:, :th, :tw]
+                    cnt[y0:y0 + th, x0:x0 + tw]     += 1.0
+
+        acc /= np.maximum(cnt, 1e-6)[None]
+
+        channel_types = [KP_ENDPOINT, KP_JUNCTION, KP_CORNER]
+        keypoints: list[dict] = []
+        for ch, kp_type in enumerate(channel_types):
+            for x, y, conf in _extract_peaks(acc[ch], conf_threshold, nms_radius):
+                keypoints.append({"x": int(x), "y": int(y),
+                                   "type": kp_type, "confidence": float(conf)})
+        return keypoints
+
 
 def _extract_peaks(
     heatmap: np.ndarray,
@@ -2015,8 +2076,13 @@ def run(
     # preserving enough geometric detail for the graph and RANSAC stages.
     # 1-px skeleton lines are dilated before downsampling so they survive
     # the resize without topological breaks.
+    #
+    # Tiled inference (puhachov.tiled) is the alternative: the CNN runs on
+    # 512 px tiles at *native* resolution, so the cap is skipped entirely — the
+    # detector stays in its trained receptive field without discarding detail.
+    tiled   = bool(cfg_puh_pre.get("tiled", False)) if (cfg_puh_pre := config.get("puhachov", {})) else False
     max_res = cfg_kp.get("max_input_resolution", 0)
-    if max_res and max(H, W) > max_res:
+    if max_res and max(H, W) > max_res and not tiled:
         stage2_scale = max_res / max(H, W)
         new_W   = max(1, round(W * stage2_scale))
         new_H   = max(1, round(H * stage2_scale))
@@ -2053,9 +2119,15 @@ def run(
     # a learned detector returns bare points that are snapped onto the skeleton.
     fusion        = bool(cfg_puh.get("fusion", False))
     fusion_dist   = cfg_puh.get("fusion_min_corner_dist", 5.0)
+    tile_size     = int(cfg_puh.get("tile_size", 512))
+    tile_stride   = int(cfg_puh.get("tile_stride", tile_size // 2))
     if model is not None:
         try:
-            keypoints   = model.detect(skeleton, conf_thresh, nms_radius)
+            if tiled:
+                keypoints = model.detect_tiled(
+                    skeleton, conf_thresh, nms_radius, tile_size, tile_stride)
+            else:
+                keypoints = model.detect(skeleton, conf_thresh, nms_radius)
             if fusion:
                 # CN endpoints/junctions + CNN corners only
                 kp_clusters = _fuse_cn_cnn_clusters(skeleton, keypoints, fusion_dist)
@@ -2063,8 +2135,11 @@ def run(
             else:
                 kp_clusters = _clusters_from_points(keypoints, skeleton)
                 kp_source   = "cnn"
+            if tiled:
+                kp_source += "_tiled"
             logger.info(f"[{sketch_id}] CNN detected {len(keypoints)} keypoints "
-                        f"→ {len(kp_clusters)} clusters ({kp_source})")
+                        f"→ {len(kp_clusters)} clusters ({kp_source}"
+                        f"{f', {tile_size}px tiles' if tiled else ''})")
         except Exception as exc:
             logger.warning(f"[{sketch_id}] CNN keypoint detection failed "
                            f"({exc}), using classical fallback")
