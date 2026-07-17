@@ -1028,7 +1028,12 @@ def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[st
     allow_alnum = bool(cfg.get("ocr_alphanumeric", True))
     H, W = gray.shape
     min_h = max(6, int(cfg.get("ocr_min_h_frac", 0.004) * H))
-    max_h = int(cfg.get("ocr_max_h_frac", 0.05) * H)
+    # Numeral height as a fraction of page height is resolution-dependent: the
+    # same physical digit is a LARGER fraction of a lower-res scan. A 0.05 cap
+    # dropped high-confidence numerals (bh≈6% of H) on sparse/low-res figures,
+    # zeroing them out entirely. 0.09 recovers those; titles are rejected by the
+    # token classifier regardless of size, so the looser cap is low-risk.
+    max_h = int(cfg.get("ocr_max_h_frac", 0.09) * H)
     max_aspect = float(cfg.get("ocr_max_aspect", 4.0))
     max_chars = int(cfg.get("ocr_max_chars", 6))
     conf_th = float(cfg.get("ocr_conf", 0.30))
