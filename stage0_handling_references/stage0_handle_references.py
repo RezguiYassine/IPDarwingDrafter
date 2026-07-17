@@ -25,6 +25,7 @@ import argparse
 import json
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -975,8 +976,41 @@ def _get_ocr_reader(cfg: dict[str, Any]):
     return _OCR_READER
 
 
+# Tokens that match a reference pattern but are NOT references (titles, sheet
+# headers, view captions). Compared case-insensitively after stripping punctuation.
+_REF_BLACKLIST = {"fig", "figs", "figure", "figures", "sheet", "no", "ref",
+                  "page", "pg", "abb", "abs",
+                  # common function words that fit the acronym shape
+                  "the", "and", "for", "are", "was", "not", "but", "all"}
+_RE_NUMERAL   = re.compile(r"\d{1,3}(?:[a-fA-F]|['.’])?$")   # 12, 3a, 30'
+_RE_HYPHEN    = re.compile(r"[A-Za-z0-9]{1,3}(?:-[A-Za-z0-9]{1,3})+$")  # b2-1, F1-a1
+_RE_ALPHANUM  = re.compile(r"[A-Za-z]{1,2}\d{1,3}[A-Za-z]?$")     # F1, S3, G2, b1
+_RE_ACRONYM   = re.compile(r"[A-Za-z]{2,4}$")                     # SSG, PSG, BO, DI
+
+
+def _classify_reference_token(t: str) -> str | None:
+    """Classify an OCR token as a reference code, or None to reject.
+
+    Returns: 'numeral' | 'alnum' | 'acronym' | None.
+    'alnum' (letter+digit, hyphenated) and 'numeral' are safe reference shapes;
+    'acronym' (all-letters) is riskier and is only kept when leader-connected
+    (see _detect_reference_pass). Titles like 'Fig. 2' are blacklisted.
+    """
+    s = t.strip().strip(".,:;()[]")
+    if not s:
+        return None
+    if s.lower().rstrip(".") in _REF_BLACKLIST:
+        return None
+    if _RE_NUMERAL.match(s):
+        return "numeral"
+    if _RE_HYPHEN.match(s) or _RE_ALPHANUM.match(s):
+        return "alnum"
+    if _RE_ACRONYM.match(s):
+        return "acronym"
+    return None
+
+
 def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    import re
     reader = _get_ocr_reader(cfg)
     res = reader.readtext(
         gray,
@@ -985,32 +1019,43 @@ def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[st
         text_threshold=float(cfg.get("ocr_text_threshold", 0.4)),
         low_text=float(cfg.get("ocr_low_text", 0.25)),
     )
-    # Numeral size scales with image resolution, so the filter is relative to
-    # image height (a numeral is ~0.4–5 % of the page) plus an aspect cap
-    # (1–3 digits ⇒ width ≲ a few × height; rejects long titles like "FIG. 1").
+    # Reference labels are short, isolated alphanumeric codes. Pure numerals are
+    # only one common scheme — many patents use alphanumeric codes (F1, SSG,
+    # b2-1, F1-a1) that a numeral-only filter rejected, leaving those whole
+    # figures un-cleaned. Size is relative to image height (a code is ~0.4–5 % of
+    # the page); the width cap scales with token length so multi-char codes like
+    # 'F1-a1' pass while long titles still fail.
+    allow_alnum = bool(cfg.get("ocr_alphanumeric", True))
     H, W = gray.shape
     min_h = max(6, int(cfg.get("ocr_min_h_frac", 0.004) * H))
     max_h = int(cfg.get("ocr_max_h_frac", 0.05) * H)
     max_aspect = float(cfg.get("ocr_max_aspect", 4.0))
-    max_chars = int(cfg.get("ocr_max_chars", 4))
+    max_chars = int(cfg.get("ocr_max_chars", 6))
     conf_th = float(cfg.get("ocr_conf", 0.30))
-    numeric = re.compile(r"\d{1,3}[a-fA-F'.]?$")
     labels: list[dict[str, Any]] = []
     for box, txt, conf in res:
         t = str(txt).strip()
-        if conf < conf_th or not t or len(t) > max_chars or not numeric.match(t):
+        if conf < conf_th or not t or len(t) > max_chars:
+            continue
+        cls = _classify_reference_token(t)
+        if cls is None:
+            continue
+        if not allow_alnum and cls != "numeral":
             continue
         xs = [p[0] for p in box]; ys = [p[1] for p in box]
         x0, y0 = int(min(xs)), int(min(ys))
         bw, bh = int(max(xs) - x0), int(max(ys) - y0)
-        if not (min_h <= bh <= max_h and 2 <= bw <= max_aspect * bh):
+        # width cap widens with character count (a glyph is ≲ 1× its height wide)
+        w_cap = bh * max(max_aspect, 1.4 * len(t.strip(".,:;()[]")))
+        if not (min_h <= bh <= max_h and 2 <= bw <= w_cap):
             continue
         labels.append({
             "bbox": [x0, y0, bw, bh],
             "centroid": [x0 + bw / 2.0, y0 + bh / 2.0],
             "components": [[x0, y0, bw, bh]],
             "ink_area": int(bw * bh),
-            "kind": "ocr_numeral",
+            "kind": "ocr_numeral" if cls == "numeral" else "ocr_reference",
+            "ref_class": cls,
             "text": t,
             "confidence": float(conf),
             "leader_lines": [],
@@ -1179,6 +1224,13 @@ def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, A
             labels = labels + _recover_missed_numerals(ink, labels, cfg)
         if labels and cfg.get("ocr_leaders", True):
             _trace_ocr_leaders(gray, labels, cfg)
+        # Precision gate: bare acronyms (SSG, PSG, BO) are the riskiest reference
+        # shape — a real word could look the same. Keep them only when a leader
+        # line confirms they point at a feature. (No-op unless leaders were
+        # traced; disable via ocr_acronym_require_leader: false.)
+        if cfg.get("ocr_acronym_require_leader", True):
+            labels = [lab for lab in labels
+                      if lab.get("ref_class") != "acronym" or lab.get("leader_lines")]
         n_leadered = sum(1 for lab in labels if lab.get("leader_lines"))
         mask = (_build_removal_mask((h, w), labels, cfg) if labels
                 else np.zeros((h, w), np.uint8))
