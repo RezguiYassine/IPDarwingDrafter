@@ -1010,29 +1010,32 @@ def _classify_reference_token(t: str) -> str | None:
     return None
 
 
-def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+def _boxes_iou(a: list, b: list) -> float:
+    """IoU of two [x, y, w, h] boxes."""
+    ax, ay, aw, ah = a; bx, by, bw, bh = b
+    ix0, iy0 = max(ax, bx), max(ay, by)
+    ix1, iy1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    inter = max(0, ix1 - ix0) * max(0, iy1 - iy0)
+    union = aw * ah + bw * bh - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _ocr_pass(gray: np.ndarray, cfg: dict[str, Any], *, scale: float, canvas: int,
+              mag: float, txt_thr: float, low_txt: float) -> list[dict[str, Any]]:
+    """One OCR detection pass at `scale` (CUBIC upscale); labels in NATIVE coords.
+
+    Reference labels are short, isolated alphanumeric codes; the classifier plus
+    a resolution-relative size filter (width cap scales with token length so
+    'F1-a1' passes while long titles fail) does the accept/reject.
+    """
     reader = _get_ocr_reader(cfg)
-    res = reader.readtext(
-        gray,
-        canvas_size=int(cfg.get("ocr_canvas_size", 4000)),
-        mag_ratio=float(cfg.get("ocr_mag_ratio", 3.0)),
-        text_threshold=float(cfg.get("ocr_text_threshold", 0.4)),
-        low_text=float(cfg.get("ocr_low_text", 0.25)),
-    )
-    # Reference labels are short, isolated alphanumeric codes. Pure numerals are
-    # only one common scheme — many patents use alphanumeric codes (F1, SSG,
-    # b2-1, F1-a1) that a numeral-only filter rejected, leaving those whole
-    # figures un-cleaned. Size is relative to image height (a code is ~0.4–5 % of
-    # the page); the width cap scales with token length so multi-char codes like
-    # 'F1-a1' pass while long titles still fail.
+    img = (gray if scale == 1.0 else
+           cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC))
+    res = reader.readtext(img, canvas_size=canvas, mag_ratio=mag,
+                          text_threshold=txt_thr, low_text=low_txt)
     allow_alnum = bool(cfg.get("ocr_alphanumeric", True))
     H, W = gray.shape
     min_h = max(6, int(cfg.get("ocr_min_h_frac", 0.004) * H))
-    # Numeral height as a fraction of page height is resolution-dependent: the
-    # same physical digit is a LARGER fraction of a lower-res scan. A 0.05 cap
-    # dropped high-confidence numerals (bh≈6% of H) on sparse/low-res figures,
-    # zeroing them out entirely. 0.09 recovers those; titles are rejected by the
-    # token classifier regardless of size, so the looser cap is low-risk.
     max_h = int(cfg.get("ocr_max_h_frac", 0.09) * H)
     max_aspect = float(cfg.get("ocr_max_aspect", 4.0))
     max_chars = int(cfg.get("ocr_max_chars", 6))
@@ -1043,14 +1046,11 @@ def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[st
         if conf < conf_th or not t or len(t) > max_chars:
             continue
         cls = _classify_reference_token(t)
-        if cls is None:
+        if cls is None or (not allow_alnum and cls != "numeral"):
             continue
-        if not allow_alnum and cls != "numeral":
-            continue
-        xs = [p[0] for p in box]; ys = [p[1] for p in box]
+        xs = [p[0] / scale for p in box]; ys = [p[1] / scale for p in box]  # → native
         x0, y0 = int(min(xs)), int(min(ys))
         bw, bh = int(max(xs) - x0), int(max(ys) - y0)
-        # width cap widens with character count (a glyph is ≲ 1× its height wide)
         w_cap = bh * max(max_aspect, 1.4 * len(t.strip(".,:;()[]")))
         if not (min_h <= bh <= max_h and 2 <= bw <= w_cap):
             continue
@@ -1065,6 +1065,56 @@ def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[st
             "confidence": float(conf),
             "leader_lines": [],
         })
+    return labels
+
+
+def _ocr_reference_labels(gray: np.ndarray, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Native OCR pass, plus an OPTIONAL adaptive hi-res upscale pass when native
+    finds few labels.
+
+    CRAFT misses genuinely small numerals at native resolution; a CUBIC upscale
+    gives them more pixels and recovers them. The pass is opt-in
+    (`ocr_multiscale`, default off) because it roughly doubles OCR cost and can
+    OOM easyocr on large images — it is memory-bounded (upscale shrunk so the
+    working image stays ≤ ocr_hires_max_dim) and wrapped so an OOM degrades to
+    the native result instead of failing the figure. Note: it does NOT help
+    figures whose numerals are large-fraction (those are a size-cap issue, not a
+    resolution one) or that have no OCR-detectable references.
+    """
+    labels = _ocr_pass(
+        gray, cfg, scale=1.0,
+        canvas=int(cfg.get("ocr_canvas_size", 4000)),
+        mag=float(cfg.get("ocr_mag_ratio", 3.0)),
+        txt_thr=float(cfg.get("ocr_text_threshold", 0.4)),
+        low_txt=float(cfg.get("ocr_low_text", 0.25)))
+
+    if (bool(cfg.get("ocr_multiscale", False))
+            and len(labels) < int(cfg.get("ocr_multiscale_trigger", 3))):
+        H, W = gray.shape
+        # Bound memory: shrink the upscale so the working image stays modest.
+        # Large images already carry enough native resolution for OCR.
+        scale = min(float(cfg.get("ocr_upscale", 2.0)),
+                    int(cfg.get("ocr_hires_max_dim", 3400)) / max(H, W))
+        if scale > 1.05:
+            try:
+                hi = _ocr_pass(
+                    gray, cfg, scale=scale,
+                    canvas=int(cfg.get("ocr_hires_canvas", 5000)),
+                    mag=float(cfg.get("ocr_hires_mag", 2.0)),
+                    txt_thr=float(cfg.get("ocr_hires_text_threshold", 0.35)),
+                    low_txt=float(cfg.get("ocr_hires_low_text", 0.20)))
+                iou_thr = float(cfg.get("ocr_merge_iou", 0.2))
+                for lb in hi:               # add hi-res labels not already found
+                    if not any(_boxes_iou(lb["bbox"], la["bbox"]) > iou_thr for la in labels):
+                        labels.append(lb)
+            except Exception as exc:
+                logger.warning("stage0 hi-res OCR pass skipped (%s: %s)",
+                               type(exc).__name__, exc)
+                try:
+                    import torch
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
     return labels
 
 
