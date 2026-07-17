@@ -111,7 +111,10 @@ DEFAULTS: dict[str, Any] = {
     "text_bbox_pad": 3,
     "crop_pad": 2,
     "leader_mask_thickness": 5,
-    "leader_tip_trim": 8,
+    # Trim the final target-contact end of a leader so the mask stops short of
+    # the pointed-at feature (never nicks it). Kept < Stage 2 spur_min_length
+    # (6) so the residual stub is auto-pruned during graph simplification.
+    "leader_tip_trim": 5,
     "mask_dilate": 1,
     "repair_after_removal": True,
     "repair_close_kernel": 7,
@@ -1162,20 +1165,44 @@ def _trace_ocr_leaders(gray: np.ndarray, labels: list[dict[str, Any]],
         skset = set(zip(*[a.tolist() for a in np.where(skel > 0)][::-1]))  # (x,y)
         seeds = [(px, py) for (px, py) in skset
                  if max(nx0 - px, 0, px - nx1) <= 5 and max(ny0 - py, 0, py - ny1) <= 5]
+        # Leaders often CROSS feature lines and continue further into the drawing
+        # (past a first, sometimes a second junction) before reaching the part
+        # they point at. Stopping at the first junction leaves the rest of the
+        # leader in the raster, where it fragments strokes. So walk THROUGH
+        # junctions along the leader's straight heading — at a junction, continue
+        # only onto a near-collinear branch; if none exists, the leader has ended
+        # (its tip touches this feature). A global straightness gate + the tight
+        # turn tolerance keep it from wandering onto a curved feature; the
+        # ink-ratio guard is the final backstop.
+        turn_cos = math.cos(math.radians(float(cfg.get("ocr_leader_turn_tol", 30.0))))
+        Kw = 6  # heading window (pixels back) — smooths 8-connected staircase
         best = None
         for sx, sy in seeds:
-            visited = {(sx, sy)}; path = [(sx, sy)]; cx, cy = sx, sy; length = 0.0; stop = False
+            visited = {(sx, sy)}; path = [(sx, sy)]; cx, cy = sx, sy; length = 0.0
             while length < max_len:
-                if len(path) > 2 and deg[cy, cx] >= 3:
-                    stop = True; break
                 nbs = [(cx + dx, cy + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
                        if (dx or dy) and (cx + dx, cy + dy) in skset
                        and (cx + dx, cy + dy) not in visited]
                 if not nbs:
-                    stop = True; break
-                nxt = nbs[0]; length += math.hypot(nxt[0] - cx, nxt[1] - cy)
+                    break                                   # leader endpoint
+                if len(path) >= 2:
+                    ax, ay = path[max(0, len(path) - Kw)]
+                    hx, hy = cx - ax, cy - ay
+                    hn = math.hypot(hx, hy) or 1.0
+
+                    def _align(nb, hx=hx, hy=hy, hn=hn, cx=cx, cy=cy):
+                        dx, dy = nb[0] - cx, nb[1] - cy
+                        dn = math.hypot(dx, dy) or 1.0
+                        return (dx * hx + dy * hy) / (dn * hn)
+
+                    nxt = max(nbs, key=_align)
+                    if deg[cy, cx] >= 3 and _align(nxt) < turn_cos:
+                        break                               # junction, no straight branch → tip
+                else:
+                    nxt = nbs[0]
+                length += math.hypot(nxt[0] - cx, nxt[1] - cy)
                 visited.add(nxt); path.append(nxt); cx, cy = nxt
-            if not (stop and len(path) >= 3):
+            if len(path) < 3:
                 continue
             span = math.hypot(path[-1][0] - sx, path[-1][1] - sy)
             if span < min_len or span / max(1.0, length) < straight_min:
@@ -1193,7 +1220,9 @@ def _trace_ocr_leaders(gray: np.ndarray, labels: list[dict[str, Any]],
                 "angle_deg": _angle_deg(tuple(p1), tuple(p2)),
                 "endpoint_distance": 0.0, "segment_distance": 0.0,
                 "match_type": "ocr_trace", "removed": True,
-                "mask_full_segment": True,
+                # trim the tip off the final target contact so we don't nick it;
+                # the ≤ leader_tip_trim residual stub is pruned by Stage 2.
+                "mask_full_segment": False,
             })
 
 
