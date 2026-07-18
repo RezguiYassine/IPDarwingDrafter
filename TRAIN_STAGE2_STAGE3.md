@@ -276,6 +276,53 @@ indices. It was generated without rewriting Stage 2 labels:
   --limit 10000 --workers 16 --stage3-only
 ```
 
+### Full Stage 3 workflow
+
+The 100,000-source Stage 3 pilot is intentionally not treated as full training.
+Full-corpus extraction is more expensive than Stage 2 keypoint rendering because
+it runs the production topology and simplification path, then matches each
+resulting edge back to its source primitive. The chunked path bounds process-pool
+submission, writes each NPZ atomically, and records a completion marker and
+configuration manifest per 10,000 source sketches. `--resume` verifies those
+markers and skips completed chunks without rewriting them.
+
+Free2CAD training uses one shard at a time instead of concatenating the expected
+roughly 27 million edges in RAM. It warm-starts from the corrected pilot,
+deterministically shuffles shards and samples, and atomically saves model,
+optimizer, scheduler, and next-shard position every ten shards. The full queue is:
+
+```bash
+systemd-run --user --unit=free2cad-stage3-full \
+  --description="Full SketchGraphs Stage 3 extraction and Free2CAD training" \
+  tools/run_stage3_full_training_queue.sh
+```
+
+The queue performs, in order:
+
+1. Full train, validation, and test extraction from the official splits with 16
+   CPU workers and restart-safe 10,000-source chunks.
+2. Two FP32 epochs on GPU 1, batch 512, three-point arc encoding, square-root
+   inverse-frequency class weights, and learning rate `3e-5`.
+3. Full untouched-test evaluation of the 100,000-source pilot, the best-loss
+   full checkpoint, and the best-macro-F1 full checkpoint.
+
+The warm-start is deliberate: the corrected pilot already reaches 0.9987
+macro-F1, so full training is a low-learning-rate long-tail coverage pass rather
+than a random restart. A 2,000-source, 16-worker benchmark sustained about 158
+sketches/second after startup, implying roughly 16 hours for the train split
+plus about one hour for validation/test extraction. A real interrupted-training
+probe resumed exactly from shard position 4/6 and completed validation.
+
+Live progress and final artifacts are written under:
+
+```text
+output/SketchGraphsStage3Full/progress_{train,validation,test}.json
+output/SketchGraphsStage3Full/stage3/{train,val,test}/manifest.json
+output/SketchGraphsStage3Full/checkpoints/free2cad_full_phaseA/
+output/SketchGraphsStage3Full/evaluation_*_full_test.json
+output/SketchGraphsStage3Full/stage3_full_queue.log
+```
+
 ### Pilot audit (2026-07-17, superseded by the full evaluation above)
 
 The official split files and exact sequence counts are:

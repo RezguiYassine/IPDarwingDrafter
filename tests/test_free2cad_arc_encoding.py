@@ -11,6 +11,8 @@ from stage3_primitivesfitting.research.train_free2cad_v3 import (
     _relabel_degenerate_arcs,
     _stroke_residuals,
     compute_class_weights,
+    load_npz_shard,
+    scan_shard_class_counts,
 )
 
 
@@ -114,3 +116,36 @@ def test_stroke_residual_is_zero_for_exact_primitives():
         params, points, np.ones((3, 5), dtype=bool), types, "three_point")
 
     np.testing.assert_allclose(residuals, 0.0, atol=1e-6)
+
+
+def test_streaming_scan_uses_post_cleaning_labels(tmp_path):
+    points = np.zeros((3, 5, 2), dtype=np.float32)
+    points[0] = np.column_stack([np.linspace(0.0, 1.0, 5), np.zeros(5)])
+    points[1] = np.column_stack([np.linspace(0.0, 1.0, 5), np.full(5, 0.5)])
+    angles = np.linspace(0.0, 2.0 * np.pi, 5)
+    points[2] = np.column_stack([0.5 + 0.4 * np.cos(angles),
+                                 0.5 + 0.4 * np.sin(angles)])
+    params = np.zeros((3, 6), dtype=np.float32)
+    params[0, :4] = [0.0, 0.0, 1.0, 0.0]
+    params[2, :3] = [2.0, -1.0, 3.0]
+    path = tmp_path / "shard_000000.npz"
+    np.savez(
+        path,
+        points=points,
+        mask=np.ones((3, 5), dtype=bool),
+        types=np.array([
+            CMD_TYPES["LINE"], CMD_TYPES["ARC"], CMD_TYPES["CIRCLE"]
+        ], dtype=np.uint8),
+        params=params,
+        source_index=np.arange(3),
+    )
+
+    dataset, removed, relabelled = load_npz_shard(path, 5, "three_point")
+    counts, total, scan_removed, scan_relabelled = scan_shard_class_counts(
+        [path], 5, "three_point"
+    )
+
+    assert dataset.types.tolist() == [CMD_TYPES["LINE"], CMD_TYPES["LINE"]]
+    assert (removed, relabelled) == (1, 1)
+    assert counts.tolist() == [2, 0, 0, 0]
+    assert (total, scan_removed, scan_relabelled) == (2, 1, 1)

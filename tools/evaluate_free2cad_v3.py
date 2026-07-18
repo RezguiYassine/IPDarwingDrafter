@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from stage3_primitivesfitting.research.train_free2cad_v3 import (
     build_model,
@@ -26,7 +31,7 @@ def main() -> int:
     parser.add_argument("--split", default="test")
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--device", default="cuda:1")
-    parser.add_argument("--param-weight", type=float, default=0.5)
+    parser.add_argument("--param-weight", type=float)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -45,10 +50,18 @@ def main() -> int:
     dataset = load_dataset(
         args.data_dir, args.split, cfg["max_pts"], arc_encoding)
     weights = np.asarray(checkpoint.get("class_weights", [1.0] * 4), dtype=np.float32)
-    loss_fn = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(args.device))
+    loss_fn = nn.CrossEntropyLoss(
+        weight=torch.from_numpy(weights).to(args.device),
+        label_smoothing=float(cfg.get("label_smoothing", 0.0)),
+    )
+    param_weight = (
+        args.param_weight
+        if args.param_weight is not None
+        else float(cfg.get("param_weight", 0.5))
+    )
     metrics = evaluate(
         model, dataset, torch.device(args.device), args.batch_size,
-        loss_fn, args.param_weight, arc_encoding,
+        loss_fn, param_weight, arc_encoding,
     )
     report = {
         "checkpoint": str(args.checkpoint), "data_dir": args.data_dir,

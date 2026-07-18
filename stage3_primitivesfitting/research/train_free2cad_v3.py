@@ -98,6 +98,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 import argparse
 from pathlib import Path
@@ -148,6 +149,12 @@ def parse_args() -> argparse.Namespace:
                    help="Exponent applied to inverse-frequency weights; "
                         "0.5 often improves minority precision")
     p.add_argument("--resume",       type=str,   default="")
+    p.add_argument("--init_weights", type=str,   default="",
+                   help="Warm-start model weights but reset training progress")
+    p.add_argument("--stream_shards", action="store_true",
+                   help="Load one training NPZ shard at a time")
+    p.add_argument("--save_every_shards", type=int, default=10,
+                   help="Save resumable state every N training shards")
     p.add_argument("--seed",         type=int,   default=42)
     p.add_argument("--log_every",    type=int,   default=1)
     return p.parse_args()
@@ -322,20 +329,23 @@ def load_dataset(
     shards = sorted(split_dir.glob("shard_*.npz"))
     if shards:
         parts = []
+        removed_total = 0
+        relabeled_total = 0
         for path in shards:
-            data = np.load(path)
-            points, mask = _resize_encoded_points(data["points"], data["mask"], max_pts)
-            parts.append((points, mask, data["types"], data["params"]))
+            part, removed, relabeled = load_npz_shard(
+                path, max_pts, arc_encoding
+            )
+            parts.append((part.pts, part.mask, part.types, part.params))
+            removed_total += removed
+            relabeled_total += relabeled
         dataset = EncodedDataset(*(
             np.concatenate([part[i] for part in parts], axis=0) for i in range(4)
         ))
-        dataset, removed = _filter_inconsistent_circles(dataset)
-        dataset, relabeled = _relabel_degenerate_arcs(dataset)
-        suffix = (f"; filtered {removed} incomplete circles; relabeled "
-                  f"{relabeled} raster-straight arcs")
+        suffix = (f"; filtered {removed_total} incomplete circles; relabeled "
+                  f"{relabeled_total} raster-straight arcs")
         print(f"  Loaded {len(dataset)} '{split}' samples from "
               f"{len(shards)} NPZ shards{suffix}")
-        return _apply_arc_encoding(dataset, arc_encoding)
+        return dataset
 
     files = sorted(split_dir.glob("*.json"))
     if not files:
@@ -366,6 +376,53 @@ def load_dataset(
     return _apply_arc_encoding(dataset, arc_encoding)
 
 
+def load_npz_shard(
+    path: str | Path,
+    max_pts: int,
+    arc_encoding: str = "center_radius_angles",
+) -> tuple[EncodedDataset, int, int]:
+    """Load and normalize one prepared shard without retaining the NPZ handle."""
+    with np.load(path) as data:
+        points, mask = _resize_encoded_points(
+            np.asarray(data["points"]), np.asarray(data["mask"]), max_pts
+        )
+        dataset = EncodedDataset(
+            points,
+            mask,
+            np.asarray(data["types"]),
+            np.asarray(data["params"]),
+        )
+    dataset, removed = _filter_inconsistent_circles(dataset)
+    dataset, relabeled = _relabel_degenerate_arcs(dataset)
+    return _apply_arc_encoding(dataset, arc_encoding), removed, relabeled
+
+
+def list_npz_shards(data_dir: str, split: str) -> list[Path]:
+    shards = sorted((Path(data_dir) / split).glob("shard_*.npz"))
+    if not shards:
+        raise FileNotFoundError(
+            f"No shard_*.npz files in {Path(data_dir) / split}"
+        )
+    return shards
+
+
+def scan_shard_class_counts(
+    shards: list[Path], max_pts: int, arc_encoding: str,
+) -> tuple[np.ndarray, int, int, int]:
+    """Compute post-cleaning class counts without holding all shards in RAM."""
+    counts = np.zeros(N_CMD_TYPES, dtype=np.int64)
+    samples = removed_total = relabeled_total = 0
+    for path in shards:
+        dataset, removed, relabeled = load_npz_shard(
+            path, max_pts, arc_encoding
+        )
+        counts += np.bincount(dataset.types, minlength=N_CMD_TYPES)
+        samples += len(dataset)
+        removed_total += removed
+        relabeled_total += relabeled
+    return counts, samples, removed_total, relabeled_total
+
+
 def make_batch(samples: EncodedDataset, indices: list[int], device):
     """Collate sample indices into batch tensors."""
     import torch
@@ -390,6 +447,16 @@ def compute_class_weights(
     if power < 0.0:
         raise ValueError("class_weight_power must be non-negative")
     counts = np.bincount(samples.types, minlength=N_CMD_TYPES)
+    return compute_class_weights_from_counts(counts, max_weight, power)
+
+
+def compute_class_weights_from_counts(
+    counts: np.ndarray, max_weight: float, power: float = 1.0,
+) -> np.ndarray:
+    """Compute powered inverse-frequency weights from exact class counts."""
+    if power < 0.0:
+        raise ValueError("class_weight_power must be non-negative")
+    counts = np.asarray(counts, dtype=np.int64)
     total = int(counts.sum())
     weights = np.ones(N_CMD_TYPES, dtype=np.float32)
     for cls in range(N_CMD_TYPES):
@@ -683,11 +750,25 @@ def print_metrics(metrics: dict) -> None:
 
 # ─── Training loop ────────────────────────────────────────────────────────────
 
+def _atomic_torch_save(payload: dict, path: Path) -> None:
+    import torch
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    torch.save(payload, temporary)
+    os.replace(temporary, path)
+
+
 def train(args: argparse.Namespace) -> None:
     import torch
     import torch.nn as nn
     from torch.optim import AdamW
     from torch.optim.lr_scheduler import CosineAnnealingLR
+
+    if args.resume and args.init_weights:
+        raise ValueError("--resume and --init_weights are mutually exclusive")
+    if args.save_every_shards < 0:
+        raise ValueError("--save_every_shards must be non-negative")
 
     try:
         from torch.utils.tensorboard import SummaryWriter
@@ -712,14 +793,28 @@ def train(args: argparse.Namespace) -> None:
 
     # ── Data ──────────────────────────────────────────────────────────────────
     print("\nLoading datasets ...")
-    train_data = load_dataset(
-        args.data_dir, "train", args.max_pts, args.arc_encoding)
+    train_data = None
+    train_shards = None
+    if args.stream_shards:
+        train_shards = list_npz_shards(args.data_dir, "train")
+        print(f"  Scanning {len(train_shards)} training shards ...")
+        class_counts, n_train, removed, relabeled = scan_shard_class_counts(
+            train_shards, args.max_pts, args.arc_encoding
+        )
+        print(
+            f"  Streaming {n_train:,} train samples; filtered {removed:,} "
+            f"incomplete circles; relabeled {relabeled:,} straight arcs"
+        )
+    else:
+        train_data = load_dataset(
+            args.data_dir, "train", args.max_pts, args.arc_encoding)
+        class_counts = np.bincount(train_data.types, minlength=N_CMD_TYPES)
     val_data = load_dataset(
         args.data_dir, "val", args.max_pts, args.arc_encoding)
 
     # Class weights
-    class_weights = compute_class_weights(
-        train_data, args.max_class_weight, args.class_weight_power)
+    class_weights = compute_class_weights_from_counts(
+        class_counts, args.max_class_weight, args.class_weight_power)
     print("\nClass weights (inverse-frequency power "
           f"{args.class_weight_power}, capped at {args.max_class_weight}):")
     inv = {v: k for k, v in CMD_TYPES.items()}
@@ -738,6 +833,14 @@ def train(args: argparse.Namespace) -> None:
     print(f"\nModel: encoder-only per-edge classifier — "
           f"{n_params:,} trainable params")
 
+    if args.init_weights:
+        init_path = Path(args.init_weights)
+        if not init_path.exists():
+            raise FileNotFoundError(f"missing initial checkpoint: {init_path}")
+        checkpoint = torch.load(init_path, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"Warm-started model weights from {init_path}")
+
     # ── Loss & optimiser ──────────────────────────────────────────────────────
     cw_tensor = torch.from_numpy(class_weights).to(device)
     type_loss_fn = nn.CrossEntropyLoss(
@@ -752,21 +855,49 @@ def train(args: argparse.Namespace) -> None:
     start_epoch   = 0
     best_val_loss = float("inf")
     best_macro_f1 = -1.0
+    resume_shard_position = 0
+    partial_train_loss = 0.0
+    partial_n_batches = 0
+    last_metrics = None
+    last_val_loss = float("inf")
     if args.resume and Path(args.resume).exists():
-        ckpt = torch.load(args.resume, map_location=device)
+        ckpt = torch.load(
+            args.resume, map_location=device, weights_only=False
+        )
         if ckpt.get("version") != 3:
             print(f"WARNING: resuming from a non-v3 checkpoint "
                   f"(version={ckpt.get('version')}). State-dict load may fail.")
         model.load_state_dict(ckpt["model_state_dict"])
-        start_epoch   = ckpt.get("epoch", 0) + 1
-        best_val_loss = ckpt.get("val_loss", float("inf"))
-        best_macro_f1 = ckpt.get("metrics", {}).get(
-            "supported_macro_f1", -1.0)
-        print(f"Resumed from epoch {start_epoch}, "
-              f"best val_loss={best_val_loss:.4f}")
+        if "optimizer_state_dict" in ckpt:
+            optim.load_state_dict(ckpt["optimizer_state_dict"])
+        if "scheduler_state_dict" in ckpt:
+            scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+        completed = ckpt.get("epoch_complete", True)
+        start_epoch = ckpt.get("epoch", 0) + (1 if completed else 0)
+        resume_shard_position = (
+            0 if completed else int(ckpt.get("next_shard_position", 0))
+        )
+        partial_train_loss = (
+            0.0 if completed else float(ckpt.get("partial_train_loss", 0.0))
+        )
+        partial_n_batches = (
+            0 if completed else int(ckpt.get("partial_n_batches", 0))
+        )
+        best_val_loss = float(ckpt.get(
+            "best_val_loss", ckpt.get("val_loss", float("inf"))
+        ))
+        best_macro_f1 = float(ckpt.get(
+            "best_macro_f1",
+            ckpt.get("metrics", {}).get("supported_macro_f1", -1.0),
+        ))
+        last_metrics = ckpt.get("metrics")
+        last_val_loss = float(ckpt.get("val_loss", float("inf")))
+        print(
+            f"Resumed epoch {start_epoch + 1}, shard position "
+            f"{resume_shard_position}; best val_loss={best_val_loss:.4f}"
+        )
 
     # ── Loop ──────────────────────────────────────────────────────────────────
-    rng = np.random.default_rng(args.seed)
     print(f"\n{'─'*70}")
     print(f"Training: {args.epochs} epochs, batch={args.batch_size}, "
           f"lr={args.lr}, param_weight={args.param_weight}")
@@ -776,30 +907,101 @@ def train(args: argparse.Namespace) -> None:
         t0 = time.time()
         model.train()
 
-        indices = list(range(len(train_data)))
-        rng.shuffle(indices)
+        continuing = epoch == start_epoch and resume_shard_position > 0
+        train_loss = partial_train_loss if continuing else 0.0
+        n_batches = partial_n_batches if continuing else 0
 
-        train_loss = 0.0
-        n_batches  = 0
+        if train_shards is not None:
+            shard_order = np.random.default_rng(
+                np.random.SeedSequence([args.seed, epoch, 17])
+            ).permutation(len(train_shards))
+            first_position = resume_shard_position if continuing else 0
+            shard_stream = enumerate(
+                shard_order[first_position:], start=first_position
+            )
+        else:
+            shard_stream = [(0, -1)]
 
-        for s in range(0, len(indices), args.batch_size):
-            idx = indices[s : s + args.batch_size]
-            pts, mask, types, params = make_batch(train_data, idx, device)
+        for shard_position, shard_index in shard_stream:
+            if train_shards is not None:
+                current_data, _removed, _relabeled = load_npz_shard(
+                    train_shards[int(shard_index)], args.max_pts,
+                    args.arc_encoding,
+                )
+                sample_indices = np.arange(len(current_data), dtype=np.int64)
+                np.random.default_rng(np.random.SeedSequence([
+                    args.seed, epoch, int(shard_index), 31,
+                ])).shuffle(sample_indices)
+            else:
+                current_data = train_data
+                sample_indices = np.arange(len(current_data), dtype=np.int64)
+                np.random.default_rng(np.random.SeedSequence([
+                    args.seed, epoch, 31,
+                ])).shuffle(sample_indices)
 
-            optim.zero_grad()
-            type_logits, param_pred = model(pts, mask)
+            for s in range(0, len(sample_indices), args.batch_size):
+                idx = sample_indices[s:s + args.batch_size]
+                pts, mask, types, params = make_batch(current_data, idx, device)
 
-            t_loss = type_loss_fn(type_logits, types)
+                optim.zero_grad(set_to_none=True)
+                type_logits, param_pred = model(pts, mask)
+                t_loss = type_loss_fn(type_logits, types)
+                p_loss = parameter_loss(
+                    param_pred, params, types, args.arc_encoding
+                )
+                loss = t_loss + args.param_weight * p_loss
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optim.step()
 
-            p_loss = parameter_loss(param_pred, params, types, args.arc_encoding)
+                train_loss += loss.item()
+                n_batches += 1
 
-            loss = t_loss + args.param_weight * p_loss
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optim.step()
-
-            train_loss += loss.item()
-            n_batches  += 1
+            if train_shards is not None:
+                completed_shards = shard_position + 1
+                if (
+                    args.save_every_shards
+                    and completed_shards % args.save_every_shards == 0
+                    and completed_shards < len(train_shards)
+                ):
+                    partial = {
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optim.state_dict(),
+                        "scheduler_state_dict": scheduler.state_dict(),
+                        "epoch": epoch,
+                        "epoch_complete": False,
+                        "next_shard_position": completed_shards,
+                        "partial_train_loss": train_loss,
+                        "partial_n_batches": n_batches,
+                        "val_loss": last_val_loss,
+                        "best_val_loss": best_val_loss,
+                        "best_macro_f1": best_macro_f1,
+                        "version": 3,
+                        "architecture": "encoder_only",
+                        "config": {
+                            "max_pts": args.max_pts,
+                            "n_cmd_types": N_CMD_TYPES,
+                            "d_model": args.d_model,
+                            "n_heads": args.n_heads,
+                            "n_enc_layers": args.n_enc_layers,
+                            "dropout": args.dropout,
+                            "arc_encoding": args.arc_encoding,
+                            "class_weight_power": args.class_weight_power,
+                            "label_smoothing": args.label_smoothing,
+                            "param_weight": args.param_weight,
+                        },
+                        "cmd_types": CMD_TYPES,
+                        "class_weights": class_weights.tolist(),
+                        "metrics": last_metrics or {},
+                    }
+                    _atomic_torch_save(
+                        partial, out_dir / "free2cad_v3_latest.pth"
+                    )
+                    print(
+                        f"  epoch {epoch + 1}: saved shard "
+                        f"{completed_shards}/{len(train_shards)}"
+                    )
+                del current_data
 
         scheduler.step()
         avg_train = train_loss / max(n_batches, 1)
@@ -828,10 +1030,25 @@ def train(args: argparse.Namespace) -> None:
                 tb.add_scalar(f"ParamL1/{cls}",  m["param_l1"], epoch)
 
         # ── Checkpoint ────────────────────────────────────────────────────────
+        macro_f1 = metrics["supported_macro_f1"]
+        improved_loss = avg_val < best_val_loss
+        improved_f1 = macro_f1 > best_macro_f1
+        if improved_loss:
+            best_val_loss = avg_val
+        if improved_f1:
+            best_macro_f1 = macro_f1
+        last_metrics = metrics
+        last_val_loss = avg_val
         ckpt = {
             "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optim.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
             "epoch":            epoch,
+            "epoch_complete":   True,
+            "next_shard_position": 0,
             "val_loss":         avg_val,
+            "best_val_loss":    best_val_loss,
+            "best_macro_f1":    best_macro_f1,
             "version":          3,
             "architecture":     "encoder_only",
             "config": {
@@ -843,26 +1060,31 @@ def train(args: argparse.Namespace) -> None:
                 "dropout":      args.dropout,
                 "arc_encoding": args.arc_encoding,
                 "class_weight_power": args.class_weight_power,
+                "label_smoothing": args.label_smoothing,
+                "param_weight": args.param_weight,
             },
             "cmd_types":     CMD_TYPES,
             "class_weights": class_weights.tolist(),
             "metrics":       metrics,
         }
-        torch.save(ckpt, out_dir / "free2cad_v3_latest.pth")
+        _atomic_torch_save(ckpt, out_dir / "free2cad_v3_latest.pth")
 
-        if avg_val < best_val_loss:
-            best_val_loss = avg_val
-            torch.save(ckpt, out_dir / "free2cad_v3_best.pth")
+        if improved_loss:
+            _atomic_torch_save(ckpt, out_dir / "free2cad_v3_best.pth")
             print(f"  → New best (val_loss={best_val_loss:.4f})")
 
-        macro_f1 = metrics["supported_macro_f1"]
-        if macro_f1 > best_macro_f1:
-            best_macro_f1 = macro_f1
-            torch.save(ckpt, out_dir / "free2cad_v3_best_f1.pth")
+        if improved_f1:
+            _atomic_torch_save(ckpt, out_dir / "free2cad_v3_best_f1.pth")
             print(f"  → New best supported macro-F1 ({best_macro_f1:.4f})")
 
         if (epoch + 1) % 25 == 0:
-            torch.save(ckpt, out_dir / f"free2cad_v3_ep{epoch+1:04d}.pth")
+            _atomic_torch_save(
+                ckpt, out_dir / f"free2cad_v3_ep{epoch+1:04d}.pth"
+            )
+
+        resume_shard_position = 0
+        partial_train_loss = 0.0
+        partial_n_batches = 0
 
     if tb:
         tb.close()

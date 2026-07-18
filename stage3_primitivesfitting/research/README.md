@@ -1,13 +1,34 @@
 # Stage 3 Research — Free2CAD Experiment
 
-This directory contains the **Free2CAD** Transformer-based primitive fitter that was prototyped as an alternative to the production RANSAC implementation. After three training iterations it was determined that **RANSAC produced more reliable results on real Stage-2 graphs**, and Free2CAD was retired from the production pipeline.
+This directory contains the **Free2CAD** Transformer-based primitive fitter that
+was prototyped as an alternative to the production RANSAC implementation. The
+original synthetic-data experiment was retired because RANSAC was more reliable
+on real Stage-2 graphs. The encoder-only model is now being re-evaluated with
+corrected SketchGraphs supervision; production remains RANSAC until paired
+Drawing2CAD and filtered-PatentData integration gates pass.
 
 This research code is preserved here for two reasons:
 
 1. **Reproducibility** — the training pipeline + best checkpoint are intact, so a future team can re-evaluate the approach on improved data.
 2. **Knowledge transfer** — see [docs/archive/free2cad_handoff.md](../../docs/archive/free2cad_handoff.md) for the full investigation log (what was tried, what failed, and why).
 
-The production Stage 3 (`stage3_primitivesfitting/stage3_primitive_fit.py`) does NOT load anything from this directory.
+The production Stage 3 (`stage3_primitivesfitting/stage3_primitive_fit.py`) does
+not load anything from this directory by default.
+
+## SketchGraphs revival
+
+`tools/sketchgraphs_dataset.py` runs the repository's actual Stage 2 topology
+path and matches extracted edges back to exact SketchGraphs line/arc/circle
+entities. The corrected 100,000-source pilot reaches 0.9987 supported macro-F1
+on 29,420 untouched test edges; details are in
+[`TRAIN_STAGE2_STAGE3.md`](../../TRAIN_STAGE2_STAGE3.md).
+
+The restart-safe full-corpus extraction, shard-streaming warm-start training,
+and full test evaluation are launched together with:
+
+```bash
+tools/run_stage3_full_training_queue.sh
+```
 
 ## Files
 
@@ -41,6 +62,10 @@ Two corpora are referenced by the data pipeline:
 
 All three live under `stage3_primitivesfitting/research/data/` and are gitignored.
 
+The active SketchGraphs raw corpus lives under `data/SketchGraphs/raw/`, and
+derived Stage 3 shards live under `output/SketchGraphsStage3Full/`. Both are
+local, generated artifacts and must not be committed.
+
 ## Re-running the experiment
 
 Quick path on a fresh clone:
@@ -60,7 +85,7 @@ python stage3_primitivesfitting/research/stage3_primitive_fit_free2cad.py \
 
 Best epoch checkpoint lands at `models/free2cad_v3_best.pth`.
 
-## Why this approach was retired
+## Why the synthetic approach was retired
 
 Short version (long version in `docs/archive/free2cad_handoff.md`):
 

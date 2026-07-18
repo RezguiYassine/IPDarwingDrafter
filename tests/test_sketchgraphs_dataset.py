@@ -5,7 +5,11 @@ from tools.sketchgraphs_dataset import (
     PrepareConfig,
     Primitive,
     TYPE_TO_ID,
+    _chunk_progress_report,
+    _merge_chunk_stats,
+    _new_chunk_aggregate,
     _stage3_sample,
+    _write_stage3_shard,
 )
 
 
@@ -71,3 +75,44 @@ def test_raster_straight_circle_fragment_becomes_line():
 
     assert sample is not None
     assert sample["type"] == TYPE_TO_ID["LINE"]
+
+
+def test_restart_safe_shard_and_progress_aggregation(tmp_path):
+    points = np.column_stack([np.linspace(0.0, 1.0, 5), np.zeros(5)])
+    sample = {
+        "points": points.astype(np.float32),
+        "mask": np.ones(5, dtype=bool),
+        "type": TYPE_TO_ID["LINE"],
+        "params": np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        "source_index": 9,
+    }
+    path = tmp_path / "shard_000000.npz"
+
+    size = _write_stage3_shard(path, [sample])
+
+    assert size == path.stat().st_size
+    assert not path.with_suffix(".npz.tmp").exists()
+    with np.load(path) as data:
+        assert data["source_index"].tolist() == [9]
+        assert data["types"].tolist() == [TYPE_TO_ID["LINE"]]
+
+    aggregate = _new_chunk_aggregate()
+    _merge_chunk_stats(aggregate, {
+        "selected": 1,
+        "accepted": 1,
+        "edges": 1,
+        "unmatched_edges": 0,
+        "short_edges": 0,
+        "errors": 0,
+        "stage3_samples": 1,
+        "keypoints": [2, 0, 0],
+        "stage3_classes": [1, 0, 0, 0],
+        "error_counts": {},
+    })
+    report = _chunk_progress_report(
+        "train", tmp_path / "raw.npy", 1, 1, 42, 0, {}, 1, 1,
+        aggregate,
+    )
+    assert report["complete"] is True
+    assert report["stage3_samples"] == 1
+    assert report["stage3_classes"]["LINE"] == 1

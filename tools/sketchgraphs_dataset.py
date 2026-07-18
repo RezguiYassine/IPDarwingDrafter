@@ -17,6 +17,7 @@ that Stage 3 receives after intersections and graph simplification.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -528,6 +529,110 @@ class ShardWriter:
         self.buffer.clear()
 
 
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(temporary, path)
+
+
+def _write_stage3_shard(path: Path, samples: list[dict]) -> int:
+    """Write one restart-safe NPZ shard and return its byte size."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("wb") as stream:
+        np.savez(
+            stream,
+            points=np.stack([s["points"] for s in samples]),
+            mask=np.stack([s["mask"] for s in samples]),
+            types=np.array([s["type"] for s in samples], dtype=np.uint8),
+            params=np.stack([s["params"] for s in samples]),
+            source_index=np.array(
+                [s["source_index"] for s in samples], dtype=np.int64
+            ),
+        )
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+    return path.stat().st_size
+
+
+def _chunk_signature(indices: np.ndarray) -> str:
+    return hashlib.sha256(np.asarray(indices, dtype=np.int64).tobytes()).hexdigest()
+
+
+def _merge_chunk_stats(aggregate: dict, marker: dict) -> None:
+    for key in (
+        "selected", "accepted", "edges", "unmatched_edges", "short_edges",
+        "errors", "stage3_samples",
+    ):
+        aggregate[key] += int(marker.get(key, 0))
+    aggregate["completed_chunks"] += 1
+    aggregate["keypoints"] += np.asarray(marker["keypoints"], dtype=np.int64)
+    aggregate["stage3_classes"] += np.asarray(
+        marker["stage3_classes"], dtype=np.int64
+    )
+    aggregate["error_counts"].update(marker.get("error_counts", {}))
+
+
+def _new_chunk_aggregate() -> dict:
+    return {
+        "selected": 0,
+        "accepted": 0,
+        "edges": 0,
+        "unmatched_edges": 0,
+        "short_edges": 0,
+        "errors": 0,
+        "stage3_samples": 0,
+        "completed_chunks": 0,
+        "keypoints": np.zeros(3, dtype=np.int64),
+        "stage3_classes": np.zeros(4, dtype=np.int64),
+        "error_counts": Counter(),
+    }
+
+
+def _chunk_progress_report(
+    split: str,
+    source_path: Path,
+    source_total: int,
+    selected_total: int,
+    seed: int,
+    limit: int,
+    config: dict,
+    source_chunk_size: int,
+    total_chunks: int,
+    aggregate: dict,
+) -> dict:
+    return {
+        "split": split,
+        "source_path": str(source_path),
+        "source_total": source_total,
+        "seed": seed,
+        "limit": limit,
+        "config": config,
+        "source_chunk_size": source_chunk_size,
+        "total_chunks": total_chunks,
+        "completed_chunks": aggregate["completed_chunks"],
+        "complete": aggregate["completed_chunks"] == total_chunks,
+        "selected_total": selected_total,
+        **{
+            key: int(aggregate[key])
+            for key in (
+                "selected", "accepted", "edges", "unmatched_edges",
+                "short_edges", "errors", "stage3_samples",
+            )
+        },
+        "keypoints": dict(zip(
+            ("endpoint", "junction", "corner"),
+            aggregate["keypoints"].tolist(),
+        )),
+        "stage3_classes": dict(zip(
+            TYPE_TO_ID, aggregate["stage3_classes"].tolist()
+        )),
+        "top_errors": aggregate["error_counts"].most_common(20),
+    }
+
+
 def _sample_indices(total: int, limit: int, seed: int) -> np.ndarray:
     if limit <= 0 or limit >= total:
         return np.arange(total, dtype=np.int64)
@@ -559,10 +664,195 @@ def _audit_stage2(stage2_dir: Path, target: Path, limit: int = 24) -> None:
     cv2.imwrite(str(target), sheet)
 
 
+def prepare_split_chunked(
+    data_path: Path,
+    output: Path,
+    split: str,
+    limit: int,
+    workers: int,
+    seed: int,
+    cfg: PrepareConfig,
+    source_chunk_size: int,
+    resume: bool,
+) -> dict:
+    """Prepare a large split with bounded task submission and exact resume."""
+    dataset = flat_array.load_dictionary_flat(data_path)
+    source_total = len(dataset["sequences"])
+    indices = _sample_indices(source_total, limit, seed)
+    del dataset
+
+    stage2_split = "validation" if split == "validation" else split
+    stage3_split = "val" if split == "validation" else split
+    stage2_dir = output / "stage2" / stage2_split
+    stage3_dir = output / "stage3" / stage3_split
+    chunks_dir = stage3_dir / "chunks"
+    manifest_path = stage3_dir / "manifest.json"
+    progress_path = output / f"progress_{split}.json"
+    stage2_dir.mkdir(parents=True, exist_ok=True)
+    stage3_dir.mkdir(parents=True, exist_ok=True)
+
+    config_dict = vars(cfg)
+    manifest = {
+        "version": 1,
+        "split": split,
+        "source_path": str(data_path.resolve()),
+        "source_size": data_path.stat().st_size,
+        "source_total": source_total,
+        "selected_total": len(indices),
+        "selected_sha256": _chunk_signature(indices),
+        "seed": seed,
+        "limit": limit,
+        "config": config_dict,
+        "source_chunk_size": source_chunk_size,
+    }
+
+    if manifest_path.exists():
+        existing = json.loads(manifest_path.read_text())
+        if existing != manifest:
+            raise RuntimeError(
+                f"resume manifest mismatch in {manifest_path}; use a new output "
+                "directory or restart without --resume"
+            )
+        if not resume:
+            for path in stage3_dir.glob("shard_*.npz"):
+                path.unlink()
+            if chunks_dir.exists():
+                for path in chunks_dir.glob("chunk_*.json"):
+                    path.unlink()
+    else:
+        stale = list(stage3_dir.glob("shard_*.npz"))
+        if resume and stale:
+            raise RuntimeError(
+                f"found {len(stale)} shards without {manifest_path}; refusing "
+                "an unverifiable resume"
+            )
+        for path in stale:
+            path.unlink()
+        if chunks_dir.exists():
+            for path in chunks_dir.glob("chunk_*.json"):
+                path.unlink()
+        _atomic_json(manifest_path, manifest)
+
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    total_chunks = math.ceil(len(indices) / source_chunk_size)
+    aggregate = _new_chunk_aggregate()
+
+    executor = None
+    local_worker_initialized = False
+
+    try:
+        chunks = range(total_chunks)
+        for chunk_id in tqdm(chunks, desc=f"prepare {split} chunks"):
+            start = chunk_id * source_chunk_size
+            chunk_indices = indices[start:start + source_chunk_size]
+            signature = _chunk_signature(chunk_indices)
+            marker_path = chunks_dir / f"chunk_{chunk_id:06d}.json"
+            shard_path = stage3_dir / f"shard_{chunk_id:06d}.npz"
+
+            if marker_path.exists():
+                marker = json.loads(marker_path.read_text())
+                if marker.get("index_sha256") != signature:
+                    raise RuntimeError(f"index mismatch in {marker_path}")
+                if marker.get("stage3_samples", 0):
+                    if not shard_path.exists():
+                        raise RuntimeError(f"missing completed shard {shard_path}")
+                    if shard_path.stat().st_size != marker.get("shard_bytes"):
+                        raise RuntimeError(f"size mismatch for {shard_path}")
+                _merge_chunk_stats(aggregate, marker)
+                continue
+
+            if workers <= 1:
+                if not local_worker_initialized:
+                    _worker_init(str(data_path), config_dict, str(stage2_dir))
+                    local_worker_initialized = True
+                results = map(_process_index, chunk_indices.tolist())
+            else:
+                if executor is None:
+                    executor = ProcessPoolExecutor(
+                        max_workers=workers,
+                        initializer=_worker_init,
+                        initargs=(str(data_path), config_dict, str(stage2_dir)),
+                    )
+                results = executor.map(
+                    _process_index, chunk_indices.tolist(), chunksize=8
+                )
+
+            stats = Counter()
+            kp_counts = np.zeros(3, dtype=np.int64)
+            class_counts = np.zeros(4, dtype=np.int64)
+            errors = Counter()
+            samples: list[dict] = []
+            for result in results:
+                stats["selected"] += 1
+                if result["status"] != "ok":
+                    stats["errors"] += 1
+                    errors[result.get("error", "unknown")] += 1
+                    continue
+                stats["accepted"] += 1
+                stats["edges"] += result["n_edges"]
+                stats["unmatched_edges"] += result["n_unmatched"]
+                stats["short_edges"] += result["n_short"]
+                kp_counts += np.asarray(result["n_kps"], dtype=np.int64)
+                samples.extend(result["stage3"])
+                for sample in result["stage3"]:
+                    class_counts[sample["type"]] += 1
+
+            shard_bytes = 0
+            if samples:
+                shard_bytes = _write_stage3_shard(shard_path, samples)
+            elif shard_path.exists():
+                shard_path.unlink()
+            marker = {
+                "chunk": chunk_id,
+                "source_index_start": int(chunk_indices[0]),
+                "source_index_end": int(chunk_indices[-1]),
+                "index_sha256": signature,
+                "selected": int(stats["selected"]),
+                "accepted": int(stats["accepted"]),
+                "edges": int(stats["edges"]),
+                "unmatched_edges": int(stats["unmatched_edges"]),
+                "short_edges": int(stats["short_edges"]),
+                "errors": int(stats["errors"]),
+                "stage3_samples": len(samples),
+                "keypoints": kp_counts.tolist(),
+                "stage3_classes": class_counts.tolist(),
+                "error_counts": dict(errors),
+                "shard": shard_path.name if samples else None,
+                "shard_bytes": shard_bytes,
+            }
+            _atomic_json(marker_path, marker)
+            _merge_chunk_stats(aggregate, marker)
+            report = _chunk_progress_report(
+                split, data_path, source_total, len(indices), seed, limit,
+                config_dict, source_chunk_size, total_chunks, aggregate,
+            )
+            _atomic_json(progress_path, report)
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
+
+    report = _chunk_progress_report(
+        split, data_path, source_total, len(indices), seed, limit, config_dict,
+        source_chunk_size, total_chunks, aggregate,
+    )
+    _atomic_json(progress_path, report)
+    _atomic_json(output / f"report_{split}.json", report)
+    if cfg.write_stage2:
+        _audit_stage2(stage2_dir, output / f"audit_stage2_{split}.png")
+    print(json.dumps(report, indent=2))
+    return report
+
+
 def prepare_split(
     data_path: Path, output: Path, split: str, limit: int, workers: int,
     seed: int, cfg: PrepareConfig, shard_size: int,
+    source_chunk_size: int = 0, resume: bool = False,
 ) -> dict:
+    if source_chunk_size > 0:
+        return prepare_split_chunked(
+            data_path, output, split, limit, workers, seed, cfg,
+            source_chunk_size, resume,
+        )
     dataset = flat_array.load_dictionary_flat(data_path)
     total = len(dataset["sequences"])
     indices = _sample_indices(total, limit, seed)
@@ -688,6 +978,15 @@ def main() -> int:
     p_prepare.add_argument("--min-edge-px", type=float, default=5.0)
     p_prepare.add_argument("--shard-size", type=int, default=50_000)
     p_prepare.add_argument(
+        "--source-chunk-size", type=int, default=0,
+        help=("bounded source sketches per restart-safe shard; 0 keeps the "
+              "legacy sample-buffer writer"),
+    )
+    p_prepare.add_argument(
+        "--resume", action="store_true",
+        help="skip verified completed source chunks in chunked mode",
+    )
+    p_prepare.add_argument(
         "--stage3-only", action="store_true",
         help="rebuild Stage 3 shards without rewriting Stage 2 label files",
     )
@@ -711,6 +1010,7 @@ def main() -> int:
             prepare_split(
                 path, args.output, split, args.limit, args.workers,
                 args.seed + offset, cfg, args.shard_size,
+                args.source_chunk_size, args.resume,
             )
     return 0
 

@@ -874,18 +874,16 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
     in-distribution corners are measurably *better*, then enable `tiled` in the
     patent config; if a synthetic-vs-scan gap persists, fine-tune on patent tiles.
 
-11. **Stage 3 — evaluate the retrained Free2CAD model vs RANSAC.** Production
-    Stage 3 is RANSAC-only by decision (the earlier Free2CAD-v3 was 86.9 %
-    type-agreement, ~6× slower, geometrically inexact on closed loops). A student
-    retrained `free2cad_v3_best.pth` (grid search, on the `mohamed` branch). v3
-    inference is self-contained (`research/stage3_primitive_fit_free2cad.py`
-    builds the encoder-only arch — no external repo needed at inference). Plan:
-    - Extract the checkpoint from `mohamed`; smoke-test load + run on existing
-      `_graph.json` files.
-    - Paired comparison on a Drawing2CAD sample (GT available): **RANSAC vs
-      Free2CAD-v3** on identical Stage-2 graphs, reporting **Chamfer-vs-GT** (not
-      just agreement with RANSAC), type distribution, per-primitive param accuracy,
-      and runtime → verdict on whether to revisit the parked decision.
+11. **Stage 3 — scale corrected Free2CAD training to full SketchGraphs.** The
+    corrected 100,000-source pilot reaches 0.9987 macro-F1 and 0.9996 accuracy
+    on 29,420 untouched SketchGraphs test edges, compared with 0.3733 and 0.7693
+    for the old synthetic checkpoint. Full extraction now uses atomic,
+    restart-safe source chunks; training streams shards, warm-starts the pilot,
+    and checkpoints intra-epoch optimizer progress. The queued full run covers
+    all official train/validation/test records, then evaluates the pilot and
+    both full-checkpoint selection criteria on the complete untouched test.
+    Production remains RANSAC until paired Drawing2CAD and filtered-PatentData
+    integration confirms geometric and runtime gains.
 
 12. **Stage 2 — scale Puhachov from the SketchGraphs pilot to the full split.**
     *(Phase A completed 2026-07-18.)* The trainer
