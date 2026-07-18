@@ -1432,6 +1432,82 @@ def _apply_mask_to_raster(
     return n_repaired
 
 
+def _bridge_leader_crossings(
+    out: np.ndarray,
+    det: dict[str, Any],
+    labels: list[dict[str, Any]],
+    cfg: dict[str, Any],
+) -> int:
+    """Reconnect feature strokes severed by leader-line removal.
+
+    A leader frequently crosses feature strokes on its way to the target;
+    masking the leader cuts a ~mask-thickness gap into every crossed stroke,
+    which Stage 2 then sees as two endpoints (fragmentation). The blind
+    morphological close (`repair_after_removal`) misses many of these, so this
+    pass repairs them explicitly: walk along each removed leader, and where the
+    ORIGINAL ink shows a stroke passing through the band (ink on both
+    perpendicular sides at the same station, and ink at the centre), draw a
+    2-px bridge across the band. Requiring both anchors + centre evidence means
+    a bridge can only restore a stroke that genuinely crossed — it can never
+    invent geometry. Returns the number of bridges drawn.
+    """
+    if not bool(cfg.get("bridge_leader_crossings", True)):
+        return 0
+    ink = det["ink"]
+    background = int(det["background"])
+    ink_value = 0 if background == 255 else 255
+    H, W = out.shape[:2]
+    half = int(cfg.get("leader_mask_thickness", 5)) // 2 + 1
+    tip_trim_default = float(cfg.get("leader_tip_trim", 0) or 0)
+    n_bridges = 0
+
+    def _ink_at(x: float, y: float) -> bool:
+        xi, yi = int(round(x)), int(round(y))
+        return 0 <= xi < W and 0 <= yi < H and bool(ink[yi, xi])
+
+    def _out_ink_at(x: float, y: float) -> bool:
+        xi, yi = int(round(x)), int(round(y))
+        return 0 <= xi < W and 0 <= yi < H and out[yi, xi] != background
+
+    for label in labels:
+        for leader in label.get("leader_lines", []):
+            if leader.get("mask_full_segment", False):
+                sx, sy = map(float, leader["p1"]); tx, ty = map(float, leader["p2"])
+                trim = 0.0
+            else:
+                sx, sy = map(float, leader.get("label_endpoint", leader["p1"]))
+                tx, ty = map(float, leader.get("leader_to", leader["p2"]))
+                trim = tip_trim_default
+            length = math.hypot(tx - sx, ty - sy)
+            if length < 2:
+                continue
+            if trim > 0 and length > trim:      # mirror the mask's tip trim
+                tx -= (tx - sx) / length * trim
+                ty -= (ty - sy) / length * trim
+                length -= trim
+            ux, uy = (tx - sx) / length, (ty - sy) / length
+            nx, ny = -uy, ux
+            t = 0.0
+            while t <= length:
+                cx, cy = sx + ux * t, sy + uy * t
+                if _ink_at(cx, cy):             # a stroke passed through here
+                    a = b = None
+                    for s in range(half + 1, half + 4):
+                        if a is None and _out_ink_at(cx + nx * s, cy + ny * s):
+                            a = (cx + nx * s, cy + ny * s)
+                        if b is None and _out_ink_at(cx - nx * s, cy - ny * s):
+                            b = (cx - nx * s, cy - ny * s)
+                    if a is not None and b is not None:
+                        cv2.line(out,
+                                 (int(round(a[0])), int(round(a[1]))),
+                                 (int(round(b[0])), int(round(b[1]))),
+                                 ink_value, thickness=2)
+                        n_bridges += 1
+                        t += half               # skip past this crossing
+                t += 1.0
+    return n_bridges
+
+
 def run(
     input_path: Path,
     output_dir: Path,
@@ -1562,6 +1638,9 @@ def run(
         labels.extend(pass_labels)
         cumulative_mask = projected_mask
         repair_pixels += _apply_mask_to_raster(out, det, pass_mask, cfg)
+        # Reconnect feature strokes the leader mask just severed (explicit
+        # crossing bridges; the blind close above misses many of them).
+        _bridge_leader_crossings(out, det, pass_labels, cfg)
 
     removed_ratio = (
         int(np.count_nonzero((cumulative_mask > 0) & original_ink))
