@@ -46,6 +46,31 @@ python -m stage2_strokeextraction.research.train_puhachov \
 - Output state_dict matches `_build_stacked_hourglass`, so it loads via the
   guarded loader with no architecture mismatch.
 
+### 2b. Stream the complete SketchGraphs split
+
+The same trainer can render the official flat-array sequences on demand and run
+under `torchrun`. This avoids a multi-terabyte uncompressed raster cache and
+millions of filesystem entries. It also writes a one-byte-per-source coverage
+map and an atomic resumable checkpoint.
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 .venv/bin/torchrun \
+  --standalone --nproc_per_node=2 \
+  -m stage2_strokeextraction.research.train_puhachov \
+  --labels output/Drawing2CAD/kp_labels \
+  --sketchgraphs-raw data/SketchGraphs/raw/sg_t16_train.npy \
+  --sketchgraphs-val-labels output/SketchGraphsTraining/stage2 \
+  --mix 0.30 --steps 0 --epochs 1 \
+  --init-weights models/puhachov_sketchgraphs_rehearsal70.pth \
+  --out models/puhachov_sketchgraphs_full_phaseA.pth \
+  --coverage-file output/SketchGraphsFull/stage2_train.coverage.i8 \
+  --require-full-coverage --batch 12 --workers 6 --amp
+```
+
+Use the same command plus `--resume
+models/puhachov_sketchgraphs_full_phaseA_last.pth` after interruption. Resume
+requires the same `torchrun` world size and per-rank batch size.
+
 ### 3. Compare (Phases 0/4)
 
 Point an eval config at the checkpoint (`puhachov.weights: models/puhachov_d2c.pth`)
@@ -54,5 +79,6 @@ and run `tools/d2c_eval.py` on the test split; diff against the CN baseline
 
 ## Files
 
-- `train_puhachov.py` — trainer (dataset, focal loss, val F1, checkpointing).
+- `train_puhachov.py` — cached/streaming trainer, DDP, coverage audit, resume.
 - label generator lives at `tools/d2c_keypoint_labels.py`.
+- coverage inspection lives at `tools/sketchgraphs_coverage.py`.

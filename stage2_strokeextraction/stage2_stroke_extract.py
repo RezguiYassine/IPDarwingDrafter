@@ -1660,6 +1660,12 @@ def _simplify_graph(
             inc = [k for k in live[nid] if E[k] is not None]
             if len(inc) != 2:
                 continue
+            # Learned/explicit corners are intentional degree-2 split points.
+            # Dissolving them makes the corner detector ineffective and hands
+            # Stage 3 a compound polyline instead of two fit-ready primitives.
+            node = node_by_id.get(nid)
+            if node is not None and node.get("type") == KP_CORNER:
+                continue
             i, j = inc
             if i == j:
                 continue   # self-loop edge through this node — leave it
@@ -1824,6 +1830,14 @@ def _smooth_edges(
     """
     for edge in edges:
         pixels = edge["pixels"]
+        # Closed-loop pixels come from a connected-component set and are sorted
+        # lexicographically, not in contour order. RDP/splprep on that ordering
+        # is both meaningless and quadratic on larger circles. Closed-loop
+        # fitters deliberately consume ``pixels`` directly, so leave the
+        # smoothing side channel empty.
+        if edge.get("is_closed"):
+            edge["smooth_pts"] = []
+            continue
         if len(pixels) < 2:
             edge["smooth_pts"] = pixels
             continue

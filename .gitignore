@@ -8,6 +8,7 @@ __pycache__/
 
 # ─── Virtual environments ────────────────────────────────────────────────────
 .venv/
+.venv-sketchgraphs/
 venv/
 env/
 
@@ -70,6 +71,14 @@ data/Drawing2CAD/
 # FloorPlanCAD: external floor-plan vectorization dataset. Re-download from
 # the original release if needed.
 data/FloorPlanCAD/
+# SketchGraphs filtered construction-sequence splits and derived training data.
+# The sketches retain their original creators' copyright; keep the corpus local.
+data/SketchGraphs/
+
+# SketchGraphs-trained research checkpoints are reproducible but too large/noisy
+# for normal source-control history.
+models/puhachov_sketchgraphs*.pth
+models/free2cad_sketchgraphs*.pth
 
 # Cloned third-party reference repos (re-clone via setup.sh / research README)
 **/research/repos/

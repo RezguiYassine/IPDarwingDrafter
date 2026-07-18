@@ -424,6 +424,7 @@ class Free2CADFitter:
         self._device   = device
         self._ready    = False
         self._max_pts  = None
+        self._arc_encoding = "center_radius_angles"
 
         # Version state — set during _load
         self._version  = 1            # 1, 2, or 3
@@ -510,6 +511,8 @@ class Free2CADFitter:
             self._model   = model
             self._device  = device
             self._max_pts = int(cfg["max_pts"])
+            self._arc_encoding = cfg.get(
+                "arc_encoding", "center_radius_angles")
             self._version = version
             self._ready   = True
 
@@ -776,6 +779,45 @@ class Free2CADFitter:
                     "confidence": confidence}
 
         if prim_type == self._TYPE_ARC:
+            if self._arc_encoding == "three_point":
+                start = np.asarray(_pt(p[0], p[1]), dtype=np.float64)
+                middle = np.asarray(_pt(p[2], p[3]), dtype=np.float64)
+                end = np.asarray(_pt(p[4], p[5]), dtype=np.float64)
+                ax, ay = start
+                bx, by = middle
+                cx_, cy_ = end
+                denom = 2.0 * (
+                    ax * (by - cy_) + bx * (cy_ - ay) + cx_ * (ay - by)
+                )
+                if abs(denom) < 1e-8:
+                    return {
+                        "edge_id": eid, "type": "line",
+                        "start": start.tolist(), "end": end.tolist(),
+                        "confidence": 0.0,
+                    }
+                a2 = ax * ax + ay * ay
+                b2 = bx * bx + by * by
+                c2 = cx_ * cx_ + cy_ * cy_
+                ux = (a2 * (by - cy_) + b2 * (cy_ - ay) + c2 * (ay - by)) / denom
+                uy = (a2 * (cx_ - bx) + b2 * (ax - cx_) + c2 * (bx - ax)) / denom
+                radius = float(np.hypot(ax - ux, ay - uy))
+                angles = np.degrees(np.arctan2(
+                    [ay - uy, by - uy, cy_ - uy],
+                    [ax - ux, bx - ux, cx_ - ux],
+                )) % 360.0
+                start_angle, middle_angle, end_angle = map(float, angles)
+                ccw_span = (end_angle - start_angle) % 360.0
+                ccw_middle = (middle_angle - start_angle) % 360.0
+                if ccw_middle > ccw_span:
+                    start_angle, end_angle = end_angle, start_angle
+                return {
+                    "edge_id": eid, "type": "arc",
+                    "center": [float(ux), float(uy)],
+                    "radius": radius,
+                    "start_angle": start_angle,
+                    "end_angle": end_angle,
+                    "confidence": confidence,
+                }
             return {"edge_id": eid, "type": "arc",
                     "center":      _pt(p[0], p[1]),
                     "radius":      _len(p[2]),

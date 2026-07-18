@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import io
 import json
 import logging
@@ -90,6 +91,16 @@ CREATE TABLE IF NOT EXISTS d2c_results (
     s3_time          REAL,
     s4_time          REAL,
 
+    -- Stage-2 topology diagnostics
+    keypoint_source  TEXT,
+    isolation_ratio  REAL,
+    n_nodes           INTEGER,
+    n_edges           INTEGER,
+    n_closed_edges    INTEGER,
+    median_edge_length REAL,
+    micro_edge_ratio  REAL,
+    short_edge_ratio  REAL,
+
     -- GT vs output counts
     n_strokes_gt     INTEGER,
     n_prims_out      INTEGER,
@@ -120,6 +131,24 @@ def init_db(db_path: Path) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.executescript("PRAGMA journal_mode = WAL;")
         conn.executescript(SCHEMA)
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(d2c_results)")
+        }
+        additions = {
+            "keypoint_source": "TEXT",
+            "isolation_ratio": "REAL",
+            "n_nodes": "INTEGER",
+            "n_edges": "INTEGER",
+            "n_closed_edges": "INTEGER",
+            "median_edge_length": "REAL",
+            "micro_edge_ratio": "REAL",
+            "short_edge_ratio": "REAL",
+        }
+        for column, column_type in additions.items():
+            if column not in existing:
+                conn.execute(
+                    f"ALTER TABLE d2c_results ADD COLUMN {column} {column_type}"
+                )
 
 
 def already_processed(conn, sample_id: str, view: str) -> bool:
@@ -239,6 +268,16 @@ def _process_one(job: tuple) -> dict:
             sketch_id=sketch_id, config=_WORKER_CFG, model=_WORKER_S2_MODEL,
         )
         row["s2_time"] = s2.processing_time_s
+        row.update({
+            "keypoint_source": s2.keypoint_source,
+            "isolation_ratio": s2.isolation_ratio,
+            "n_nodes": s2.n_nodes,
+            "n_edges": s2.n_edges,
+            "n_closed_edges": s2.n_closed_edges,
+            "median_edge_length": s2.median_edge_length,
+            "micro_edge_ratio": s2.micro_edge_ratio,
+            "short_edge_ratio": s2.short_edge_ratio,
+        })
     except Exception as exc:
         row["status"] = "stage2"; row["error"] = f"{type(exc).__name__}: {exc}"
         row["total_time"] = time.perf_counter() - t0
@@ -405,6 +444,26 @@ def main() -> int:
                 "(split=%s).",
                 len(sketches), len({s[0] for s in sketches}), args.split)
 
+    selection_text = "\n".join(
+        f"{sample_id}\t{view}\t{svg}" for sample_id, view, svg in sketches
+    )
+    config_bytes = args.config.read_bytes()
+    manifest = {
+        "config": str(args.config),
+        "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+        "split": args.split,
+        "views": list(views),
+        "seed": args.seed,
+        "requested_sample_limit": args.limit,
+        "selected_entries": len(sketches),
+        "selected_samples": len({sample_id for sample_id, _view, _svg in sketches}),
+        "selection_sha256": hashlib.sha256(selection_text.encode()).hexdigest(),
+    }
+    (args.output / "evaluation_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n"
+    )
+    (args.output / "evaluation_config.yaml").write_bytes(config_bytes)
+
     if not args.no_resume:
         with sqlite3.connect(db_path) as conn:
             before = len(sketches)
@@ -474,6 +533,12 @@ def _print_summary(db_path: Path, n_ok: int, n_err: int) -> None:
         iou_sk  = col("SELECT avg(iou_skeleton)    FROM d2c_results WHERE status='ok'")
         recall  = col("SELECT avg(recall_pixel)    FROM d2c_results WHERE status='ok'")
         prec    = col("SELECT avg(precision_pixel) FROM d2c_results WHERE status='ok'")
+        n_prims = col("SELECT avg(n_prims_out)     FROM d2c_results WHERE status='ok'")
+        n_edges = col("SELECT avg(n_edges)         FROM d2c_results WHERE status='ok'")
+        edge_len = col("SELECT avg(median_edge_length) FROM d2c_results WHERE status='ok'")
+        micro = col("SELECT avg(micro_edge_ratio)  FROM d2c_results WHERE status='ok'")
+        short = col("SELECT avg(short_edge_ratio)  FROM d2c_results WHERE status='ok'")
+        runtime = col("SELECT avg(total_time)      FROM d2c_results WHERE status='ok'")
         n_total = col("SELECT count(*) FROM d2c_results") or 0
 
     def pct(vals, p):
@@ -499,6 +564,11 @@ def _print_summary(db_path: Path, n_ok: int, n_err: int) -> None:
     print(f"  Secondary (pixel IoU)")
     print(f"    iou_pixel  {fmt(iou_px):>6}    iou_skel  {fmt(iou_sk):>6}")
     print(f"    recall     {fmt(recall):>6}    precision {fmt(prec):>6}")
+    print(sep)
+    print(f"  Topology / runtime")
+    print(f"    primitives {fmt(n_prims):>6}    edges     {fmt(n_edges):>6}")
+    print(f"    median len {fmt(edge_len):>6}    micro     {fmt(micro, 3):>6}")
+    print(f"    short      {fmt(short, 3):>6}    total sec {fmt(runtime):>6}")
     print(f"{sep}\n")
 
 

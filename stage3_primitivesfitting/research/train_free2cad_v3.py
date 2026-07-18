@@ -101,7 +101,6 @@ import math
 import time
 import argparse
 from pathlib import Path
-from collections import Counter
 
 import numpy as np
 
@@ -132,6 +131,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--weight_decay", type=float, default=1e-4)
     p.add_argument("--device",       type=str,   default="cuda")
     p.add_argument("--max_pts",      type=int,   default=32)
+    p.add_argument("--arc_encoding", choices=("three_point", "center_radius_angles"),
+                   default="three_point",
+                   help="bounded three-point targets avoid shallow-arc outliers")
     p.add_argument("--d_model",      type=int,   default=128)
     p.add_argument("--n_heads",      type=int,   default=8)
     p.add_argument("--n_enc_layers", type=int,   default=4)
@@ -142,6 +144,9 @@ def parse_args() -> argparse.Namespace:
                    help="Label smoothing for type CE; 0 disables")
     p.add_argument("--max_class_weight", type=float, default=10.0,
                    help="Cap on inverse-frequency class weights")
+    p.add_argument("--class_weight_power", type=float, default=1.0,
+                   help="Exponent applied to inverse-frequency weights; "
+                        "0.5 often improves minority precision")
     p.add_argument("--resume",       type=str,   default="")
     p.add_argument("--seed",         type=int,   default=42)
     p.add_argument("--log_every",    type=int,   default=1)
@@ -199,16 +204,146 @@ def _encode_command(cmd: dict) -> tuple[int, np.ndarray]:
     return type_id, p
 
 
-def load_dataset(data_dir: str, split: str, max_pts: int) -> list[dict]:
-    """Load all v3 per-edge JSON samples from data_dir/<split>/*.json."""
+class EncodedDataset:
+    """Compact in-memory edge tensors loaded from JSON or prepared NPZ shards."""
+
+    def __init__(self, pts, mask, types, params):
+        self.pts = np.asarray(pts, dtype=np.float32)
+        self.mask = np.asarray(mask, dtype=bool)
+        self.types = np.asarray(types, dtype=np.int64)
+        self.params = np.asarray(params, dtype=np.float32)
+        n = len(self.types)
+        if not (len(self.pts) == len(self.mask) == len(self.params) == n):
+            raise ValueError("inconsistent encoded dataset lengths")
+
+    def __len__(self):
+        return len(self.types)
+
+
+def _resize_encoded_points(points: np.ndarray, mask: np.ndarray, max_pts: int):
+    """Resize an encoded point axis while preserving uniform stroke coverage."""
+    source_pts = points.shape[1]
+    if source_pts == max_pts:
+        return points, mask
+    out = np.full((len(points), max_pts, 2), -1.0, dtype=np.float32)
+    out_mask = np.zeros((len(points), max_pts), dtype=bool)
+    lengths = mask.sum(axis=1).astype(int)
+    for length in np.unique(lengths):
+        rows = np.flatnonzero(lengths == length)
+        if length <= 0:
+            continue
+        if length > max_pts:
+            idx = np.round(np.linspace(0, length - 1, max_pts)).astype(int)
+            out[rows] = points[rows][:, idx]
+            out_mask[rows] = True
+        else:
+            out[rows, :length] = points[rows, :length]
+            out_mask[rows, :length] = True
+    return out, out_mask
+
+
+def _apply_arc_encoding(dataset: EncodedDataset, arc_encoding: str) -> EncodedDataset:
+    if arc_encoding == "center_radius_angles":
+        return dataset
+    if arc_encoding != "three_point":
+        raise ValueError(f"unknown arc encoding: {arc_encoding}")
+
+    rows = np.flatnonzero(dataset.types == CMD_TYPES["ARC"])
+    if not len(rows):
+        return dataset
+    params = dataset.params.copy()
+    lengths = dataset.mask[rows].sum(axis=1).astype(int)
+    for length in np.unique(lengths):
+        selected = rows[lengths == length]
+        if length <= 0:
+            continue
+        middle = (length - 1) // 2
+        params[selected, 0:2] = dataset.pts[selected, 0]
+        params[selected, 2:4] = dataset.pts[selected, middle]
+        params[selected, 4:6] = dataset.pts[selected, length - 1]
+    dataset.params = params
+    return dataset
+
+
+def _filter_inconsistent_circles(dataset: EncodedDataset) -> tuple[EncodedDataset, int]:
+    """Remove incomplete loops carrying non-identifiable full-circle targets."""
+    circles = dataset.types == CMD_TYPES["CIRCLE"]
+    invalid = circles & (
+        (np.abs(dataset.params[:, :2] - 0.5) > 0.30).any(axis=1)
+        | (dataset.params[:, 2] > 0.65)
+    )
+    removed = int(invalid.sum())
+    if not removed:
+        return dataset, 0
+    keep = ~invalid
+    return EncodedDataset(
+        dataset.pts[keep], dataset.mask[keep],
+        dataset.types[keep], dataset.params[keep],
+    ), removed
+
+
+def _relabel_degenerate_arcs(
+    dataset: EncodedDataset, min_sagitta_ratio: float = 0.01,
+) -> tuple[EncodedDataset, int]:
+    """Relabel raster-straight source arcs to match the inference contract."""
+    relabel = []
+    for row in np.flatnonzero(dataset.types == CMD_TYPES["ARC"]):
+        points = dataset.pts[row, dataset.mask[row]]
+        if len(points) < 3:
+            relabel.append(row)
+            continue
+        chord = points[-1] - points[0]
+        length = float(np.linalg.norm(chord))
+        if length < 1e-9:
+            relabel.append(row)
+            continue
+        normal = np.array([-chord[1], chord[0]], dtype=np.float32) / length
+        ratio = float(np.abs((points - points[0]) @ normal).max()) / length
+        if ratio < min_sagitta_ratio:
+            relabel.append(row)
+
+    if not relabel:
+        return dataset, 0
+    relabel = np.asarray(relabel, dtype=np.int64)
+    lengths = dataset.mask[relabel].sum(axis=1).astype(int)
+    dataset.types[relabel] = CMD_TYPES["LINE"]
+    dataset.params[relabel] = 0.0
+    dataset.params[relabel, 0:2] = dataset.pts[relabel, 0]
+    dataset.params[relabel, 2:4] = dataset.pts[relabel, lengths - 1]
+    return dataset, len(relabel)
+
+
+def load_dataset(
+    data_dir: str, split: str, max_pts: int,
+    arc_encoding: str = "center_radius_angles",
+) -> EncodedDataset:
+    """Load prepared NPZ shards, falling back to legacy per-edge JSON."""
     split_dir = Path(data_dir) / split
+    shards = sorted(split_dir.glob("shard_*.npz"))
+    if shards:
+        parts = []
+        for path in shards:
+            data = np.load(path)
+            points, mask = _resize_encoded_points(data["points"], data["mask"], max_pts)
+            parts.append((points, mask, data["types"], data["params"]))
+        dataset = EncodedDataset(*(
+            np.concatenate([part[i] for part in parts], axis=0) for i in range(4)
+        ))
+        dataset, removed = _filter_inconsistent_circles(dataset)
+        dataset, relabeled = _relabel_degenerate_arcs(dataset)
+        suffix = (f"; filtered {removed} incomplete circles; relabeled "
+                  f"{relabeled} raster-straight arcs")
+        print(f"  Loaded {len(dataset)} '{split}' samples from "
+              f"{len(shards)} NPZ shards{suffix}")
+        return _apply_arc_encoding(dataset, arc_encoding)
+
     files = sorted(split_dir.glob("*.json"))
     if not files:
         raise FileNotFoundError(
-            f"No JSON files in {split_dir}. "
-            f"Run generate_sketches_v3.py first.")
+            f"No shard_*.npz or JSON files in {split_dir}. Run a Stage-3 "
+            "dataset generator first.")
 
-    samples = []
+    points, masks, types, all_params = [], [], [], []
     for path in files:
         with open(path) as f:
             s = json.load(f)
@@ -219,24 +354,25 @@ def load_dataset(data_dir: str, split: str, max_pts: int) -> list[dict]:
 
         pts, mask  = _encode_stroke(s["stroke"], max_pts)
         type_id, params = _encode_command(s["command"])
-        samples.append({
-            "pts":      pts,
-            "mask":     mask,
-            "type_id":  type_id,
-            "params":   params,
-        })
+        points.append(pts)
+        masks.append(mask)
+        types.append(type_id)
+        all_params.append(params)
 
-    print(f"  Loaded {len(samples)} '{split}' samples from {split_dir}")
-    return samples
+    dataset = EncodedDataset(points, masks, types, all_params)
+    dataset, removed = _filter_inconsistent_circles(dataset)
+    dataset, relabeled = _relabel_degenerate_arcs(dataset)
+    print(f"  Loaded {len(dataset)} '{split}' JSON samples from {split_dir}")
+    return _apply_arc_encoding(dataset, arc_encoding)
 
 
-def make_batch(samples: list[dict], indices: list[int], device):
+def make_batch(samples: EncodedDataset, indices: list[int], device):
     """Collate sample indices into batch tensors."""
     import torch
-    pts    = np.stack([samples[i]["pts"]    for i in indices])
-    mask   = np.stack([samples[i]["mask"]   for i in indices])
-    types  = np.array([samples[i]["type_id"] for i in indices], dtype=np.int64)
-    params = np.stack([samples[i]["params"] for i in indices])
+    pts = samples.pts[indices]
+    mask = samples.mask[indices]
+    types = samples.types[indices]
+    params = samples.params[indices]
     return (
         torch.from_numpy(pts).to(device),
         torch.from_numpy(mask).to(device),
@@ -245,19 +381,61 @@ def make_batch(samples: list[dict], indices: list[int], device):
     )
 
 
-def compute_class_weights(samples: list[dict], max_weight: float) -> np.ndarray:
-    """Inverse-frequency class weights, capped at max_weight."""
-    counts = Counter(s["type_id"] for s in samples)
-    total  = sum(counts.values())
+def compute_class_weights(
+    samples: EncodedDataset,
+    max_weight: float,
+    power: float = 1.0,
+) -> np.ndarray:
+    """Powered inverse-frequency class weights, capped at max_weight."""
+    if power < 0.0:
+        raise ValueError("class_weight_power must be non-negative")
+    counts = np.bincount(samples.types, minlength=N_CMD_TYPES)
+    total = int(counts.sum())
     weights = np.ones(N_CMD_TYPES, dtype=np.float32)
     for cls in range(N_CMD_TYPES):
-        c = counts.get(cls, 0)
+        c = int(counts[cls])
         if c == 0:
-            weights[cls] = max_weight
+            # SketchGraphs t16 has no spline/polyline entities. A zero weight
+            # also prevents label smoothing from inventing POLYLINE targets.
+            weights[cls] = 0.0
         else:
-            w = total / (N_CMD_TYPES * c)
+            w = (total / (N_CMD_TYPES * c)) ** power
             weights[cls] = min(w, max_weight)
     return weights
+
+
+def parameter_loss(param_pred, params, types, arc_encoding="center_radius_angles"):
+    """Class-aware parameter loss with periodic arc-angle residuals."""
+    import torch
+
+    class_losses = []
+
+    line = types == CMD_TYPES["LINE"]
+    if line.any():
+        class_losses.append(torch.abs(
+            param_pred[line, :4] - params[line, :4]
+        ).sum(dim=-1).mean())
+
+    arc = types == CMD_TYPES["ARC"]
+    if arc.any():
+        if arc_encoding == "three_point":
+            class_losses.append(torch.abs(
+                param_pred[arc, :6] - params[arc, :6]
+            ).sum(dim=-1).mean())
+        else:
+            geom = torch.abs(param_pred[arc, :3] - params[arc, :3]).sum(dim=-1)
+            delta = torch.remainder(
+                param_pred[arc, 3:5] - params[arc, 3:5] + 0.5, 1.0
+            ) - 0.5
+            class_losses.append((geom + torch.abs(delta).sum(dim=-1)).mean())
+
+    circle = types == CMD_TYPES["CIRCLE"]
+    if circle.any():
+        class_losses.append(torch.abs(
+            param_pred[circle, :3] - params[circle, :3]
+        ).sum(dim=-1).mean())
+
+    return torch.stack(class_losses).mean() if class_losses else param_pred.sum() * 0.0
 
 
 # ─── Model ────────────────────────────────────────────────────────────────────
@@ -325,8 +503,67 @@ def build_model(max_pts: int, d_model: int, n_heads: int,
 
 # ─── Validation metrics ───────────────────────────────────────────────────────
 
-def evaluate(model, val_data: list[dict], device, batch_size: int,
-             type_loss_fn, param_weight: float) -> dict:
+def _stroke_residuals(
+    params: np.ndarray,
+    points: np.ndarray,
+    masks: np.ndarray,
+    types: np.ndarray,
+    arc_encoding: str,
+) -> np.ndarray:
+    """Mean point-to-predicted-primitive error in normalized edge units."""
+    residuals = np.full(len(types), np.nan, dtype=np.float64)
+
+    def line_residual(q: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+        chord = b - a
+        length = float(np.linalg.norm(chord))
+        if length < 1e-8:
+            return float(np.linalg.norm(q - a, axis=1).mean())
+        return float(np.abs((q - a) @ np.array([-chord[1], chord[0]])).mean()
+                     / length)
+
+    for i, cls in enumerate(types):
+        q = points[i, masks[i]]
+        if not len(q):
+            continue
+        p = params[i]
+        if cls == CMD_TYPES["LINE"]:
+            residuals[i] = line_residual(q, p[0:2], p[2:4])
+        elif cls == CMD_TYPES["CIRCLE"]:
+            residuals[i] = float(np.abs(
+                np.linalg.norm(q - p[0:2], axis=1) - abs(float(p[2]))
+            ).mean())
+        elif cls == CMD_TYPES["ARC"] and arc_encoding == "three_point":
+            a, middle, b = p[0:2], p[2:4], p[4:6]
+            determinant = 2.0 * (
+                a[0] * (middle[1] - b[1])
+                + middle[0] * (b[1] - a[1])
+                + b[0] * (a[1] - middle[1])
+            )
+            if abs(float(determinant)) < 1e-8:
+                residuals[i] = line_residual(q, a, b)
+                continue
+            a2, m2, b2 = float(a @ a), float(middle @ middle), float(b @ b)
+            center = np.array([
+                (a2 * (middle[1] - b[1])
+                 + m2 * (b[1] - a[1])
+                 + b2 * (a[1] - middle[1])) / determinant,
+                (a2 * (b[0] - middle[0])
+                 + m2 * (a[0] - b[0])
+                 + b2 * (middle[0] - a[0])) / determinant,
+            ])
+            radius = float(np.linalg.norm(a - center))
+            residuals[i] = float(np.abs(
+                np.linalg.norm(q - center, axis=1) - radius
+            ).mean())
+        elif cls == CMD_TYPES["ARC"]:
+            residuals[i] = float(np.abs(
+                np.linalg.norm(q - p[0:2], axis=1) - abs(float(p[2]))
+            ).mean())
+    return residuals
+
+def evaluate(model, val_data: EncodedDataset, device, batch_size: int,
+             type_loss_fn, param_weight: float,
+             arc_encoding: str = "center_radius_angles") -> dict:
     """Run model on val_data; return loss + per-class P/R/F1 + extras."""
     import torch
 
@@ -336,6 +573,8 @@ def evaluate(model, val_data: list[dict], device, batch_size: int,
     confusion    = np.zeros((N_CMD_TYPES, N_CMD_TYPES), dtype=np.int64)
     param_l1_sum = np.zeros(N_CMD_TYPES, dtype=np.float64)
     param_n      = np.zeros(N_CMD_TYPES, dtype=np.int64)
+    residual_sum = np.zeros(N_CMD_TYPES, dtype=np.float64)
+    residual_n   = np.zeros(N_CMD_TYPES, dtype=np.int64)
     pred_counts  = np.zeros(N_CMD_TYPES, dtype=np.int64)
 
     with torch.no_grad():
@@ -346,13 +585,7 @@ def evaluate(model, val_data: list[dict], device, batch_size: int,
 
             t_loss = type_loss_fn(type_logits, types)
 
-            valid = torch.zeros_like(types, dtype=torch.float)
-            for cls in PARAM_CLASSES:
-                valid = valid + (types == cls).float()
-            n_valid = valid.sum().clamp(min=1)
-            p_loss  = (
-                torch.abs(param_pred - params).sum(dim=-1) * valid
-            ).sum() / n_valid
+            p_loss = parameter_loss(param_pred, params, types, arc_encoding)
 
             total_loss += (t_loss + param_weight * p_loss).item()
             n_batches  += 1
@@ -364,11 +597,33 @@ def evaluate(model, val_data: list[dict], device, batch_size: int,
                 confusion[t, p] += 1
                 pred_counts[p]  += 1
 
-            l1_per = torch.abs(param_pred - params).mean(dim=-1).cpu().numpy()
+            residuals = _stroke_residuals(
+                param_pred.cpu().numpy(), pts.cpu().numpy(), mask.cpu().numpy(),
+                true, arc_encoding)
+            for cls in PARAM_CLASSES:
+                cls_residuals = residuals[true == cls]
+                cls_residuals = cls_residuals[np.isfinite(cls_residuals)]
+                residual_sum[cls] += cls_residuals.sum()
+                residual_n[cls] += len(cls_residuals)
+
+            errors = torch.abs(param_pred - params)
+            arc_mask = types == CMD_TYPES["ARC"]
+            if arc_mask.any() and arc_encoding == "center_radius_angles":
+                errors[arc_mask, 3:5] = torch.abs(torch.remainder(
+                    param_pred[arc_mask, 3:5] - params[arc_mask, 3:5] + 0.5,
+                    1.0,
+                ) - 0.5)
             for cls in PARAM_CLASSES:
                 m = (true == cls)
                 if m.any():
-                    param_l1_sum[cls] += l1_per[m].sum()
+                    if cls == CMD_TYPES["LINE"]:
+                        dims = slice(0, 4)
+                    elif cls == CMD_TYPES["ARC"]:
+                        dims = slice(0, 6) if arc_encoding == "three_point" else slice(0, 5)
+                    else:
+                        dims = slice(0, 3)
+                    class_l1 = errors[:, dims].mean(dim=-1).cpu().numpy()
+                    param_l1_sum[cls] += class_l1[m].sum()
                     param_n[cls]      += int(m.sum())
 
     # Per-class precision / recall / F1
@@ -384,35 +639,46 @@ def evaluate(model, val_data: list[dict], device, batch_size: int,
                   if (prec + recall) else 0.0)
         param_l1 = (param_l1_sum[cls] / param_n[cls]
                     if param_n[cls] else 0.0)
+        stroke_residual = (residual_sum[cls] / residual_n[cls]
+                           if residual_n[cls] else 0.0)
         metrics["per_class"][inv[cls]] = {
             "precision": round(prec, 4),
             "recall":    round(recall, 4),
             "f1":        round(f1, 4),
             "param_l1":  round(float(param_l1), 4),
+            "stroke_residual": round(float(stroke_residual), 4),
             "support":   int(confusion[cls, :].sum()),
         }
 
     # Prediction-distribution entropy (collapse detector)
-    dist = pred_counts / pred_counts.sum().clip(min=1)
-    H_max = math.log(N_CMD_TYPES)
+    supported_classes = np.flatnonzero(confusion.sum(axis=1) > 0)
+    active_pred_counts = pred_counts[supported_classes]
+    dist = active_pred_counts / active_pred_counts.sum().clip(min=1)
+    H_max = math.log(max(len(supported_classes), 2))
     H     = -(dist * np.where(dist > 0, np.log(dist + 1e-12), 0)).sum()
     metrics["pred_entropy"]      = round(float(H / H_max), 4)
     metrics["pred_distribution"] = {inv[c]: int(pred_counts[c])
                                     for c in range(N_CMD_TYPES)}
     metrics["confusion"]  = confusion.tolist()
     metrics["val_loss"]   = total_loss / max(n_batches, 1)
+    metrics["accuracy"] = round(float(np.trace(confusion) / max(confusion.sum(), 1)), 4)
+    supported = [m["f1"] for m in metrics["per_class"].values() if m["support"] > 0]
+    metrics["supported_macro_f1"] = round(float(np.mean(supported)) if supported else 0.0, 4)
     return metrics
 
 
 def print_metrics(metrics: dict) -> None:
     print(f"  val_loss     : {metrics['val_loss']:.4f}")
+    print(f"  accuracy     : {metrics['accuracy']:.3f}")
+    print(f"  supported F1 : {metrics['supported_macro_f1']:.3f}")
     print(f"  pred_entropy : {metrics['pred_entropy']:.3f} "
-          f"(1.0 = perfectly balanced; <0.5 = collapse risk)")
+          "(normalized over supported classes)")
     print(f"  {'class':<10} {'P':>7} {'R':>7} {'F1':>7} "
-          f"{'paramL1':>9} {'support':>8}")
+          f"{'paramL1':>9} {'strokeErr':>9} {'support':>8}")
     for cls, m in metrics["per_class"].items():
         print(f"  {cls:<10} {m['precision']:>7.3f} {m['recall']:>7.3f} "
-              f"{m['f1']:>7.3f} {m['param_l1']:>9.4f} {m['support']:>8d}")
+              f"{m['f1']:>7.3f} {m['param_l1']:>9.4f} "
+              f"{m['stroke_residual']:>9.4f} {m['support']:>8d}")
 
 
 # ─── Training loop ────────────────────────────────────────────────────────────
@@ -446,13 +712,16 @@ def train(args: argparse.Namespace) -> None:
 
     # ── Data ──────────────────────────────────────────────────────────────────
     print("\nLoading datasets ...")
-    train_data = load_dataset(args.data_dir, "train", args.max_pts)
-    val_data   = load_dataset(args.data_dir, "val",   args.max_pts)
+    train_data = load_dataset(
+        args.data_dir, "train", args.max_pts, args.arc_encoding)
+    val_data = load_dataset(
+        args.data_dir, "val", args.max_pts, args.arc_encoding)
 
     # Class weights
-    class_weights = compute_class_weights(train_data, args.max_class_weight)
-    print("\nClass weights (capped at "
-          f"{args.max_class_weight}):")
+    class_weights = compute_class_weights(
+        train_data, args.max_class_weight, args.class_weight_power)
+    print("\nClass weights (inverse-frequency power "
+          f"{args.class_weight_power}, capped at {args.max_class_weight}):")
     inv = {v: k for k, v in CMD_TYPES.items()}
     for cls in range(N_CMD_TYPES):
         print(f"  {inv[cls]:<10} weight={class_weights[cls]:.3f}")
@@ -482,6 +751,7 @@ def train(args: argparse.Namespace) -> None:
     # ── Resume ────────────────────────────────────────────────────────────────
     start_epoch   = 0
     best_val_loss = float("inf")
+    best_macro_f1 = -1.0
     if args.resume and Path(args.resume).exists():
         ckpt = torch.load(args.resume, map_location=device)
         if ckpt.get("version") != 3:
@@ -490,6 +760,8 @@ def train(args: argparse.Namespace) -> None:
         model.load_state_dict(ckpt["model_state_dict"])
         start_epoch   = ckpt.get("epoch", 0) + 1
         best_val_loss = ckpt.get("val_loss", float("inf"))
+        best_macro_f1 = ckpt.get("metrics", {}).get(
+            "supported_macro_f1", -1.0)
         print(f"Resumed from epoch {start_epoch}, "
               f"best val_loss={best_val_loss:.4f}")
 
@@ -519,14 +791,7 @@ def train(args: argparse.Namespace) -> None:
 
             t_loss = type_loss_fn(type_logits, types)
 
-            # Param L1, gated on classes that have meaningful params
-            valid = torch.zeros_like(types, dtype=torch.float)
-            for cls in PARAM_CLASSES:
-                valid = valid + (types == cls).float()
-            n_valid = valid.sum().clamp(min=1)
-            p_loss = (
-                torch.abs(param_pred - params).sum(dim=-1) * valid
-            ).sum() / n_valid
+            p_loss = parameter_loss(param_pred, params, types, args.arc_encoding)
 
             loss = t_loss + args.param_weight * p_loss
             loss.backward()
@@ -541,7 +806,7 @@ def train(args: argparse.Namespace) -> None:
 
         # Validation
         metrics = evaluate(model, val_data, device, args.batch_size,
-                           type_loss_fn, args.param_weight)
+                           type_loss_fn, args.param_weight, args.arc_encoding)
         avg_val = metrics["val_loss"]
 
         elapsed = time.time() - t0
@@ -576,6 +841,8 @@ def train(args: argparse.Namespace) -> None:
                 "n_heads":      args.n_heads,
                 "n_enc_layers": args.n_enc_layers,
                 "dropout":      args.dropout,
+                "arc_encoding": args.arc_encoding,
+                "class_weight_power": args.class_weight_power,
             },
             "cmd_types":     CMD_TYPES,
             "class_weights": class_weights.tolist(),
@@ -588,6 +855,12 @@ def train(args: argparse.Namespace) -> None:
             torch.save(ckpt, out_dir / "free2cad_v3_best.pth")
             print(f"  → New best (val_loss={best_val_loss:.4f})")
 
+        macro_f1 = metrics["supported_macro_f1"]
+        if macro_f1 > best_macro_f1:
+            best_macro_f1 = macro_f1
+            torch.save(ckpt, out_dir / "free2cad_v3_best_f1.pth")
+            print(f"  → New best supported macro-F1 ({best_macro_f1:.4f})")
+
         if (epoch + 1) % 25 == 0:
             torch.save(ckpt, out_dir / f"free2cad_v3_ep{epoch+1:04d}.pth")
 
@@ -598,6 +871,7 @@ def train(args: argparse.Namespace) -> None:
     print(f"Training complete.")
     print(f"  Best checkpoint : {out_dir / 'free2cad_v3_best.pth'}")
     print(f"  Best val_loss   : {best_val_loss:.4f}")
+    print(f"  Best macro-F1   : {best_macro_f1:.4f}")
     print(f"\nUpdate config.yaml:")
     print(f"  free2cad:")
     print(f"    weights: \"{out_dir / 'free2cad_v3_best.pth'}\"")

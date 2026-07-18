@@ -835,7 +835,7 @@ high-precision pilot result, not a full-corpus claim.
 
 ### Active next steps (current focus)
 
-These three items are the near-term priorities agreed after shipping the learned
+These four items are the near-term priorities agreed after shipping the learned
 hatch-region detector (Phase 2 `HatchUNet`, test IoU 0.816, wired into Stage 2 as
 the primary hachure signal with a geometric fallback — see the hatch tooling under
 `tools/hatch_*.py` and `stage2.hachure_use_cnn`).
@@ -886,6 +886,31 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
       Free2CAD-v3** on identical Stage-2 graphs, reporting **Chamfer-vs-GT** (not
       just agreement with RANSAC), type distribution, per-primitive param accuracy,
       and runtime → verdict on whether to revisit the parked decision.
+
+12. **Stage 2 — scale Puhachov from the SketchGraphs pilot to the full split.**
+    *(Phase A completed 2026-07-18.)* The trainer
+    now memory-maps `sg_t16_train.npy`, renders keypoint supervision on demand,
+    and uses a constant-memory distributed permutation rather than writing more
+    than nine million raster files. Two-GPU `torchrun`, BF16, atomic optimizer
+    checkpoints, exact per-rank resume offsets, and an int8 accepted/rejected
+    coverage map have been verified. Phase A traversed every official
+    SketchGraphs training record once in a 70 % SketchGraphs / 30 % Drawing2CAD
+    mix: 8,809,417 accepted, 370,372 rejected as unsupported/degenerate, and
+    zero unattempted/decode/unknown records. The selected step-330,000 checkpoint
+    scores 0.8607 Drawing2CAD validation F1, 0.9435 SketchGraphs validation F1,
+    and 0.9021 combined, improving the pilot's 0.8701 combined score. The
+    executable command and coverage audit are in
+    [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#full-stage-2-streaming-workflow).
+    The complete untouched test confirms the gain: macro-F1 **0.9349** versus
+    0.4317 for production on 300,321 accepted sketches. Full cross-domain
+    validation also improves Drawing2CAD (0.8649 versus 0.8350) and ArchCAD
+    (0.5971 versus 0.3676). The paired all-view Drawing2CAD test completed
+    31,524/31,524 views per model with zero errors; Phase A improves symmetric
+    Chamfer by 0.92 %, skeleton IoU by 0.59 %, and pixel IoU by 0.39 % at the
+    same practical runtime. Phase A is now the deployment candidate. Remaining
+    before changing the default: subgroup/outlier analysis and a filtered
+    PatentData visual regression. Full tables and artifact paths are in
+    [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#full-stage-2-evaluation-2026-07-18).
 
 ---
 

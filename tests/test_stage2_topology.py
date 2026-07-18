@@ -122,6 +122,35 @@ def test_two_arc_circle_keeps_parallel_edges():
         f"parallel-edge walk lost arcs: only {len(between)} edges between junctions"
 
 
+def test_closed_loop_smoothing_keeps_unordered_pixels_untouched():
+    """Closed CC pixels are unordered and must never enter RDP/splprep."""
+    _nodes, edges = s2._extract_topology(_skeleton(_rect))
+    closed = next(edge for edge in edges if edge["is_closed"])
+    original = json.dumps(closed["pixels"])
+    out = s2._smooth_edges(edges)
+    smoothed = next(edge for edge in out if edge["is_closed"])
+    assert json.dumps(smoothed["pixels"]) == original
+    assert smoothed["smooth_pts"] == []
+
+
+def test_simplify_graph_preserves_explicit_corner_split():
+    """A learned corner must remain a Stage-3 primitive boundary."""
+    img = np.zeros((256, 256), np.uint8)
+    cv2.line(img, (40, 180), (128, 180), 255, 2)
+    cv2.line(img, (128, 180), (128, 60), 255, 2)
+    sk = s2._skeletonize(img > 0).astype(np.uint8) * 255
+    points = [
+        {"x": 40, "y": 180, "type": s2.KP_ENDPOINT, "confidence": 1.0},
+        {"x": 128, "y": 180, "type": s2.KP_CORNER, "confidence": 1.0},
+        {"x": 128, "y": 60, "type": s2.KP_ENDPOINT, "confidence": 1.0},
+    ]
+    clusters = s2._clusters_from_points(points, sk, snap_radius=4)
+    nodes, edges = s2._extract_topology(sk, clusters)
+    nodes, edges = s2._simplify_graph(nodes, edges, junction_merge_radius=0.0)
+    assert len(edges) == 2, f"corner was dissolved into {len(edges)} edge(s)"
+    assert any(node["type"] == s2.KP_CORNER for node in nodes)
+
+
 def test_clusters_from_points_snap_onto_skeleton():
     """Off-skeleton keypoints snap to the nearest foreground pixel within radius."""
     sk = _skeleton(_tee)
