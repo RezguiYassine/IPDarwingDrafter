@@ -166,6 +166,9 @@ Vectorization/
 │   ├── clip_curate_manifest.py      ← optional zero-shot CLIP visual curation layer
 │   ├── make_manifest_contact_sheet.py ← render visual audit sheets from any manifest
 │   ├── d2c_eval.py                  ← Drawing2CAD ground-truth eval harness
+│   ├── d2c_stage3_dataset.py        ← D2C SVG/Stage-2 graph to five-class Stage-3 labels
+│   ├── build_free2cad_mixed_dataset.py ← class-supply-balanced SG + D2C shards
+│   ├── evaluate_free2cad_v3.py      ← checkpoint-aware full Stage-3 evaluation
 │   ├── results_db.py                ← SQLite schema shared by batch_run
 │   └── __init__.py
 │
@@ -189,12 +192,14 @@ implementation, or insert a new stage between two existing ones.
 
 ## Model weights
 
-Three model weights are referenced by the pipeline:
+Four model weights are referenced by the pipeline or its validated research
+path:
 
 | Weight                       | Size  | Used by              | Status                      |
 |------------------------------|------:|----------------------|-----------------------------|
 | `puhachov_d2c.pth`           | 30 MB | Stage 2 *(default)*  | keypoint CNN trained on Drawing2CAD (val peak-F1 0.83); shipped and used by the default **fusion** seeding. Set `puhachov.weights: ""` to force the pure-CN path |
 | `free2cad_v3_best.pth`       | 3 MB  | Stage 3 *(research)* | shipped in `models/`        |
+| `free2cad_sketchgraphs_d2c_mixed.pth` | 9.2 MB | Stage 3 *(research candidate)* | five-class SketchGraphs + Drawing2CAD checkpoint; local/generated, not yet the production default |
 | `sketchcleannet.pth`         | 124 MB | Stage 1             | **must be downloaded** (>100 MB GitHub limit) |
 
 `setup.sh` will print the OneDrive folder URL where `sketchcleannet.pth`
@@ -874,16 +879,20 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
     in-distribution corners are measurably *better*, then enable `tiled` in the
     patent config; if a synthetic-vs-scan gap persists, fine-tune on patent tiles.
 
-11. **Stage 3 — scale corrected Free2CAD training to full SketchGraphs.** The
-    corrected 100,000-source pilot reaches 0.9987 macro-F1 and 0.9996 accuracy
-    on 29,420 untouched SketchGraphs test edges, compared with 0.3733 and 0.7693
-    for the old synthetic checkpoint. Full extraction now uses atomic,
-    restart-safe source chunks; training streams shards, warm-starts the pilot,
-    and checkpoints intra-epoch optimizer progress. The queued full run covers
-    all official train/validation/test records, then evaluates the pilot and
-    both full-checkpoint selection criteria on the complete untouched test.
-    Production remains RANSAC until paired Drawing2CAD and filtered-PatentData
-    integration confirms geometric and runtime gains.
+11. **Stage 3 — scale corrected Free2CAD training to full SketchGraphs.**
+    *(Completed 2026-07-19.)* All 9,179,789 training sketches were attempted,
+    yielding 27,023,994 matched line/arc/circle edges. Two warm-started FP32
+    epochs completed; epoch 2 won both validation-loss and macro-F1 selection.
+    On 932,912 validation edges it scores 0.9998 accuracy and 0.9992 macro-F1.
+    On all 926,940 untouched test edges it improves the 100K pilot from 0.9989
+    to **0.9993 macro-F1**, with arc F1 0.9971 to **0.9981** and lower parameter
+    L1 for every supported class. The selected model is
+    `models/free2cad_sketchgraphs_full.pth`; full provenance, confusion counts,
+    checksum, and caveats are in
+    [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#full-stage-3-completion-2026-07-19).
+    Production remains RANSAC because SketchGraphs has no polyline supervision
+    and arc stroke residual rose slightly; next gates are paired Drawing2CAD and
+    filtered-PatentData integration.
 
 12. **Stage 2 — scale Puhachov from the SketchGraphs pilot to the full split.**
     *(Phase A completed 2026-07-18.)* The trainer
@@ -909,6 +918,82 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
     before changing the default: subgroup/outlier analysis and a filtered
     PatentData visual regression. Full tables and artifact paths are in
     [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#full-stage-2-evaluation-2026-07-18).
+
+13. **Stage 3 — add Drawing2CAD polyline and Bézier supervision.**
+    *(Completed 2026-07-19.)* SketchGraphs has no
+    polyline labels, so source-sketch ratios are not meaningful for Stage 3.
+    `tools/d2c_stage3_dataset.py` now runs Drawing2CAD skeletons through the
+    real Stage 2 graph path and assigns LINE/ARC/CIRCLE/POLYLINE/BEZIER labels
+    with source-proximity and circularity guards. Closed loops are reordered
+    before encoding, preventing scanline zigzags. Full Drawing2CAD validation
+    and test conversion processed 31,516 and 31,524 views with zero errors,
+    supplying 10,049/10,412 polylines and 8,800/8,598 Béziers. Train conversion
+    processed 567,324 views with zero errors and supplied 182,850 polylines and
+    154,826 Béziers. The visibility-aware mixed builder produced 914,250
+    effective labels, exactly 182,850 per class, then warm-started the four-class
+    SketchGraphs model into a five-class head. The selected 20-epoch checkpoint
+    reaches 0.9683 balanced validation macro-F1, 0.8603 on untouched
+    Drawing2CAD test, and 0.9936 on full SketchGraphs test. It is stored at
+    `models/free2cad_sketchgraphs_d2c_mixed.pth` (SHA-256
+    `dd09a1d54bda5bf178d80cf56f7200723ac132e8a532ede18a5e7c731659db34`).
+    Production remains on RANSAC until paired end-to-end and filtered-PatentData
+    visual gates pass. Commands, corpus tables, training history, and full
+    per-class results are in
+    [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#mixed-sketchgraphs--drawing2cad-stage-3-2026-07-19).
+
+14. **Stage 3 — Free2CAD-vs-RANSAC investigation CLOSED: RANSAC confirmed.**
+    *(Decision 2026-07-19.)* The paired end-to-end gate from item 13 was run on
+    18 Drawing2CAD stage-2 graphs (primitive-level Chamfer-vs-GT). The mixed
+    SG+D2C model is the best learned fitter produced — it repairs the diagnosed
+    class-coverage collapse exactly as predicted (POLYLINE f1 0.0 → 0.957, arc
+    over-prediction 52 → 24) and is the **first to beat the research-RANSAC
+    baseline** (Chamfer mean 16.65 vs 19.39, median 2.72 vs 4.76, head-to-head
+    4–2). **However, production Stage 3** (RANSAC + ellipse + corner-split
+    compound-path) scores **mean 0.43 / median 0.48 on the same graphs — ~40×
+    better than both.** All earlier Free2CAD evals compared against the weaker
+    research-RANSAC and understated the production bar. The gap is structural,
+    not data-limited: a targeted data fix (polylines via D2C) succeeded at its
+    own goal without denting the end metric, and Stage 3 fits primitives to
+    clean point-chains — a problem with an exact solver that a network can only
+    approximate, at 20×+ the runtime. **Decision: production Stage 3 stays
+    RANSAC; no further Free2CAD training corpora (incl. CAD-VGDrawing) are
+    justified for production purposes.** For the paper this stands as a negative
+    result with a positive mechanism finding: mixed-dataset training repairs
+    class-coverage collapse, yet an exact geometric cascade remains ~40× ahead —
+    primitive fitting on clean stroke graphs is not a learning problem.
+
+15. **Stage 2 — Puhachov improvement strategy with CAD-VGDrawing (proposed).**
+    Stage 2 keypoint detection is the opposite situation from Stage 3: the
+    learned detector now *leads* (SketchGraphs Phase A beats production
+    classical on the full untouched test 0.9349 vs 0.4317 macro-F1, and pure-CNN
+    SG beat the classical/fusion paths end-to-end on D2C, Chamfer −7.5%), so
+    additional drawing corpora have a proven mechanism to pay off *here*.
+    Proposed plan once CAD-VGDrawing is downloaded (it is not in `data/` yet):
+    - **Convert** with a `cadvg_to_puhachov.py` following the
+      `tools/archcad_to_puhachov.py` pattern — rasterize vectors → 1-px
+      skeleton; endpoints/junctions from skeleton pixel-degree (captures
+      crossings that share no vector vertex), corners from vector geometry via
+      the shared `derive_keypoints`/`snap_keypoints`. Carry over the two
+      hard-won safeguards from the ArchCAD converter: per-primitive sample caps
+      (`MAX_SAMPLES` — unbounded `n = 2πr` sampling OOM-crashed the server) and
+      thread pinning (OMP/BLAS = 1, `cv2.setNumThreads(0)`).
+    - **Mix, never fine-tune solo.** ArchCAD proved pure-OOD fine-tuning
+      catastrophically forgets (endpoint F1 0.65 → 0.02); mixed training fully
+      prevents it. Enter CAD-VGDrawing as a third corpus in the streaming
+      trainer, warm-started from Phase A — e.g. 50 SG / 30 D2C / 20 VG — and
+      sweep **only the VG fraction** (1-D, ~3 runs), not a full grid; lr/batch
+      are not the bottleneck.
+    - **Gate on the established harness:** D2C keypoint F1 (800-sample
+      subset), the 4-config end-to-end Chamfer eval (pure-CNN/fusion ×
+      models), cross-domain validation F1 (SG / D2C / ArchCAD, as in item 12),
+      and the filtered-PatentData visual regression.
+    - **Decision rule:** adopt the VG-mixed model only if combined F1 *and*
+      end-to-end Chamfer improve with no single-domain regression beyond noise;
+      otherwise conclude corpus saturation and keep Phase A. Expected value is
+      moderate — SG already transfers upward (it beats the D2C-trained model on
+      D2C itself) — so the realistic win is diversity for the weaker channels
+      (junctions 0.856 vs 0.869) and patent-domain robustness, not a step
+      change.
 
 ---
 

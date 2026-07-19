@@ -23,6 +23,16 @@ Decision history:
   gap. The Free2CAD path is parked, not deleted — see the handoff doc if
   the model is to be revisited.
 
+  Final call (2026-07-19, investigation CLOSED): three retrained
+  generations (synthetic v3, SketchGraphs, SketchGraphs+Drawing2CAD mixed)
+  were evaluated with primitive-level Chamfer-vs-GT on Drawing2CAD stage-2
+  graphs. The mixed model repairs the class-coverage collapse (POLYLINE
+  f1 0.0 -> 0.957) and beats the *research* RANSAC baseline (16.65 vs
+  19.39 mean) — but THIS production cascade scores 0.43 on the same
+  graphs, ~40x better. The gap is structural (exact solver vs
+  approximator), not data-limited. Decision: RANSAC stays; no further
+  Free2CAD corpora for production. See README "Active next steps" #14.
+
 Priority order in fit_edge_ransac:
   circle (closed) → line → arc → ellipse → polyline (final fallback)
 
