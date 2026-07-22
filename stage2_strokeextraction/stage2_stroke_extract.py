@@ -1221,8 +1221,17 @@ def _remove_hachures_cnn(
         return nodes, edges, []
 
     # Guard: a bad or mis-aligned mask must never nuke most of the drawing.
+    # Uses a SEPARATE, higher ceiling than the geometric heuristic's guard
+    # (hachure_max_removed_edge_ratio, default 0.75): the CNN mask is a
+    # calibrated per-pixel detector (test IoU 0.816, 8/8 held-out negatives
+    # clean at this threshold — see hatch-detector-v2-results), not a coarse
+    # clustering rule, so a genuinely hatch-dominated drawing (dense
+    # cross-sections routinely exceed 75% hachure edges) is expected, not a
+    # sign of a bad mask. Evidence: a real cross-section figure with a
+    # confidently-detected mask (max prob 0.9997) had candidate ratio 0.835
+    # and was silently skipped end to end under the shared 0.75 guard.
     open_edges = [e for e in edges if not e.get("is_closed")]
-    max_ratio  = float(cfg.get("hachure_max_removed_edge_ratio", 0.75))
+    max_ratio  = float(cfg.get("hachure_cnn_max_removed_edge_ratio", 0.92))
     if max_ratio > 0 and len(selected_ids) / max(1, len(open_edges)) > max_ratio:
         logger.warning(
             "CNN hachure removal skipped: candidate ratio %.3f exceeds guard %.3f",
