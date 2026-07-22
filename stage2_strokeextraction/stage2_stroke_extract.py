@@ -2000,13 +2000,30 @@ def _is_circular_loop(pixels) -> bool:
 
     Used to distinguish genuine small circles (e.g. construction points in
     clean CAD rasterizations) from irregular noise blobs in scanned patent
-    TIFs.  A real skeleton circle has pixels at a nearly uniform radius from
-    the centroid; a noise blob is irregular.
+    TIFs — box corners, junction-clustering artefacts, text-glyph loops
+    ('o', '0', 'D') and stipple/hatch texture dots. A real skeleton circle has
+    pixels at a nearly uniform radius from the centroid AND traces close to a
+    full revolution; a noise blob is irregular and/or only partially traced.
 
-    Criterion: RMS of radial deviations < threshold × mean radius, where the
-    threshold is relaxed for small circles (r_mean < 12 px) because Zhang-Suen
-    skeletonization produces staircase artefacts that inflate the RMS on tiny
-    rings, even when they are geometrically perfect circles.
+    Two independent criteria must both pass:
+      1. RMS of radial deviations < threshold × mean radius, where the
+         threshold is relaxed for small circles (r_mean < 12 px) because
+         Zhang-Suen skeletonization produces staircase artefacts that inflate
+         the RMS on tiny rings, even when geometrically a perfect circle.
+      2. Path-completeness: the walked pixel-chain length must be within
+         [0.7, 1.6] of the expected circumference (2*pi*r_mean). A spurious
+         loop formed by topology mis-joining two nearby corner keypoints
+         zig-zags back and forth in a small area — its walked path is 2-4x
+         the circumference of its own bounding circle, which this range
+         rejects; a real traced circle's path is close to 1x (skeleton
+         staircase, at most mildly longer than the ideal circumference).
+
+    Evidence (2026-07-22 patent pilot): on a pure flowchart figure with ZERO
+    real circles, every one of 34-219 tiny closed loops per Stage-2 config
+    passed the old single-criterion (RMS-only) check and became a hallucinated
+    'circle' primitive in Stage 3. Adding the completeness criterion rejected
+    14/15 sampled ghost loops in that figure while a threshold-only tightening
+    could not do so without also risking genuine small circles.
     """
     pts = np.array(pixels, dtype=np.float64)
     if len(pts) < 6:
@@ -2021,7 +2038,15 @@ def _is_circular_loop(pixels) -> bool:
     # Small circles (r < 12 px) have disproportionate staircase error; allow
     # up to 55 % relative RMS.  Larger circles keep the stricter 30 % limit.
     threshold = 0.55 if r_mean < 12.0 else 0.30
-    return rms < threshold * r_mean
+    if rms >= threshold * r_mean:
+        return False
+
+    path_len = float(np.hypot(*np.diff(pts, axis=0).T).sum())
+    circumference = 2.0 * np.pi * r_mean
+    if circumference < 1e-6:
+        return False
+    completeness = path_len / circumference
+    return 0.7 <= completeness <= 1.6
 
 
 # ═══════════════════════════════════════════════════════════════════════════
