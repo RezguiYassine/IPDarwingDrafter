@@ -87,6 +87,14 @@ DEFAULT_MAX_CLEAN_DENSITY = 0.22
 DEFAULT_ORTHO_LINE_MIN = 10
 DEFAULT_ORTHO_HV_RATIO = 0.95
 DEFAULT_ORTHO_DIAG_MAX = 0.03
+# Hatching is diagonal but made of short segments a long-line Hough pass does
+# not register, so a heavily hatched real drawing's few long lines (its
+# straight outer boundary) can look "orthogonal" and trip the flowchart rule
+# above. large_cc_frac disambiguates: hatched/filled real drawings connect
+# into large blobs (>=0.70 on a 20-sample manual audit of this exact rule's
+# discards); genuine flowcharts/block-diagrams stay below that (<=0.69 on the
+# same audit). See memory/pilot-visual-audit-fixes.md for the evidence.
+DEFAULT_ORTHO_LARGE_FRAC_MAX = 0.70
 DEFAULT_TEXT_HEAVY_CC_MIN = 180
 DEFAULT_TEXT_HEAVY_SKEL_MEDIAN_MIN = 12.0
 DEFAULT_TEXT_HEAVY_LARGE_FRAC_MAX = 0.75
@@ -128,7 +136,9 @@ DEFAULT_MULTI_PANEL_PLOT_TINY_FRAC_MAX = 0.60
 DEFAULT_LINE_PLOT_CC_MIN = 90
 DEFAULT_LINE_PLOT_CC_MAX = 220
 DEFAULT_LINE_PLOT_LARGE_FRAC_MIN = 0.70
-DEFAULT_LINE_PLOT_LARGE_FRAC_MAX = 0.88
+DEFAULT_LINE_PLOT_LARGE_FRAC_MAX = 0.70  # was 0.88: let a hatched real drawing
+# (large_cc_frac 0.79 on the audited false positive) through the "few long
+# diagonal lines" test just like the flowchart rule; same fix, same evidence.
 DEFAULT_LINE_PLOT_HV_RATIO = 0.80
 DEFAULT_LINE_PLOT_DIAG_MAX = 0.16
 DEFAULT_LINE_PLOT_SKEL_MEDIAN_MIN = 12.0
@@ -274,7 +284,8 @@ def _classify(letter: str, feats: dict, cfg: dict) -> tuple[str, str]:
         return "discard", "fragmented_tiny_skeleton_components"
     if (lines >= cfg["orthogonal_line_min"]
             and feats.get("line_hv_ratio", 0.0) >= cfg["orthogonal_hv_ratio"]
-            and feats.get("line_diag_ratio", 0.0) <= cfg["orthogonal_diag_max"]):
+            and feats.get("line_diag_ratio", 0.0) <= cfg["orthogonal_diag_max"]
+            and large_cc_frac < cfg["orthogonal_large_frac_max"]):
         return "discard", "orthogonal_text_table_or_flowchart"
     if (n_cc >= cfg["text_heavy_cc_min"]
             and skel_median_area >= cfg["text_heavy_skel_median_min"]
@@ -289,7 +300,8 @@ def _classify(letter: str, feats: dict, cfg: dict) -> tuple[str, str]:
             and line_diag_ratio <= cfg["chart_diag_max"]
             and skel_tiny_frac >= cfg["chart_tiny_frac_min"]
             and (feats.get("line_hv_ratio", 0.0) >= cfg["chart_hv_ratio"]
-                 or lines >= cfg["chart_line_min"])):
+                 or lines >= cfg["chart_line_min"])
+            and large_cc_frac < cfg["orthogonal_large_frac_max"]):
         return "discard", "chart_or_axis_plot"
     if (n_cc >= cfg["plot_flow_cc_min"]
             and lines >= cfg["plot_flow_line_min"]
@@ -462,6 +474,12 @@ def _build_parser() -> argparse.ArgumentParser:
                    default=DEFAULT_ORTHO_HV_RATIO)
     p.add_argument("--orthogonal-diag-max", type=float,
                    default=DEFAULT_ORTHO_DIAG_MAX)
+    p.add_argument("--orthogonal-large-frac-max", type=float,
+                   default=DEFAULT_ORTHO_LARGE_FRAC_MAX,
+                   help="Skip the flowchart/table veto when large_cc_frac is "
+                        "at/above this (hatched or filled real drawings connect "
+                        "into large blobs and must not be mistaken for a "
+                        "flowchart's few long orthogonal lines).")
     p.add_argument("--keep-d-bucket", action="store_true",
                    help="Keep _D patent buckets when visual features pass. "
                         "Default discards them for high-precision CAD targets.")
@@ -613,6 +631,7 @@ def main(argv=None):
         "orthogonal_line_min": args.orthogonal_line_min,
         "orthogonal_hv_ratio": args.orthogonal_hv_ratio,
         "orthogonal_diag_max": args.orthogonal_diag_max,
+        "orthogonal_large_frac_max": args.orthogonal_large_frac_max,
         "discard_d_bucket": not args.keep_d_bucket,
         "text_heavy_cc_min": args.text_heavy_cc_min,
         "text_heavy_skel_median_min": args.text_heavy_skel_median_min,
