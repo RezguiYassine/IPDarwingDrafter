@@ -1433,6 +1433,259 @@ def _open_edge_length_stats(edges: list[dict]) -> tuple[list[float], float, floa
     return open_lengths, median, micro, short
 
 
+def _prune_floating_noise(
+    nodes: list[dict],
+    edges: list[dict],
+    cfg: dict,
+) -> tuple[list[dict], list[dict], int, set]:
+    """Drop isolated tiny open components -- scanned-patent skeleton speckle.
+
+    Distinct from spur pruning (``_simplify_graph``, which trims dead-end
+    branches still ATTACHED to the graph): this removes lone 2-node edges whose
+    BOTH endpoints have degree 1, i.e. free-floating fragments disconnected from
+    everything. On real patent scans these dominate the micro-edge count -- the
+    pilot-v3 bolt-circle (EP3499690A1/F0006) reached micro=0.51 with 99/124
+    micro-edges floating and 76 of them <=2.5 px, pure speckle scattered across
+    the whole sheet -- and wrongly trip the Stage-2 fragmentation gate. Only
+    floating components at/under ``floating_noise_max_len`` px are dropped, so a
+    genuine small detached feature of real size is kept. Returns
+    (nodes, edges, n_removed).
+    """
+    if not cfg.get("prune_floating_noise", False):
+        return nodes, edges, 0, set()
+    max_len = float(cfg.get("floating_noise_max_len", 3.0))
+    deg: dict = {}
+    for e in edges:
+        deg[e["source"]] = deg.get(e["source"], 0) + 1
+        deg[e["target"]] = deg.get(e["target"], 0) + 1
+    drop = set()
+    for e in edges:
+        if e.get("is_closed"):
+            continue
+        if deg.get(e["source"], 0) == 1 and deg.get(e["target"], 0) == 1:
+            if _chain_length([(int(p[0]), int(p[1])) for p in e["pixels"]]) <= max_len:
+                drop.add(e["id"])
+    if not drop:
+        return nodes, edges, 0, set()
+    noise_pixels = {(int(px[0]), int(px[1]))
+                    for e in edges if e["id"] in drop
+                    for px in e.get("pixels", [])}
+    edges = [e for e in edges if e["id"] not in drop]
+    nodes, edges = _drop_unused_nodes(nodes, edges)
+    return nodes, edges, len(drop), noise_pixels
+
+
+def _group_dashed_edges(
+    nodes: list[dict],
+    edges: list[dict],
+    cfg: dict,
+) -> tuple[list[dict], list[dict], int]:
+    """Group dashed straight lines and dashed circles into single logical edges.
+
+    Dashed centre-lines and dashed bolt-circles reach Stage 2 from the skeleton
+    as many short, DISCONNECTED segments. Each dash is geometrically correct,
+    but the graph counts every dash as its own micro-edge, which inflates
+    ``micro_edge_ratio`` and the isolated-component count and can trip the
+    Stage-2 fragmentation gate on an otherwise-valid drawing (the bolt-circle
+    centre line in the pilot-v3 benchmark, EP3499690A1/F0006, was gated at
+    micro=0.51 for exactly this reason). ``_simplify_graph`` cannot help: it
+    merges collinear edges that SHARE a node, and dashes share none (the gaps).
+
+    This pass merges runs of collinear, regularly-gapped short segments into one
+    open edge, and rings of short segments lying on a common circle into one
+    closed edge. Merged edges carry ``is_dashed=True`` and an estimated
+    ``dash_pattern`` (or ``circle``) so Stage 3/4 render the gaps AS gaps rather
+    than bridging them with solid ink -- the segments are grouped logically, not
+    physically joined. Conservative by construction: needs >= min_segments,
+    tight collinearity/co-circularity, and regular gaps, so a real feature line
+    that merely happens to pass nearby is not swallowed. Returns
+    (nodes, edges, n_groups_formed).
+    """
+    if not cfg.get("dashed_grouping", False):
+        return nodes, edges, 0
+
+    dmax        = float(cfg.get("dash_max_length", 50.0))
+    dmin        = float(cfg.get("dash_min_length", 1.5))
+    ang_tol     = float(cfg.get("dash_angle_tol_deg", 12.0))
+    lat_tol     = float(cfg.get("dash_lateral_tol_px", 3.5))
+    gap_factor  = float(cfg.get("dash_max_gap_factor", 3.5))
+    gap_abs     = float(cfg.get("dash_max_gap_px", 45.0))
+    min_dashes  = int(cfg.get("dash_min_segments", 3))
+    circ_min    = int(cfg.get("dash_circle_min_segments", 6))
+    circ_rms    = float(cfg.get("dash_circle_rms_frac", 0.06))
+    circ_resid  = float(cfg.get("dash_circle_max_resid_px", 4.0))
+    circ_span   = float(cfg.get("dash_circle_min_span_deg", 200.0))
+
+    cand: list[dict] = []
+    other: list[dict] = []
+    for e in edges:
+        pix = e.get("pixels") or []
+        if e.get("is_closed") or len(pix) < 2:
+            other.append(e); continue
+        L = _chain_length([(int(p[0]), int(p[1])) for p in pix])
+        if dmin <= L <= dmax:
+            p0 = np.asarray(pix[0], float); p1 = np.asarray(pix[-1], float)
+            d = p1 - p0
+            cand.append({"e": e, "p0": p0, "p1": p1, "mid": 0.5 * (p0 + p1),
+                         "ang": float(np.degrees(np.arctan2(d[1], d[0])) % 180.0),
+                         "len": L})
+        else:
+            other.append(e)
+
+    if len(cand) < min_dashes:
+        return nodes, edges, 0
+
+    used = [False] * len(cand)
+    new_edges: list[dict] = []
+    next_id = max((e["id"] for e in edges), default=-1) + 1
+    n_groups = 0
+
+    def _perp(mid, base, ang):
+        th = np.radians(ang); dv = np.array([np.cos(th), np.sin(th)])
+        v = mid - base
+        return abs(-v[0] * dv[1] + v[1] * dv[0])
+
+    # ── straight dashed lines ────────────────────────────────────────────────
+    for i in range(len(cand)):
+        if used[i]:
+            continue
+        ci = cand[i]
+        th = np.radians(ci["ang"]); dv = np.array([np.cos(th), np.sin(th)])
+        group = [i]
+        for j in range(len(cand)):
+            if j == i or used[j]:
+                continue
+            cj = cand[j]
+            da = abs(ci["ang"] - cj["ang"]); da = min(da, 180.0 - da)
+            if da <= ang_tol and _perp(cj["mid"], ci["mid"], ci["ang"]) <= lat_tol:
+                group.append(j)
+        if len(group) < min_dashes:
+            continue
+
+        def _span(k):
+            a = float(cand[k]["p0"] @ dv); b = float(cand[k]["p1"] @ dv)
+            return (a, b) if a <= b else (b, a)
+
+        members = sorted(group, key=lambda k: float(cand[k]["mid"] @ dv))
+        run = [members[0]]; best = []
+        for a, b in zip(members, members[1:]):
+            gap = _span(b)[0] - _span(a)[1]
+            local = max(cand[a]["len"], cand[b]["len"])
+            if 0.0 <= gap <= min(gap_abs, gap_factor * local):
+                run.append(b)
+            else:
+                if len(run) > len(best):
+                    best = run
+                run = [b]
+        if len(run) > len(best):
+            best = run
+        if len(best) < min_dashes:
+            continue
+
+        for k in best:
+            used[k] = True
+        ordered = sorted(best, key=lambda k: float(cand[k]["mid"] @ dv))
+        pix_concat = [[int(p[0]), int(p[1])]
+                      for k in ordered for p in cand[k]["e"]["pixels"]]
+        gaps = [max(0.0, _span(b)[0] - _span(a)[1])
+                for a, b in zip(ordered, ordered[1:])]
+        new_edges.append({
+            "id": next_id,
+            "source": cand[ordered[0]]["e"]["source"],
+            "target": cand[ordered[-1]]["e"]["target"],
+            "pixels": pix_concat, "smooth_pts": [], "is_closed": False,
+            "is_dashed": True,
+            "dash_pattern": [round(float(np.mean([cand[k]["len"] for k in ordered])), 1),
+                             round(float(np.mean(gaps)), 1) if gaps else 0.0],
+        })
+        next_id += 1; n_groups += 1
+
+    # ── dashed circles (RANSAC: robust to stray short segments) ───────────────
+    def _kasa(pts):
+        x, y = pts[:, 0], pts[:, 1]
+        A = np.c_[2 * x, 2 * y, np.ones(len(x))]
+        sol, *_ = np.linalg.lstsq(A, x * x + y * y, rcond=None)
+        cx, cy, c = sol
+        return float(cx), float(cy), float(np.sqrt(max(c + cx * cx + cy * cy, 0.0)))
+
+    def _circ3(p, q, s):
+        ax, ay = p; bx, by = q; cx_, cy_ = s
+        d = 2.0 * (ax * (by - cy_) + bx * (cy_ - ay) + cx_ * (ay - by))
+        if abs(d) < 1e-6:
+            return None
+        a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx_ * cx_ + cy_ * cy_
+        ux = (a2 * (by - cy_) + b2 * (cy_ - ay) + c2 * (ay - by)) / d
+        uy = (a2 * (cx_ - bx) + b2 * (ax - cx_) + c2 * (bx - ax)) / d
+        return ux, uy, np.hypot(ax - ux, ay - uy)
+
+    def _span_deg(idxs, cx, cy):
+        angs = np.sort(np.array([
+            np.degrees(np.arctan2(cand[i]["mid"][1] - cy,
+                                  cand[i]["mid"][0] - cx)) % 360.0 for i in idxs]))
+        return 360.0 - float(np.diff(np.concatenate([angs, [angs[0] + 360]])).max())
+
+    rng = np.random.default_rng(0)
+    for _ in range(4):  # up to 4 separate dashed circles
+        rem = [i for i in range(len(cand)) if not used[i]]
+        if len(rem) < circ_min:
+            break
+        mids = {i: cand[i]["mid"] for i in rem}
+        allm = np.array([mids[i] for i in rem])
+        # a circle can't have radius >> the span of its own points; this rejects
+        # the degenerate huge-radius fits that near-collinear samples produce.
+        max_r = float(max(np.ptp(allm[:, 0]), np.ptp(allm[:, 1]))) or 1.0
+
+        def _tol(r):  # absolute residual cap so big-r fits can't swallow strays
+            return min(circ_rms * r, circ_resid)
+
+        best: list[int] = []
+        best_model = None
+        for _it in range(200):
+            trio = rng.choice(len(rem), size=3, replace=False)
+            m = _circ3(*(mids[rem[t]] for t in trio))
+            if m is None or not np.isfinite(m).all() or not (5.0 <= m[2] <= max_r):
+                continue
+            cx, cy, r = m
+            tol = _tol(r)
+            inl = [i for i in rem
+                   if abs(np.hypot(mids[i][0] - cx, mids[i][1] - cy) - r) <= tol]
+            if len(inl) > len(best):
+                best, best_model = inl, m
+        if len(best) < circ_min or _span_deg(best, best_model[0], best_model[1]) < circ_span:
+            break
+        # refine on the consensus set, re-select inliers
+        pts = np.array([mids[i] for i in best])
+        cx, cy, r = _kasa(pts)
+        if not (5.0 <= r <= max_r):
+            cx, cy, r = best_model
+        inliers = [i for i in best
+                   if abs(np.hypot(mids[i][0] - cx, mids[i][1] - cy) - r) <= _tol(r)]
+        if len(inliers) < circ_min or _span_deg(inliers, cx, cy) < circ_span:
+            break
+        order = sorted(inliers, key=lambda i: np.degrees(
+            np.arctan2(cand[i]["mid"][1] - cy, cand[i]["mid"][0] - cx)) % 360.0)
+        for i in inliers:
+            used[i] = True
+        pix_concat = [[int(p[0]), int(p[1])]
+                      for k in order for p in cand[k]["e"]["pixels"]]
+        src = cand[order[0]]["e"]["source"]
+        new_edges.append({
+            "id": next_id, "source": src, "target": src,
+            "pixels": pix_concat, "smooth_pts": [], "is_closed": True,
+            "is_dashed": True,
+            "circle": [round(float(cx), 1), round(float(cy), 1), round(float(r), 1)],
+        })
+        next_id += 1; n_groups += 1
+
+    if n_groups == 0:
+        return nodes, edges, 0
+
+    kept_cand = [cand[i]["e"] for i in range(len(cand)) if not used[i]]
+    edges = other + kept_cand + new_edges
+    nodes, edges = _drop_unused_nodes(nodes, edges)
+    return nodes, edges, n_groups
+
+
 def _should_run_hachure_cleanup(edges: list[dict], cfg: dict) -> bool:
     open_lengths, _median, micro, short = _open_edge_length_stats(edges)
     if len(open_lengths) < int(cfg.get("hachure_trigger_min_open_edges", 40)):
@@ -2361,16 +2614,46 @@ def run(
         logger.debug(f"[{sketch_id}] Removed {len(noise_loops)} noise closed loop(s) "
                      f"(< {min_loop_px} px, non-circular): edge ids {sorted(noise_ids)}")
 
+    # ── Prune free-floating skeleton speckle (opt-in) ─────────────────────
+    # Removes lone tiny disconnected fragments (scan noise) that dominate the
+    # micro-edge count on real patent scans. Runs before dashed grouping and
+    # the metrics so it also feeds cleaner input to the dash RANSAC.
+    pruned_noise_pixels: set = set()
+    if cfg_kp.get("prune_floating_noise", False):
+        n_before = len(edges)
+        nodes, edges, n_noise, pruned_noise_pixels = _prune_floating_noise(
+            nodes, edges, cfg_kp)
+        if n_noise:
+            logger.info(
+                f"[{sketch_id}] Floating-noise prune: removed {n_noise} speckle "
+                f"fragment(s), {n_before}→{len(edges)} edges"
+            )
+
+    # ── Group dashed centre-lines / bolt-circles (opt-in) ─────────────────
+    # Runs BEFORE the fragmentation metrics so grouped dashes stop inflating
+    # micro_edge_ratio / isolation on valid dashed drawings.
+    if cfg_kp.get("dashed_grouping", False):
+        n_before = len(edges)
+        nodes, edges, n_dash_groups = _group_dashed_edges(nodes, edges, cfg_kp)
+        if n_dash_groups:
+            logger.info(
+                f"[{sketch_id}] Dashed grouping: {n_dash_groups} group(s), "
+                f"{n_before}→{len(edges)} edges"
+            )
+
     # ── Confidence signal ─────────────────────────────────────────────────
     ignored_hachure_pixels = {
         (int(px[0]), int(px[1]))
         for edge in removed_hachures
         for px in edge.get("pixels", [])
     }
+    # Pruned speckle is noise, not structure: exclude it from the coverage
+    # metric too, else removing a noise fragment paradoxically RAISES isolation.
+    ignored_pixels = ignored_hachure_pixels | pruned_noise_pixels
     iso_ratio = _compute_isolation_ratio(
         skeleton,
         edges,
-        ignored_pixels=ignored_hachure_pixels,
+        ignored_pixels=ignored_pixels,
     )
     threshold = cfg_kp.get("isolation_threshold",
                             config.get("stage2", {}).get("isolation_threshold", 0.05))
