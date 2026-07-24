@@ -87,7 +87,36 @@ CONTENT: dict[str, tuple] = {
     "EP2434121B1/F0002": ("mech", True, "", "detailed assembly"),
     "EP3501346A1/F0009": ("mech", True, "", "cross-sections"),
     "EP2757380B1/F0001": ("schematic", True, "borderline_valid", "lock-in amplifier schematic"),
+    # ---- 47 provisional positive_clean, fully audited 2026-07-24 ----
+    # invalid content found among the provisional set:
+    "EP3197444B1/F0003": ("plot_or_chart", False, "plot_or_chart", "transmittance spectrum plot"),
+    "EP3060522B1/F0064": ("plot_or_chart", False, "plot_or_chart", "concentration line plot"),
+    "EP3493090A1/F0003": ("flowchart",     False, "flowchart",     "S301-S312 flowchart"),
+    "EP3495359A1/A0001": ("chemistry",     False, "chemistry",     "molecular structure (I)"),
+    "EP3498367A1/F0002": ("plot_or_chart", False, "plot_or_chart", "mm-vs-pH line plots"),
+    "EP3503313A1/F0001": ("block_diagram", False, "block_diagram", "control block diagram"),
+    # borderline among the provisional set:
+    "EP3090501B1/F0004": ("schematic", True, "borderline_valid", "circuit/signal-flow schematic"),
+    "EP3209516B1/F0002": ("mixed",     True, "borderline_valid", "vehicle + projection geometry"),
+    "EP3492735A1/F0002": ("mixed",     True, "borderline_valid", "rotating-disc diagram + sine plot"),
+    "EP3501750A1/F0006": ("mixed",     True, "borderline_valid", "spring diagrams + data table"),
+    "EP3502514A1/F0001": ("schematic", True, "borderline_valid", "hydraulic/pneumatic circuit schematic"),
 }
+
+# The remaining 36 provisional figures were audited as genuine clean drawings.
+AUDITED_CLEAN_KEYS = {
+    "EP2000273B1/F0020","EP2375003B1/F0002","EP1835879B1/F0008","EP2277019B1/F0005",
+    "EP1930717B1/F0031","EP2558785B1/F0007","EP2466634B1/F0004","EP2519299B1/F0002",
+    "EP2464865B1/F0005","EP2730496B1/F0005","EP2806261B1/F0004","EP2863449B1/F0001",
+    "EP2811932B1/F0003","EP2828888B1/F0001","EP2978096B1/F0001","EP2987931B1/F0005",
+    "EP3045591B1/F0004","EP2971551B1/F0002","EP3156693B1/F0002","EP3062407B1/F0002",
+    "EP3270850B1/F0009","EP3295061B1/F0008","EP3492425A1/F0002","EP3492785A1/F0001",
+    "EP3492864A1/F0002","EP3495689A1/F0011","EP3498592A1/F0003","EP3499154A1/A0001",
+    "EP3498954A1/F0003","EP3502393A1/F0005","EP3501322A1/F0005","EP3502341A1/F0003",
+    "EP3496522A2/F0005","EP3502490A1/F0013","EP3503123A1/A0001","EP3503059A1/F0003",
+}
+for _k in AUDITED_CLEAN_KEYS:
+    CONTENT.setdefault(_k, ("drawing", True, "", "audited clean"))
 
 ROLE_BY_CLASS = {}  # filled below from is_valid + failure_family
 

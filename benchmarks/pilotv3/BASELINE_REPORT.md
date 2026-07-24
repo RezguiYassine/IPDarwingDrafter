@@ -31,18 +31,22 @@ over-fragmentation. **CN-fusion is the production Stage-2 baseline.**
 | not_ok | 7 |
 
 ## Content-audited 4-manifest split (`tools/pilotv3_split_manifests.py`)
+All 100 figures individually visually audited 2026-07-24 (doc Step 4 complete).
 | Bucket | n | audited | provisional |
 |---|---:|---:|---:|
-| positive_clean | 67 | 20 | 47 |
+| positive_clean | 56 | 56 | 0 |
 | positive_hard | 5 | 5 | 0 |
-| negative_invalid | 21 | 21 | 0 |
-| borderline | 7 | 7 | 0 |
+| negative_invalid | 27 | 27 | 0 |
+| borderline | 12 | 12 | 0 |
 
-**Honest yield:** the fragmentation gate's "85 clean" was optimistic. Manual
-audit found **21 confirmed non-drawings** (flowcharts, block/network/UML
-diagrams, tables, charts, UI, chemistry, shaded renders) that vectorize
-CLEANLY (low micro/isolation) and so passed the gate. True clean-positive
-yield is <= 67% (47 of the 67 positive_clean are still un-audited, doc Step 4).
+**Honest yield: 56%.** The fragmentation gate's "85 clean" was badly
+optimistic. Full manual audit of all 100 found **27 confirmed non-drawings**
+(flowcharts, block/network/UML diagrams, tables, charts, chemistry, shaded
+renders) that vectorize CLEANLY (low micro/isolation) and so passed the gate,
+plus 12 borderline (schematics, plots-with-geometry, mixed panels). True
+clean-positive training yield is **56/100**, not 85. This is the measurement
+that matters for training-data purity and it required the full accepted-sample
+audit -- the gate alone cannot be trusted for this content class.
 
 **Hard-positive failure families (one exemplar each — mine more, doc §7):**
 dense_detail, hatch_boundary_fragmentation, dashed_line_fragmentation,
