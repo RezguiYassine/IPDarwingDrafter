@@ -12,6 +12,7 @@ from stage3_primitivesfitting.research.train_free2cad_v3 import (
     _stroke_residuals,
     compute_class_weights,
     load_npz_shard,
+    load_warm_start,
     scan_shard_class_counts,
 )
 
@@ -44,6 +45,42 @@ def test_three_point_decode_recovers_quarter_circle():
     assert abs(result["end_angle"] - 90.0) < 1e-4
 
 
+def test_closed_polyline_decode_repeats_first_ordered_point():
+    fitter = Free2CADFitter.__new__(Free2CADFitter)
+    fitter._version = 3
+    edge = {
+        "id": 8, "is_closed": True, "smooth_pts": [],
+        "pixels": [[0, 0], [1, 1], [0, 1], [1, 0]],
+    }
+
+    result = fitter._decode(
+        fitter._TYPE_POLYLINE, np.zeros(6), 0.8, edge,
+        {"center": [0, 0], "scale": 1.0, "frac": 1.0},
+    )
+
+    assert result["type"] == "polyline"
+    assert result["points"][0] == result["points"][-1]
+
+
+def test_dense_straight_edge_uses_geometric_line_fast_path():
+    fitter = Free2CADFitter.__new__(Free2CADFitter)
+    fitter._version = 3
+    points = np.column_stack([
+        np.linspace(10.0, 210.0, 48),
+        20.0 + 0.2 * np.sin(np.linspace(0.0, 4.0, 48)),
+    ])
+
+    result = fitter.fit_edge({
+        "id": 9,
+        "is_closed": False,
+        "pixels": points.tolist(),
+        "smooth_pts": points.tolist(),
+    })
+
+    assert result["type"] == "line"
+    assert result["fitter"] == "geometric_line"
+
+
 def test_sqrt_class_weights_reduce_rare_class_overweighting():
     data = EncodedDataset(
         np.zeros((10, 2, 2), dtype=np.float32),
@@ -59,6 +96,21 @@ def test_sqrt_class_weights_reduce_rare_class_overweighting():
     assert np.isclose(
         sqrt_inverse[CMD_TYPES["ARC"]] / sqrt_inverse[CMD_TYPES["LINE"]], 3.0)
     assert inverse[CMD_TYPES["CIRCLE"]] == 0.0
+    assert inverse[CMD_TYPES["BEZIER"]] == 0.0
+
+
+def test_four_class_checkpoint_warm_starts_five_class_head():
+    import torch
+    from stage3_primitivesfitting.research.train_free2cad_v3 import build_model
+
+    old = build_model(8, 16, 4, 1, 0.0, n_cmd_types=4)
+    new = build_model(8, 16, 4, 1, 0.0, n_cmd_types=5)
+    new_bezier_weight = new.type_head.weight[4].detach().clone()
+    copied = load_warm_start(new, {"model_state_dict": old.state_dict()})
+
+    assert copied["type_head.weight"] == 4
+    torch.testing.assert_close(new.type_head.weight[:4], old.type_head.weight)
+    torch.testing.assert_close(new.type_head.weight[4], new_bezier_weight)
 
 
 def test_inconsistent_full_circle_targets_are_filtered():
@@ -147,5 +199,5 @@ def test_streaming_scan_uses_post_cleaning_labels(tmp_path):
 
     assert dataset.types.tolist() == [CMD_TYPES["LINE"], CMD_TYPES["LINE"]]
     assert (removed, relabelled) == (1, 1)
-    assert counts.tolist() == [2, 0, 0, 0]
+    assert counts.tolist() == [2, 0, 0, 0, 0]
     assert (total, scan_removed, scan_relabelled) == (2, 1, 1)

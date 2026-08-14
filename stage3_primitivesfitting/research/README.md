@@ -19,8 +19,9 @@ not load anything from this directory by default.
 
 `tools/sketchgraphs_dataset.py` runs the repository's actual Stage 2 topology
 path and matches extracted edges back to exact SketchGraphs line/arc/circle
-entities. The corrected 100,000-source pilot reaches 0.9987 supported macro-F1
-on 29,420 untouched test edges; details are in
+entities. Full training attempted all 9,179,789 train sketches and produced
+27,023,994 matched edges. The selected epoch-2 model reaches 0.9993 supported
+macro-F1 on all 926,940 untouched test edges; details are in
 [`TRAIN_STAGE2_STAGE3.md`](../../TRAIN_STAGE2_STAGE3.md).
 
 The restart-safe full-corpus extraction, shard-streaming warm-start training,
@@ -30,13 +31,47 @@ and full test evaluation are launched together with:
 tools/run_stage3_full_training_queue.sh
 ```
 
+The selected local checkpoint is `models/free2cad_sketchgraphs_full.pth`
+(SHA-256 `bed27ed08ad794757bb93192c9347caf0af9d18f6f62a15a39537f0fc4d97d3f`).
+It remains a research deployment candidate; the production fitter is still
+RANSAC until Drawing2CAD and filtered-PatentData integration comparisons pass.
+
+## Mixed Drawing2CAD revival
+
+SketchGraphs contains no polyline labels. The completed mixed experiment therefore
+balances **edge-label supply**, not drawing count:
+
+```bash
+python -m tools.d2c_stage3_dataset --split train --workers 56 \
+  --output output/Drawing2CAD/stage3
+python -m tools.build_free2cad_mixed_dataset \
+  --drawing2cad output/Drawing2CAD/stage3 \
+  --output output/Free2CADMixedSketchGraphsD2C --split train
+```
+
+Drawing2CAD cubics are guarded by circular residual before receiving BEZIER,
+because SVG exporters also represent arcs/circles with `C` commands. The model
+has five classes and can warm-start a four-class v3 checkpoint while preserving
+all existing head rows. POLYLINE/BEZIER output is fitted deterministically from
+the dense edge after classification. The selected checkpoint is
+`models/free2cad_sketchgraphs_d2c_mixed.pth`: validation macro-F1 0.9683,
+Drawing2CAD test macro-F1 0.8603, and full SketchGraphs test macro-F1 0.9936.
+It remains a research candidate pending paired end-to-end pipeline evaluation.
+Full methodology and results live in
+[`TRAIN_STAGE2_STAGE3.md`](../../TRAIN_STAGE2_STAGE3.md#mixed-sketchgraphs--drawing2cad-stage-3-2026-07-19).
+
 ## Files
 
 | File                                | Purpose                                                                   |
 |-------------------------------------|---------------------------------------------------------------------------|
 | `generate_sketches_v3.py`           | Synthetic data generator (rebalanced families incl. `short_stubs`, `noisy_circle`). |
-| `train_free2cad_v3.py`              | Trainer (encoder-only architecture, 4 classes, class-weighted CE).        |
+| `train_free2cad_v3.py`              | Trainer (encoder-only architecture, 5 classes, class-weighted CE).        |
 | `stage3_primitive_fit_free2cad.py`  | Inference script using the Free2CAD model (drop-in replacement for the production RANSAC stage). |
+
+Supporting repository tools are
+[`tools/d2c_stage3_dataset.py`](../../tools/d2c_stage3_dataset.py),
+[`tools/build_free2cad_mixed_dataset.py`](../../tools/build_free2cad_mixed_dataset.py),
+and [`tools/evaluate_free2cad_v3.py`](../../tools/evaluate_free2cad_v3.py).
 
 ## Required external repositories
 

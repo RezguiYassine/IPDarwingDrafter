@@ -245,6 +245,7 @@ stage2:
   fragmentation:
     max_edges: 2500
     max_micro_edge_ratio: 0.50
+    max_unclaimed_noncycle_pixels: 100000
     max_short_edge_ratio: 0.80
 
 # ── Stage 3 — Primitive Fitting ───────────────────────────────────────────────
@@ -256,6 +257,19 @@ stage3:
                               # comparable after hatch extraction: the easy
                               # hatch-line primitives are now a side layer.
                               # Relax only for hachure-heavy graphs.
+  prefer_compound_over_weak: true
+  weak_compound_confidence_threshold: 0.60
+  weak_compound_min_gain: 0.05
+  weak_compound_max_points: 20000
+  weak_compound_max_path_atoms: 64
+  weak_compound_max_segment_p95: 2.0
+  weak_compound_max_endpoint_error: 3.0
+  simplify_closed_fallback: true
+  closed_trace_vertex_caps: [24, 32, 48, 64, 96, 128]
+  closed_trace_target_confidence: 0.65
+  closed_trace_target_p95: 2.0
+  closed_trace_compete_below_confidence: 0.60
+  closed_trace_min_gain: 0.05
 
 # ── Datasets (Free2CAD training pipeline — research only, not shipped) ───────
 # These directories are gitignored. Populate them with setup.sh / your own

@@ -1,11 +1,16 @@
 import numpy as np
+import torch
+from types import SimpleNamespace
 
 from stage2_strokeextraction.research.train_puhachov import (
     ConstantMemoryDistributedSampler,
     ExactMixedDataset,
+    ExactReplayMixedDataset,
     KPDataset,
     SOURCE_CACHED,
     SOURCE_SKETCHGRAPHS,
+    _build_training_dataset,
+    focal_loss,
 )
 from tools.sketchgraphs_coverage import export_rejections, summarize
 from tools.evaluate_puhachov_streaming import ExactEvalSampler, _match_counts
@@ -20,6 +25,40 @@ class _IndexDataset:
 
     def __getitem__(self, key):
         return key
+
+
+def test_global_focal_normalization_preserves_default_reduction():
+    logits = torch.zeros((2, 3, 4, 4), dtype=torch.float32)
+    targets = torch.zeros_like(logits)
+    targets[0, 0, 1, 1] = 1.0
+    targets[1, 1, 1:3, 1:3] = 1.0
+
+    assert torch.equal(
+        focal_loss(logits, targets),
+        focal_loss(logits, targets, "global"),
+    )
+
+
+def test_sample_class_focal_equals_mean_of_independent_channel_losses():
+    logits = torch.zeros((2, 3, 4, 4), dtype=torch.float32)
+    targets = torch.zeros_like(logits)
+    targets[0, 0, 1, 1] = 1.0
+    targets[0, 1, 1:3, 1:3] = 1.0
+    targets[1, 2, 0:4:2, 0:4:2] = 1.0
+    independent = []
+    for sample in range(logits.shape[0]):
+        for channel in range(logits.shape[1]):
+            independent.append(
+                focal_loss(
+                    logits[sample:sample + 1, channel:channel + 1],
+                    targets[sample:sample + 1, channel:channel + 1],
+                    "global",
+                )
+            )
+
+    actual = focal_loss(logits, targets, "sample-class")
+
+    assert torch.allclose(actual, torch.stack(independent).mean())
 
 
 def test_distributed_sampler_covers_dataset_with_bounded_padding():
@@ -61,6 +100,61 @@ def test_exact_mix_contains_every_sketchgraphs_index_once():
     assert sketch_indices == list(range(11))
     assert len(primary_indices) == 5
     assert set(primary_indices) == set(range(5))
+
+
+def test_exact_cached_mix_covers_every_secondary_label(tmp_path):
+    primary_paths = []
+    secondary_root = tmp_path / "secondary"
+    (secondary_root / "train").mkdir(parents=True)
+    for index in range(3):
+        path = tmp_path / f"primary_{index}.npz"
+        np.savez(path, skeleton=np.ones((8, 8), np.uint8),
+                 kps=np.zeros((0, 3), np.int32))
+        primary_paths.append(path)
+    for index in range(4):
+        np.savez(secondary_root / "train" / f"secondary_{index}.npz",
+                 skeleton=np.ones((8, 8), np.uint8),
+                 kps=np.zeros((0, 3), np.int32))
+
+    args = SimpleNamespace(
+        crop=8, sigma=2.0, patent_aug=0.0, seed=19,
+        sketchgraphs_raw="", labels_archcad=str(secondary_root),
+        exact_secondary_coverage=True, mix=0.5, mix_size=100,
+    )
+    mixed, stream = _build_training_dataset(args, primary_paths)
+    sources = [mixed.source_for_index(index) for index in range(len(mixed))]
+    secondary_indices = [
+        index for source, index in sources if source == SOURCE_SKETCHGRAPHS
+    ]
+
+    assert stream is None
+    assert len(mixed) == 8
+    assert secondary_indices == [0, 1, 2, 3]
+
+
+def test_exact_replay_mix_preserves_real_domains_and_secondary_coverage():
+    mixed = ExactReplayMixedDataset(
+        _IndexDataset(100),
+        _IndexDataset(80),
+        _IndexDataset(10),
+        real_fraction=0.8,
+        replay_fraction=0.5,
+        seed=23,
+        guard=_IndexDataset(30),
+        guard_fraction=0.1,
+    )
+    sources = [mixed.source_for_index(index) for index in range(len(mixed))]
+    primary = [index for source, index in sources if source == "primary"]
+    replay = [index for source, index in sources if source == "replay"]
+    guard = [index for source, index in sources if source == "guard"]
+    secondary = [index for source, index in sources if source == "secondary"]
+
+    assert len(mixed) == 50
+    assert (len(primary), len(replay), len(guard), len(secondary)) == (16, 20, 4, 10)
+    assert len(set(primary)) == len(primary)
+    assert len(set(replay)) == len(replay)
+    assert len(set(guard)) == len(guard)
+    assert sorted(secondary) == list(range(10))
 
 
 def test_cached_augmentation_is_deterministic_for_epoch_and_index(tmp_path):

@@ -404,6 +404,89 @@ class ExactMixedDataset(Dataset):
         return self.primary[(epoch, source_index)]
 
 
+class ExactReplayMixedDataset(Dataset):
+    """Exact secondary coverage with controlled cached-domain proportions."""
+
+    def __init__(self, primary: Dataset, replay: Dataset, secondary: Dataset,
+                 real_fraction: float, replay_fraction: float, seed: int,
+                 guard: Dataset | None = None, guard_fraction: float = 0.0):
+        if not 0.0 <= real_fraction < 1.0:
+            raise ValueError("real fraction requires 0 <= --mix < 1")
+        if not 0.0 <= replay_fraction <= 1.0:
+            raise ValueError("--replay-fraction must be between 0 and 1")
+        if not 0.0 <= guard_fraction <= 1.0:
+            raise ValueError("--guard-fraction must be between 0 and 1")
+        if replay_fraction + guard_fraction > 1.0:
+            raise ValueError(
+                "--replay-fraction + --guard-fraction must not exceed 1"
+            )
+        if len(secondary) == 0:
+            raise ValueError("secondary label pool is empty")
+        self.primary = primary
+        self.replay = replay
+        self.guard = guard
+        self.secondary = secondary
+        self.seed = seed
+        self.n_secondary = len(secondary)
+        self.n_real = int(round(
+            self.n_secondary * real_fraction / (1.0 - real_fraction)
+        ))
+        self.n_replay = int(round(self.n_real * replay_fraction))
+        self.n_guard = int(round(self.n_real * guard_fraction))
+        self.n_primary = self.n_real - self.n_replay - self.n_guard
+        if self.n_primary and len(primary) == 0:
+            raise ValueError("primary label pool is empty")
+        if self.n_replay and len(replay) == 0:
+            raise ValueError("replay label pool is empty")
+        if self.n_guard and (guard is None or len(guard) == 0):
+            raise ValueError("guard label pool is empty")
+        self.length = self.n_real + self.n_secondary
+
+    def __len__(self):
+        return self.length
+
+    def _pool_index(
+        self, ordinal: int, pool_size: int, epoch: int, source_seed: int,
+    ) -> int:
+        cycle, position = divmod(ordinal, pool_size)
+        return _affine_permutation(
+            position,
+            pool_size,
+            self.seed + source_seed + epoch * 1009 + cycle * 7919,
+        )
+
+    def source_for_index(self, index: int, epoch: int = 0) -> tuple[str, int]:
+        if index < self.n_primary:
+            return "primary", self._pool_index(
+                index, len(self.primary), epoch, 101
+            )
+        index -= self.n_primary
+        if index < self.n_replay:
+            return "replay", self._pool_index(
+                index, len(self.replay), epoch, 211
+            )
+        index -= self.n_replay
+        if index < self.n_guard:
+            return "guard", self._pool_index(
+                index, len(self.guard), epoch, 263
+            )
+        index -= self.n_guard
+        return "secondary", _affine_permutation(
+            index, self.n_secondary, self.seed + 307 + epoch * 1009
+        )
+
+    def __getitem__(self, key):
+        epoch, index = _dataset_key(key)
+        source, source_index = self.source_for_index(index, epoch)
+        if source == "primary":
+            return self.primary[(epoch, source_index)]
+        if source == "replay":
+            return self.replay[(epoch, source_index)]
+        if source == "guard":
+            return self.guard[(epoch, source_index)]
+        return self.secondary[(epoch, source_index)]
+
+
 class ConstantMemoryDistributedSampler(Sampler):
     """Distributed full-coverage shuffle without materializing randperm(N)."""
 
@@ -443,7 +526,11 @@ class ConstantMemoryDistributedSampler(Sampler):
 
 # ─── CenterNet penalty-reduced focal loss ────────────────────────────────────
 
-def focal_loss(logits: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+def focal_loss(
+    logits: torch.Tensor,
+    gt: torch.Tensor,
+    normalization: str = "global",
+) -> torch.Tensor:
     # Sparse focal loss is numerically fragile in FP16. Keep this reduction in
     # FP32 even when convolution layers run under autocast.
     pred = torch.clamp(torch.sigmoid(logits.float()), 1e-6, 1 - 1e-6)
@@ -453,11 +540,23 @@ def focal_loss(logits: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
     neg_w = torch.pow(1 - gt, 4)
     pos_loss = torch.log(pred) * torch.pow(1 - pred, 2) * pos
     neg_loss = torch.log(1 - pred) * torch.pow(pred, 2) * neg_w * neg
-    n_pos = pos.sum()
-    pos_loss, neg_loss = pos_loss.sum(), neg_loss.sum()
-    if n_pos == 0:
-        return -neg_loss
-    return -(pos_loss + neg_loss) / n_pos
+    if normalization == "global":
+        n_pos = pos.sum()
+        pos_loss, neg_loss = pos_loss.sum(), neg_loss.sum()
+        if n_pos == 0:
+            return -neg_loss
+        return -(pos_loss + neg_loss) / n_pos
+    if normalization == "sample-class":
+        # Dense synthetic hatching can contain thousands of junctions. Reduce
+        # each sample/channel independently so those targets do not erase the
+        # endpoint and corner gradients from the rest of a mixed-domain batch.
+        reduce_dims = tuple(range(2, logits.ndim))
+        n_pos = pos.sum(dim=reduce_dims)
+        per_slot = -(
+            pos_loss.sum(dim=reduce_dims) + neg_loss.sum(dim=reduce_dims)
+        ) / torch.clamp(n_pos, min=1.0)
+        return per_slot.mean()
+    raise ValueError(f"unknown focal normalization: {normalization}")
 
 
 # ─── Validation: per-class peak F1 ───────────────────────────────────────────
@@ -653,6 +752,34 @@ def _build_training_dataset(args, train_paths: list[Path]):
         secondary_paths = _collect(Path(args.labels_archcad), "train")
         if not secondary_paths:
             raise SystemExit(f"No train npz under {args.labels_archcad}/train")
+        if args.exact_secondary_coverage:
+            secondary = KPDataset(secondary_paths, **common)
+            replay_root = getattr(args, "replay_labels", "")
+            if replay_root:
+                replay_paths = _collect(Path(replay_root), "train")
+                if not replay_paths:
+                    raise SystemExit(f"No train npz under {replay_root}/train")
+                replay = KPDataset(replay_paths, **common)
+                guard_root = getattr(args, "guard_labels", "")
+                guard = None
+                if guard_root:
+                    guard_paths = _collect(Path(guard_root), "train")
+                    if not guard_paths:
+                        raise SystemExit(f"No train npz under {guard_root}/train")
+                    guard = KPDataset(guard_paths, **common)
+                return ExactReplayMixedDataset(
+                    primary,
+                    replay,
+                    secondary,
+                    args.mix,
+                    getattr(args, "replay_fraction", 0.60),
+                    args.seed,
+                    guard=guard,
+                    guard_fraction=getattr(args, "guard_fraction", 0.0),
+                ), None
+            return ExactMixedDataset(
+                primary, secondary, args.mix, args.seed
+            ), None
         rng_mix = random.Random(args.seed)
         n_primary = int(round(args.mix * args.mix_size))
         n_secondary = args.mix_size - n_primary
@@ -661,6 +788,48 @@ def _build_training_dataset(args, train_paths: list[Path]):
         rng_mix.shuffle(mixed)
         return KPDataset(mixed, **common), None
     return primary, None
+
+
+def _evaluate_selection_domains(
+    model,
+    val_subset,
+    secondary_val_subset,
+    tertiary_val_subset,
+    device,
+    match_radius: float,
+    step: int,
+) -> tuple[float, dict, float | None, float | None]:
+    metrics = evaluate_f1(
+        model, val_subset, device, match_radius=match_radius,
+    )
+    selection_scores = [metrics["macro_f1"]]
+    secondary_f1 = None
+    tertiary_f1 = None
+    print(
+        f"  [val@{step}] macro_f1={metrics['macro_f1']:.3f} "
+        f"end={metrics['f1'][0]:.3f} junc={metrics['f1'][1]:.3f} "
+        f"corner={metrics['f1'][2]:.3f}"
+    )
+    if secondary_val_subset:
+        secondary = evaluate_f1(
+            model, secondary_val_subset, device, match_radius=match_radius,
+        )
+        secondary_f1 = secondary["macro_f1"]
+        selection_scores.append(secondary_f1)
+        print(f"  [secondary@{step}] macro_f1={secondary_f1:.3f}")
+    if tertiary_val_subset:
+        tertiary = evaluate_f1(
+            model, tertiary_val_subset, device, match_radius=match_radius,
+        )
+        tertiary_f1 = tertiary["macro_f1"]
+        selection_scores.append(tertiary_f1)
+        print(f"  [tertiary@{step}] macro_f1={tertiary_f1:.3f}")
+    selection_f1 = float(np.mean(selection_scores))
+    print(
+        f"  [selection@{step}] {len(selection_scores)}-domain "
+        f"macro_f1={selection_f1:.3f}"
+    )
+    return selection_f1, metrics, secondary_f1, tertiary_f1
 
 
 def train(args):
@@ -677,11 +846,17 @@ def train(args):
         _collect(Path(secondary_val_root), "validation")
         if secondary_val_root else []
     )
+    tertiary_val_paths = (
+        _collect(Path(args.tertiary_val_labels), "validation")
+        if args.tertiary_val_labels else []
+    )
     rng = random.Random(args.seed)
     rng.shuffle(val_paths)
     rng.shuffle(secondary_val_paths)
+    rng.shuffle(tertiary_val_paths)
     val_subset = val_paths[:args.val_subset]
     secondary_val_subset = secondary_val_paths[:args.secondary_val_subset]
+    tertiary_val_subset = tertiary_val_paths[:args.tertiary_val_subset]
 
     dataset, stream = _build_training_dataset(args, train_paths)
     sampler = ConstantMemoryDistributedSampler(
@@ -700,15 +875,43 @@ def train(args):
     if is_main:
         print(f"dataset={len(dataset):,} samples  rank samples={sampler.num_samples:,} "
               f"world={world_size}  device={device}")
+        print(f"focal normalization={args.focal_normalization}")
         print(f"primary train npz={len(train_paths):,}  primary val={len(val_paths):,} "
               f"(eval on {len(val_subset):,})")
         if stream is not None:
             print(f"SketchGraphs streaming={len(stream):,} sequences from "
                   f"{args.sketchgraphs_raw}; exact mix={args.mix:.0%} cached / "
                   f"{1-args.mix:.0%} SketchGraphs")
+        elif args.labels_archcad and args.exact_secondary_coverage:
+            secondary_count = len(_collect(Path(args.labels_archcad), "train"))
+            if isinstance(dataset, ExactReplayMixedDataset):
+                replay_count = len(_collect(Path(args.replay_labels), "train"))
+                guard_text = ""
+                if dataset.n_guard:
+                    guard_count = len(_collect(Path(args.guard_labels), "train"))
+                    guard_text = f" guard={dataset.n_guard:,}"
+                    guard_pool_text = f" guard={guard_count:,}"
+                else:
+                    guard_pool_text = ""
+                print(
+                    f"exact cached replay slots: primary={dataset.n_primary:,} "
+                    f"replay={dataset.n_replay:,}{guard_text} "
+                    f"secondary={dataset.n_secondary:,}; pools: "
+                    f"replay={replay_count:,}{guard_pool_text}; every "
+                    "secondary label appears once per epoch"
+                )
+            else:
+                print(
+                    f"exact cached mix={args.mix:.0%} primary / "
+                    f"{1-args.mix:.0%} secondary; every one of the "
+                    f"{secondary_count:,} secondary labels appears once per epoch"
+                )
         if secondary_val_subset:
             print(f"secondary validation={len(secondary_val_paths):,} "
                   f"(eval on {len(secondary_val_subset):,})")
+        if tertiary_val_subset:
+            print(f"tertiary validation={len(tertiary_val_paths):,} "
+                  f"(eval on {len(tertiary_val_subset):,})")
 
     model = s2._build_stacked_hourglass().to(device)
     resume_payload = None
@@ -763,6 +966,33 @@ def train(args):
     out_path = Path(args.out)
     state_path = (Path(args.state_out) if args.state_out else
                   out_path.with_name(out_path.stem + "_last" + out_path.suffix))
+    if args.validate_before_training and resume_payload is None and val_subset:
+        _barrier(world_size)
+        if is_main:
+            selection_f1, metrics, secondary_f1, tertiary_f1 = (
+                _evaluate_selection_domains(
+                    _raw_model(model),
+                    val_subset,
+                    secondary_val_subset,
+                    tertiary_val_subset,
+                    device,
+                    args.match_radius,
+                    step=0,
+                )
+            )
+            best_f1 = selection_f1
+            payload = _checkpoint_payload(
+                model, optimizer, scaler, args, step, epoch,
+                samples_in_epoch, best_f1, world_size, len(dataset),
+                include_optimizer=False,
+            )
+            payload["primary_macro_f1"] = metrics["macro_f1"]
+            payload["secondary_macro_f1"] = secondary_f1
+            payload["tertiary_macro_f1"] = tertiary_f1
+            _atomic_torch_save(payload, out_path)
+            print(f"  saved step-0 baseline ({best_f1:.3f}) -> {out_path}")
+        _barrier(world_size)
+        model.train()
     coverage = None
     if stream is not None:
         coverage_path = (Path(args.coverage_file) if args.coverage_file else
@@ -796,7 +1026,11 @@ def train(args):
                     device_type="cuda", dtype=amp_dtype, enabled=use_amp,
                 ):
                     logits = model(img)
-                    loss = (focal_loss(logits[valid], hm[valid]) if valid.any()
+                    loss = (
+                        focal_loss(
+                            logits[valid], hm[valid], args.focal_normalization
+                        )
+                        if valid.any()
                             else logits.float().sum() * 0.0)
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
@@ -847,25 +1081,17 @@ def train(args):
             if should_validate:
                 _barrier(world_size)
                 if is_main:
-                    raw = _raw_model(model)
-                    metrics = evaluate_f1(
-                        raw, val_subset, device, match_radius=args.match_radius,
-                    )
-                    selection_f1 = metrics["macro_f1"]
-                    secondary_f1 = None
-                    print(f"  [val@{step}] macro_f1={selection_f1:.3f} "
-                          f"end={metrics['f1'][0]:.3f} "
-                          f"junc={metrics['f1'][1]:.3f} "
-                          f"corner={metrics['f1'][2]:.3f}")
-                    if secondary_val_subset:
-                        secondary = evaluate_f1(
-                            raw, secondary_val_subset, device,
-                            match_radius=args.match_radius,
+                    selection_f1, metrics, secondary_f1, tertiary_f1 = (
+                        _evaluate_selection_domains(
+                            _raw_model(model),
+                            val_subset,
+                            secondary_val_subset,
+                            tertiary_val_subset,
+                            device,
+                            args.match_radius,
+                            step,
                         )
-                        secondary_f1 = secondary["macro_f1"]
-                        selection_f1 = 0.5 * (selection_f1 + secondary_f1)
-                        print(f"  [secondary@{step}] macro_f1={secondary_f1:.3f}; "
-                              f"dual-domain={selection_f1:.3f}")
+                    )
                     if selection_f1 > best_f1:
                         best_f1 = selection_f1
                         payload = _checkpoint_payload(
@@ -875,6 +1101,7 @@ def train(args):
                         )
                         payload["primary_macro_f1"] = metrics["macro_f1"]
                         payload["secondary_macro_f1"] = secondary_f1
+                        payload["tertiary_macro_f1"] = tertiary_f1
                         _atomic_torch_save(payload, out_path)
                         print(f"  saved best ({best_f1:.3f}) -> {out_path}")
                 _barrier(world_size)
@@ -903,6 +1130,37 @@ def train(args):
                 report = coverage.summarize(epoch, step)
                 if is_main:
                     print("coverage: " + json.dumps(report, sort_keys=True))
+
+    should_validate_final = bool(
+        val_subset and args.val_every > 0 and step % args.val_every != 0
+    )
+    if should_validate_final:
+        _barrier(world_size)
+        if is_main:
+            selection_f1, metrics, secondary_f1, tertiary_f1 = (
+                _evaluate_selection_domains(
+                    _raw_model(model),
+                    val_subset,
+                    secondary_val_subset,
+                    tertiary_val_subset,
+                    device,
+                    args.match_radius,
+                    step,
+                )
+            )
+            if selection_f1 > best_f1:
+                best_f1 = selection_f1
+                payload = _checkpoint_payload(
+                    model, optimizer, scaler, args, step, epoch,
+                    samples_in_epoch, best_f1, world_size, len(dataset),
+                    include_optimizer=False,
+                )
+                payload["primary_macro_f1"] = metrics["macro_f1"]
+                payload["secondary_macro_f1"] = secondary_f1
+                payload["tertiary_macro_f1"] = tertiary_f1
+                _atomic_torch_save(payload, out_path)
+                print(f"  saved final best ({best_f1:.3f}) -> {out_path}")
+        _barrier(world_size)
 
     _barrier(world_size)
     if coverage is not None:
@@ -946,6 +1204,15 @@ def main():
     ap.add_argument("--grad-clip", type=float, default=5.0)
     ap.add_argument("--prior", type=float, default=0.01,
                     help="focal-loss output prior; sets initial output bias")
+    ap.add_argument(
+        "--focal-normalization",
+        choices=("global", "sample-class"),
+        default="global",
+        help=(
+            "global preserves historical CenterNet reduction; sample-class "
+            "prevents dense hatch junctions from dominating mixed batches"
+        ),
+    )
     ap.add_argument("--labels-archcad", "--secondary-labels",
                     dest="labels_archcad", default="",
                     help="second label root to blend with --labels (e.g. "
@@ -954,6 +1221,30 @@ def main():
                     help="fraction of D2C (--labels) samples per mixed epoch")
     ap.add_argument("--mix-size", type=int, default=40000,
                     help="mixed-epoch size (paths sampled with replacement)")
+    ap.add_argument(
+        "--exact-secondary-coverage", action="store_true",
+        help=("with --secondary-labels, derive epoch size from --mix and include "
+              "every secondary NPZ exactly once instead of sampling --mix-size "
+              "paths with replacement"),
+    )
+    ap.add_argument(
+        "--replay-labels", default="",
+        help=("cached training pool replayed alongside --labels when using "
+              "--exact-secondary-coverage"),
+    )
+    ap.add_argument(
+        "--replay-fraction", type=float, default=0.60,
+        help="fraction of non-secondary slots drawn from --replay-labels",
+    )
+    ap.add_argument(
+        "--guard-labels", default="",
+        help=("cached training pool used to prevent forgetting on a third real "
+              "domain; requires --replay-labels and exact secondary coverage"),
+    )
+    ap.add_argument(
+        "--guard-fraction", type=float, default=0.0,
+        help="fraction of non-secondary slots drawn from --guard-labels",
+    )
     ap.add_argument("--sketchgraphs-raw", default="",
                     help="official sg_t16_train.npy; enables on-the-fly rendering")
     ap.add_argument("--sketchgraphs-val-labels", default="",
@@ -988,9 +1279,19 @@ def main():
                     help="retry an overflowed batch after scaler backoff")
     ap.add_argument("--val-subset", type=int, default=200)
     ap.add_argument("--secondary-val-subset", type=int, default=0,
-                    help="validation samples from --labels-archcad; when >0, "
-                         "select checkpoints by mean primary/secondary F1")
+                    help="validation samples from --sketchgraphs-val-labels "
+                         "or --labels-archcad; when used, include this domain "
+                         "in checkpoint selection")
+    ap.add_argument("--tertiary-val-labels", default="",
+                    help="third cached label root used only for validation")
+    ap.add_argument("--tertiary-val-subset", type=int, default=0,
+                    help="validation samples from --tertiary-val-labels; when "
+                         "used, select by mean primary/secondary/tertiary F1")
     ap.add_argument("--val-every", type=int, default=2000)
+    ap.add_argument(
+        "--validate-before-training", action="store_true",
+        help="evaluate and retain the warm start as the step-0 model candidate",
+    )
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--match-radius", type=float, default=6.0)
     ap.add_argument("--seed", type=int, default=42)
@@ -1001,6 +1302,23 @@ def main():
         ap.error("--resume and --init-weights are mutually exclusive")
     if not 0.0 <= args.mix <= 1.0:
         ap.error("--mix must be between 0 and 1")
+    if not 0.0 <= args.replay_fraction <= 1.0:
+        ap.error("--replay-fraction must be between 0 and 1")
+    if not 0.0 <= args.guard_fraction <= 1.0:
+        ap.error("--guard-fraction must be between 0 and 1")
+    if args.replay_fraction + args.guard_fraction > 1.0:
+        ap.error("--replay-fraction + --guard-fraction must not exceed 1")
+    if args.replay_labels and not (
+        args.labels_archcad and args.exact_secondary_coverage
+    ):
+        ap.error(
+            "--replay-labels requires --secondary-labels and "
+            "--exact-secondary-coverage"
+        )
+    if args.guard_labels and not args.replay_labels:
+        ap.error("--guard-labels requires --replay-labels")
+    if args.guard_fraction and not args.guard_labels:
+        ap.error("--guard-fraction requires --guard-labels")
     if args.sketchgraphs_raw and args.mix >= 1.0:
         ap.error("streaming SketchGraphs requires --mix < 1")
     torch.manual_seed(args.seed)

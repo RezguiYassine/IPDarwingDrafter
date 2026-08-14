@@ -410,6 +410,7 @@ class Free2CADFitter:
     _TYPE_ARC      = 1
     _TYPE_CIRCLE   = 2
     _TYPE_POLYLINE = 3
+    _TYPE_BEZIER   = 4
     _TYPE_END      = 4   # only used by v1/v2 checkpoints
 
     _INFERENCE_FRACTION = 1.0
@@ -417,6 +418,8 @@ class Free2CADFitter:
     # PATCH: thresholds for the hybrid fast path (Priority 2)
     _HYBRID_CIRCLE_MIN_PTS    = 12      # closed loop must have ≥ this many pts
     _HYBRID_CIRCLE_MAX_RES    = 0.15    # algebraic-circle residual / radius
+    _HYBRID_LINE_MAX_P90      = 1.5     # pixels, matches D2C label construction
+    _HYBRID_LINE_MAX_REL_P90  = 0.01    # preserve shallow but real curvature
     _HYBRID_FALLBACK_CONF     = 0.55    # below this confidence → RANSAC fallback
 
     def __init__(self, weights_path: str, device: str = "cuda"):
@@ -477,6 +480,7 @@ class Free2CADFitter:
                     n_heads      = cfg["n_heads"],
                     n_enc_layers = cfg["n_enc_layers"],
                     dropout      = cfg.get("dropout", 0.1),
+                    n_cmd_types  = cfg.get("n_cmd_types", 4),
                 )
                 seed_label = "encoder-only (v3, no decoder seed)"
 
@@ -550,6 +554,9 @@ class Free2CADFitter:
         is_closed = edge.get("is_closed", False)
         raw = edge["pixels"] if is_closed else (edge.get("smooth_pts") or edge["pixels"])
         pts = np.array(raw, dtype=np.float64)
+        if is_closed and len(pts) >= 3:
+            from stage3_primitivesfitting.stage3_primitive_fit import _reorder_loop_pixels
+            pts = _reorder_loop_pixels(pts)
 
         frac = self._INFERENCE_FRACTION
         if len(pts) == 0:
@@ -622,6 +629,30 @@ class Free2CADFitter:
                 "confidence": 1.0,
                 "fitter":     "geometric_2pt",
             }
+
+        # Dense straight edges are rare in training because Stage 2 normally
+        # simplifies them to two points. Use the same geometric contract as
+        # dataset construction so point-count alone cannot turn a line into an
+        # arc or polyline at deployment time.
+        if not is_closed and len(pts_arr) >= 3:
+            centered = pts_arr - pts_arr.mean(axis=0)
+            try:
+                _, _, vt = np.linalg.svd(centered, full_matrices=False)
+                direction = vt[0]
+                normal = np.array([-direction[1], direction[0]])
+                p90 = float(np.quantile(np.abs(centered @ normal), 0.90))
+                extent = float(np.ptp(centered @ direction))
+                if (
+                    extent > 1e-9
+                    and p90 <= self._HYBRID_LINE_MAX_P90
+                    and p90 / extent <= self._HYBRID_LINE_MAX_REL_P90
+                ):
+                    result = _fit_line_ransac(pts_arr)
+                    result["edge_id"] = edge.get("id", -1)
+                    result["fitter"] = "geometric_line"
+                    return result
+            except (ValueError, np.linalg.LinAlgError):
+                pass
 
         # ── Slow path: model inference ────────────────────────────────────────
         try:
@@ -833,8 +864,51 @@ class Free2CADFitter:
 
         if prim_type == self._TYPE_POLYLINE:
             raw = edge.get("smooth_pts") or edge["pixels"]
+            if edge.get("is_closed", False) and len(raw) >= 3:
+                from stage3_primitivesfitting.stage3_primitive_fit import _reorder_loop_pixels
+                raw = _reorder_loop_pixels(raw)
+                raw = np.vstack([raw, raw[0]])
             return {"edge_id": eid, "type": "polyline",
                     "points":     [[float(q[0]), float(q[1])] for q in raw],
+                    "confidence": confidence}
+
+        if prim_type == self._TYPE_BEZIER and self._version == 3:
+            # The network decides that this edge is non-analytic; production's
+            # deterministic fitter retains dense geometry and chooses one or
+            # more cubic segments without asking a six-value head to encode an
+            # arbitrary curve.
+            try:
+                from stage3_primitivesfitting import stage3_primitive_fit as production
+                fit_edge = edge
+                if edge.get("is_closed", False):
+                    fit_edge = dict(edge)
+                    fit_edge["pixels"] = production._reorder_loop_pixels(
+                        edge.get("pixels") or []
+                    )
+                    if len(fit_edge["pixels"]):
+                        fit_edge["pixels"] = np.vstack([
+                            fit_edge["pixels"], fit_edge["pixels"][0]
+                        ])
+                    fit_edge["pixels"] = fit_edge["pixels"].tolist()
+                    fit_edge["smooth_pts"] = []
+                result = production._fit_compound_path(fit_edge, eid)
+                if result is None:
+                    raw = np.asarray(
+                        fit_edge.get("pixels") or fit_edge.get("smooth_pts") or [],
+                        dtype=np.float64,
+                    )
+                    result, geometry_confidence = production._fit_bezier_segment(raw)
+                    if result is not None:
+                        result["confidence"] = min(confidence, geometry_confidence)
+                if result is not None:
+                    result["edge_id"] = eid
+                    result.setdefault("confidence", confidence)
+                    return result
+            except Exception as exc:
+                logger.debug("deterministic Bezier fit failed for edge %s: %s", eid, exc)
+            raw = edge.get("smooth_pts") or edge["pixels"]
+            return {"edge_id": eid, "type": "polyline",
+                    "points": [[float(q[0]), float(q[1])] for q in raw],
                     "confidence": confidence}
 
         return {}

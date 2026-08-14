@@ -34,7 +34,8 @@ Decision history:
   Free2CAD corpora for production. See README "Active next steps" #14.
 
 Priority order in fit_edge_ransac:
-  circle (closed) → line → arc → ellipse → polyline (final fallback)
+  closed: circle → ellipse → polygon → guarded simplified trace → raw trace
+  open:   line → arc → ellipse → guarded compound path → raw fallback
 
 Confidence:
   inlier_ratio × max(0, 1 − rms / MAX_RMS)
@@ -409,26 +410,275 @@ def _reorder_loop_pixels(pixels) -> np.ndarray:
     (confirmed on Drawing2CAD samples — a clean hexagon outline rendered
     as a single 397-point polyline criss-crossing the interior).
 
-    Greedy nearest-neighbour walk from the first pixel. O(N²) — fine for
-    loops with up to a few thousand pixels.
+    A valid one-pixel digital cycle is traversed exactly through its local
+    8-neighbour adjacency in O(N). Malformed residual networks use a bounded
+    depth-first adjacency walk, also O(N), so a missed keypoint can never turn
+    Stage 3 into the former quadratic nearest-neighbour search.
     """
-    n = len(pixels)
-    if n < 3:
-        return np.asarray(pixels, dtype=np.float64)
-    pts    = np.asarray(pixels, dtype=np.float64)
-    used   = np.zeros(n, dtype=bool)
-    order  = [0]
-    used[0] = True
-    last   = pts[0]
-    for _ in range(n - 1):
-        diff      = pts - last
-        d2        = np.einsum("ij,ij->i", diff, diff)
-        d2[used]  = np.inf
-        nxt       = int(d2.argmin())
-        order.append(nxt)
-        used[nxt] = True
-        last      = pts[nxt]
-    return pts[order]
+    point_set = {
+        (int(round(float(point[0]))), int(round(float(point[1]))))
+        for point in pixels
+    }
+    if len(point_set) < 3:
+        return np.asarray(sorted(point_set), dtype=np.float64)
+
+    offsets = (
+        (-1, -1), (0, -1), (1, -1),
+        (-1, 0),            (1, 0),
+        (-1, 1),  (0, 1),   (1, 1),
+    )
+
+    def neighbours(point, *, suppress_corner_chords):
+        x, y = point
+        result = []
+        for dx, dy in offsets:
+            candidate = (x + dx, y + dy)
+            if candidate not in point_set:
+                continue
+            if suppress_corner_chords and dx and dy and (
+                (x + dx, y) in point_set or (x, y + dy) in point_set
+            ):
+                continue
+            result.append(candidate)
+        return sorted(result, key=lambda item: (item[1], item[0]))
+
+    start = min(point_set, key=lambda item: (item[1], item[0]))
+    cycle_neighbours = {
+        point: neighbours(point, suppress_corner_chords=True)
+        for point in point_set
+    }
+    if all(len(items) == 2 for items in cycle_neighbours.values()):
+        ordered = [start]
+        cycle_visited = {start}
+        previous = None
+        current = start
+        while len(ordered) < len(point_set):
+            candidates = [
+                point for point in cycle_neighbours[current]
+                if point != previous and point not in cycle_visited
+            ]
+            if not candidates:
+                break
+            following = candidates[0]
+            ordered.append(following)
+            cycle_visited.add(following)
+            previous, current = current, following
+        if (
+            len(ordered) == len(point_set)
+            and start in cycle_neighbours[current]
+        ):
+            return np.asarray(ordered, dtype=np.float64)
+
+    # The component is not a simple loop. Follow real local adjacencies with
+    # an iterative DFS and repeat parent pixels while backtracking. The trace
+    # remains on the source skeleton and is bounded by 2*N-1 points.
+    visited = {start}
+    ordered = [start]
+    stack = [(start, iter(neighbours(start, suppress_corner_chords=False)))]
+    while stack:
+        current, candidates = stack[-1]
+        for following in candidates:
+            if following in visited:
+                continue
+            visited.add(following)
+            ordered.append(following)
+            stack.append((
+                following,
+                iter(neighbours(following, suppress_corner_chords=False)),
+            ))
+            break
+        else:
+            stack.pop()
+            if stack:
+                ordered.append(stack[-1][0])
+
+    if visited != point_set:
+        # Sparse sampled loops (notably Drawing2CAD supervision) can have
+        # two-pixel gaps, so exact 8-neighbour traversal sees many components.
+        # A capped KD-tree walk restores local order without reintroducing the
+        # old quadratic all-pairs search on giant malformed patent residuals.
+        spatial_limit = 20_000
+        if len(point_set) <= spatial_limit:
+            from scipy.spatial import cKDTree
+
+            points = np.asarray(
+                sorted(point_set, key=lambda item: (item[1], item[0])),
+                dtype=np.float64,
+            )
+            tree = cKDTree(points)
+            used = np.zeros(len(points), dtype=bool)
+            current = 0
+            spatial_order = []
+            for step in range(len(points)):
+                spatial_order.append(points[current])
+                used[current] = True
+                if step + 1 == len(points):
+                    break
+                k = min(8, len(points))
+                following = None
+                while following is None:
+                    distances, indices = tree.query(points[current], k=k)
+                    distances = np.atleast_1d(distances)
+                    indices = np.atleast_1d(indices)
+                    candidates = [
+                        (float(distance), int(index))
+                        for distance, index in zip(distances, indices)
+                        if np.isfinite(distance) and not used[int(index)]
+                    ]
+                    if candidates:
+                        following = min(
+                            candidates,
+                            key=lambda item: (
+                                item[0], points[item[1], 1],
+                                points[item[1], 0], item[1],
+                            ),
+                        )[1]
+                    elif k == len(points):
+                        following = int(np.flatnonzero(~used)[0])
+                    else:
+                        k = min(len(points), k * 2)
+                current = following
+            return np.asarray(spatial_order, dtype=np.float64)
+
+        # Defensive large-component fallback: retain all points with bounded
+        # work even when an unexpected disconnected residual reaches Stage 3.
+        ordered.extend(sorted(
+            point_set - visited, key=lambda item: (item[1], item[0])
+        ))
+    return np.asarray(ordered, dtype=np.float64)
+
+
+def _fit_closed_simplified_trace(
+    ordered_pts: np.ndarray,
+    edge_id,
+    *,
+    vertex_caps: tuple[int, ...] = (24, 32, 48, 64, 96, 128),
+    target_confidence: float = 0.65,
+    target_p95: float = 2.0,
+) -> dict | None:
+    """Fit a bounded closed polygon and score its bidirectional residual.
+
+    Unlike the old raw-polyline fallback, this representation has a hard
+    complexity ceiling. Confidence measures both source-to-vector coverage and
+    vector-to-source precision, so a shortcut across a concavity cannot earn a
+    high score merely because most source pixels lie near some segment.
+    """
+    pts = np.asarray(ordered_pts, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        return None
+    pts = pts[np.isfinite(pts).all(axis=1)]
+    if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+        pts = pts[:-1]
+    if len(pts) > 1:
+        keep = np.ones(len(pts), dtype=bool)
+        keep[1:] = np.any(np.diff(pts, axis=0) != 0, axis=1)
+        pts = pts[keep]
+    if len(pts) < 3:
+        return None
+
+    caps = tuple(sorted({int(value) for value in vertex_caps if int(value) >= 3}))
+    if not caps:
+        return None
+
+    import cv2
+    from scipy.spatial import cKDTree
+
+    contour = pts.astype(np.float32).reshape(-1, 1, 2)
+    source_points = np.unique(pts, axis=0)
+
+    def approximate(max_vertices: int) -> np.ndarray | None:
+        def at_epsilon(epsilon: float) -> np.ndarray:
+            return cv2.approxPolyDP(
+                contour, float(epsilon), True,
+            ).reshape(-1, 2).astype(np.float64)
+
+        vertices = at_epsilon(0.0)
+        if len(vertices) <= max_vertices:
+            return vertices if len(vertices) >= 3 else None
+
+        low = 0.0
+        high = max(
+            float(np.ptp(pts[:, 0])), float(np.ptp(pts[:, 1])), 1.0,
+        )
+        best = at_epsilon(high)
+        for _ in range(22):
+            middle = 0.5 * (low + high)
+            candidate = at_epsilon(middle)
+            if len(candidate) > max_vertices:
+                low = middle
+            else:
+                high = middle
+                best = candidate
+        return best if 3 <= len(best) <= max_vertices else None
+
+    def score(vertices: np.ndarray) -> tuple[float, float, float, float, float] | None:
+        samples = []
+        for start, end in zip(vertices, np.roll(vertices, -1, axis=0)):
+            length = float(np.linalg.norm(end - start))
+            n_samples = max(1, int(math.ceil(length)))
+            t = np.arange(n_samples, dtype=np.float64) / n_samples
+            samples.append(start + (end - start) * t[:, None])
+        if not samples:
+            return None
+        model_points = np.vstack(samples)
+        source_to_model = cKDTree(model_points).query(source_points)[0]
+        model_to_source = cKDTree(source_points).query(model_points)[0]
+        source_rms = float(np.sqrt(np.mean(source_to_model ** 2)))
+        model_rms = float(np.sqrt(np.mean(model_to_source ** 2)))
+        symmetric_rms = math.sqrt(0.5 * (source_rms ** 2 + model_rms ** 2))
+        source_p95 = float(np.percentile(source_to_model, 95))
+        model_p95 = float(np.percentile(model_to_source, 95))
+        symmetric_p95 = max(source_p95, model_p95)
+        inlier_ratio = 0.5 * (
+            float((source_to_model <= _INLIER_DIST_POLYGON).mean())
+            + float((model_to_source <= _INLIER_DIST_POLYGON).mean())
+        )
+        confidence = inlier_ratio * max(
+            0.0, 1.0 - symmetric_rms / _MAX_RMS_POLYGON,
+        )
+        return confidence, symmetric_rms, symmetric_p95, source_rms, model_rms
+
+    selected = None
+    selected_cap = None
+    selected_score = None
+    target_met = False
+    for cap in caps:
+        vertices = approximate(cap)
+        if vertices is None:
+            continue
+        metrics = score(vertices)
+        if metrics is None:
+            continue
+        selected = vertices
+        selected_cap = cap
+        selected_score = metrics
+        if metrics[0] >= target_confidence and metrics[2] <= target_p95:
+            target_met = True
+            break
+
+    # A bounded approximation that misses the fidelity contract is worse than
+    # the verbose but exact raw trace. Keep the caller on its original fallback
+    # instead of allowing a few giant malformed components to pass a
+    # primitive-count-based confidence gate while visibly losing geometry.
+    if not target_met or selected is None or selected_score is None:
+        return None
+    confidence, residual_rms, residual_p95, source_rms, model_rms = selected_score
+    return {
+        "edge_id": edge_id,
+        "type": "polygon",
+        "points": [[float(point[0]), float(point[1])] for point in selected],
+        "confidence": float(confidence),
+        "fit_metadata": {
+            "strategy": "closed_simplified_trace",
+            "source_points": int(len(source_points)),
+            "output_vertices": int(len(selected)),
+            "vertex_cap": int(selected_cap),
+            "residual_rms": float(residual_rms),
+            "residual_p95": float(residual_p95),
+            "source_to_model_rms": float(source_rms),
+            "model_to_source_rms": float(model_rms),
+        },
+    }
 
 
 # ── Geometric guard helper ────────────────────────────────────────────────────
@@ -493,6 +743,11 @@ _BEZIER_MAX_ERR     = 1.0    # px — max allowed deviation of a cubic from pixe
                              # the skeleton within ~1px, so the Bézier must hug it
                              # at least as closely or D2C Chamfer regresses.
 _BEZIER_MAX_DEPTH   = 6      # recursion cap (≤2^6 cubics/sub-seg, anti blow-up)
+_BEZIER_MAX_HANDLE_ARCLEN_RATIO = 2.0
+_PATH_SEGMENT_MAX_P95 = 2.0  # px, bidirectional source/model fidelity contract
+# Corner-split line fits can hand a 2-3 px transition to the adjacent segment;
+# larger misses are endpoint features that must not be silently discarded.
+_PATH_SEGMENT_MAX_ENDPOINT_ERROR = 3.0
 
 # A/B kill-switch: STAGE3_NO_COMPOUND=1 reverts to the raw-polyline fallback.
 import os as _os
@@ -591,7 +846,25 @@ def _generate_bezier(pts, u, that1, that2):
     else:
         alpha1 = (x0 * c11 - c01 * x1) / det
         alpha2 = (c00 * x1 - c01 * x0) / det
-    if alpha1 < 1e-6 or alpha2 < 1e-6:
+
+    # A matrix can be technically invertible while still being ill-conditioned.
+    # In that case the least-squares solution may place a handle thousands of
+    # pixels away from a short source chain. The sampled residual then catches
+    # the error, but at the recursion limit the malformed cubic used to escape.
+    # A valid local handle has no reason to exceed twice the complete observed
+    # chain length; fall back to the stable chord construction when it does.
+    polyline_length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
+    max_handle = _BEZIER_MAX_HANDLE_ARCLEN_RATIO * max(
+        polyline_length, seg_len, 1e-6,
+    )
+    if (
+        not np.isfinite(alpha1)
+        or not np.isfinite(alpha2)
+        or alpha1 < 1e-6
+        or alpha2 < 1e-6
+        or alpha1 > max_handle
+        or alpha2 > max_handle
+    ):
         alpha1 = alpha2 = seg_len / 3.0
     return np.array([p0, p0 + that1 * alpha1, p3 + that2 * alpha2, p3])
 
@@ -678,7 +951,91 @@ def _fit_subsegment(sub: np.ndarray):
     return _fit_bezier_segment(sub)
 
 
-def _fit_compound_path(edge: dict, edge_id) -> dict | None:
+def _sample_path_segment(segment: dict) -> np.ndarray:
+    """Sample one path-local primitive at approximately one-pixel spacing."""
+    segment_type = segment.get("type")
+    if segment_type == "line":
+        start = np.asarray(segment["p1"], dtype=np.float64)
+        end = np.asarray(segment["p2"], dtype=np.float64)
+        n = max(2, int(math.ceil(float(np.linalg.norm(end - start)))) + 1)
+        return np.linspace(start, end, n)
+
+    if segment_type == "arc":
+        center = np.asarray(segment["center"], dtype=np.float64)
+        radius = float(segment["radius"])
+        start = float(segment["start_angle"])
+        sweep = (float(segment["end_angle"]) - start) % 360.0
+        arc_length = abs(radius) * math.radians(sweep)
+        n = max(2, min(8192, int(math.ceil(arc_length)) + 1))
+        angles = np.radians(start + np.linspace(0.0, sweep, n))
+        return center + radius * np.column_stack([
+            np.cos(angles), np.sin(angles),
+        ])
+
+    if segment_type == "bezier":
+        points = np.asarray(segment.get("points") or [], dtype=np.float64)
+        if len(points) < 4 or (len(points) - 1) % 3:
+            return np.empty((0, 2), dtype=np.float64)
+        samples = []
+        for index in range(0, len(points) - 1, 3):
+            control = points[index:index + 4]
+            control_length = float(
+                np.linalg.norm(np.diff(control, axis=0), axis=1).sum()
+            )
+            n = max(8, min(2048, int(math.ceil(control_length)) + 1))
+            curve = _bezier_eval(control, np.linspace(0.0, 1.0, n))
+            samples.append(curve if not samples else curve[1:])
+        return np.vstack(samples) if samples else np.empty((0, 2), dtype=np.float64)
+
+    return np.empty((0, 2), dtype=np.float64)
+
+
+def _path_segment_fidelity(segment: dict, source: np.ndarray) -> dict | None:
+    """Return bidirectional residuals, or None for malformed geometry."""
+    model = _sample_path_segment(segment)
+    source = np.asarray(source, dtype=np.float64)
+    if (
+        len(model) == 0
+        or len(source) == 0
+        or not np.isfinite(model).all()
+        or not np.isfinite(source).all()
+    ):
+        return None
+
+    from scipy.spatial import cKDTree
+
+    source_to_model = cKDTree(model).query(source)[0]
+    model_to_source = cKDTree(source).query(model)[0]
+    direct_endpoint_error = max(
+        float(np.linalg.norm(model[0] - source[0])),
+        float(np.linalg.norm(model[-1] - source[-1])),
+    )
+    reverse_endpoint_error = max(
+        float(np.linalg.norm(model[-1] - source[0])),
+        float(np.linalg.norm(model[0] - source[-1])),
+    )
+    return {
+        "source_p95": float(np.percentile(source_to_model, 95)),
+        "model_p95": float(np.percentile(model_to_source, 95)),
+        "symmetric_p95": max(
+            float(np.percentile(source_to_model, 95)),
+            float(np.percentile(model_to_source, 95)),
+        ),
+        "endpoint_error": min(
+            direct_endpoint_error,
+            reverse_endpoint_error,
+        ),
+    }
+
+
+def _fit_compound_path(
+    edge: dict,
+    edge_id,
+    *,
+    require_fidelity: bool = False,
+    max_segment_p95: float = _PATH_SEGMENT_MAX_P95,
+    max_endpoint_error: float = _PATH_SEGMENT_MAX_ENDPOINT_ERROR,
+) -> dict | None:
     """Corner-split the dense skeleton and fit each piece line/arc/Bézier.
 
     Returns a 'path' primitive {segments:[...]} or None to defer to a raw
@@ -689,29 +1046,83 @@ def _fit_compound_path(edge: dict, edge_id) -> dict | None:
     if len(pts) < _SEG_MIN_PTS:
         return None
     segments, confs, weights = [], [], []
+    segment_p95, endpoint_errors = [], []
     for sub in _split_at_corners(pts):
         if len(sub) < 2:
             continue
         seg, conf = _fit_subsegment(sub)
         if seg is None:
-            continue
+            return None
+        fidelity = _path_segment_fidelity(seg, sub)
+        if fidelity is None:
+            if require_fidelity:
+                return None
+        elif require_fidelity and (
+            fidelity["symmetric_p95"] > max_segment_p95
+            or fidelity["endpoint_error"] > max_endpoint_error
+        ):
+            return None
         segments.append(seg)
         confs.append(conf)
         weights.append(len(sub))
+        if fidelity is not None:
+            segment_p95.append(fidelity["symmetric_p95"])
+            endpoint_errors.append(fidelity["endpoint_error"])
     if not segments:
         return None
     w = np.array(weights, dtype=np.float64)
     conf = float(np.average(confs, weights=w)) if confs else 0.0
-    return {"edge_id": edge_id, "type": "path", "segments": segments,
-            "confidence": conf}
+    path = {
+        "edge_id": edge_id,
+        "type": "path",
+        "segments": segments,
+        "confidence": conf,
+    }
+    if segment_p95:
+        path["fit_fidelity"] = {
+            "max_segment_p95": float(max(segment_p95)),
+            "target_p95": max_segment_p95,
+            "max_endpoint_error": float(max(endpoint_errors)),
+            "target_endpoint_error": max_endpoint_error,
+        }
+    return path
+
+
+def _compound_path_atom_count(path: dict) -> int:
+    """Count native line/arc/cubic pieces represented by a compound path."""
+    count = 0
+    for segment in path.get("segments", []):
+        if segment.get("type") == "bezier":
+            # Cubics are stored P0,C1,C2,P1,C1,C2,P2,...
+            count += max(1, (len(segment.get("points", [])) - 1) // 3)
+        else:
+            count += 1
+    return count
 
 
 # ── Priority selector ─────────────────────────────────────────────────────────
 
-def fit_edge_ransac(edge: dict) -> dict:
+def fit_edge_ransac(
+    edge: dict,
+    *,
+    prefer_compound_over_weak: bool = False,
+    weak_compound_confidence_threshold: float = 0.60,
+    weak_compound_min_gain: float = 0.05,
+    weak_compound_max_points: int = 20_000,
+    weak_compound_max_path_atoms: int = 64,
+    weak_compound_max_segment_p95: float = _PATH_SEGMENT_MAX_P95,
+    weak_compound_max_endpoint_error: float = _PATH_SEGMENT_MAX_ENDPOINT_ERROR,
+    simplify_closed_fallback: bool = False,
+    closed_trace_vertex_caps: tuple[int, ...] = (24, 32, 48, 64, 96, 128),
+    closed_trace_target_confidence: float = 0.65,
+    closed_trace_target_p95: float = 2.0,
+    closed_trace_compete_below_confidence: float = 0.60,
+    closed_trace_min_gain: float = 0.05,
+) -> dict:
     """
     Fit one edge with the priority order:
-      circle (closed) → ellipse (closed) → polygon (closed) → line → arc → ellipse → polyline
+      closed: circle → ellipse → polygon → simplified trace → raw trace
+      open: line → arc → ellipse → compound path → raw fallback
 
     For open edges the cascade fits on smooth_pts (Stage 2's spline-
     interpolated coords), which generally improves fit confidence on noisy
@@ -726,10 +1137,10 @@ def fit_edge_ransac(edge: dict) -> dict:
     is_closed = edge.get("is_closed", False)
 
     if is_closed:
-        # Reorder pixels into topological loop traversal (Stage 2 emits
-        # them scanline-ordered for closed loops; the polyline fallback
-        # would otherwise zigzag through the interior).
-        pts = _reorder_loop_pixels(edge["pixels"])
+        # Circle and ellipse fits are order-independent. Keep raw unique
+        # samples here and pay the ordering cost only for polygon/polyline
+        # fallbacks.
+        pts = np.asarray(edge["pixels"], dtype=np.float64)
     else:
         raw            = edge.get("smooth_pts") or []
         raw_pixels_list = edge.get("pixels", [])
@@ -775,15 +1186,51 @@ def fit_edge_ransac(edge: dict) -> dict:
                     return r
             except ValueError:
                 pass
+        ordered_pts = _reorder_loop_pixels(edge["pixels"])
+
         # Try closed polygon (handles rectangles, hexagons, etc. whose
         # skeleton corners are rounded and fool circle/ellipse fitters).
-        poly = _fit_polygon_closed(pts)
+        poly = _fit_polygon_closed(ordered_pts)
         if poly is not None:
             poly["edge_id"] = edge_id
+            if (
+                simplify_closed_fallback
+                and poly["confidence"] < closed_trace_compete_below_confidence
+            ):
+                trace = _fit_closed_simplified_trace(
+                    ordered_pts,
+                    edge_id,
+                    vertex_caps=closed_trace_vertex_caps,
+                    target_confidence=closed_trace_target_confidence,
+                    target_p95=closed_trace_target_p95,
+                )
+                if (
+                    trace is not None
+                    and trace["confidence"]
+                    >= poly["confidence"] + closed_trace_min_gain
+                ):
+                    trace["fit_metadata"]["replaced_type"] = "polygon"
+                    trace["fit_metadata"]["replaced_confidence"] = float(
+                        poly["confidence"]
+                    )
+                    return trace
             return poly
 
+        if simplify_closed_fallback:
+            trace = _fit_closed_simplified_trace(
+                ordered_pts,
+                edge_id,
+                vertex_caps=closed_trace_vertex_caps,
+                target_confidence=closed_trace_target_confidence,
+                target_p95=closed_trace_target_p95,
+            )
+            if trace is not None:
+                trace["fit_metadata"]["replaced_type"] = "polyline"
+                trace["fit_metadata"]["replaced_confidence"] = 0.3
+                return trace
+
         # Final fallback: raw ordered pixel trace.
-        poly_points = [[float(p[0]), float(p[1])] for p in pts]
+        poly_points = [[float(p[0]), float(p[1])] for p in ordered_pts]
         if poly_points and poly_points[0] != poly_points[-1]:
             poly_points.append(poly_points[0])
         return {
@@ -840,6 +1287,7 @@ def fit_edge_ransac(edge: dict) -> dict:
         if candidate is not None:
             if best is None or candidate["confidence"] > best["confidence"]:
                 best = candidate
+    weak_candidate = None
     if best is not None and best["confidence"] > 0.2:
         # Same geometric guard as the arc-passes-threshold branch above —
         # the best-of fallback can also wrongly emit a "best-effort" arc
@@ -847,12 +1295,58 @@ def fit_edge_ransac(edge: dict) -> dict:
         if best.get("type") == "arc":
             line_fallback = _refit_arc_as_line(edge, edge_id)
             if line_fallback is not None:
-                return line_fallback
+                weak_candidate = line_fallback
             # Sparse RDP fallback edges → prefer the polyline below
-            if not _spline_sparse:
-                return best
+            elif not _spline_sparse:
+                weak_candidate = best
         else:
-            return best
+            weak_candidate = best
+
+    # A weak global line/arc can be a poor explanation of a continuous bent
+    # stroke. Historically it returned here and made the compound fitter below
+    # unreachable. The opt-in policy lets a bounded compound path compete, but
+    # only when it clears the quality threshold by a meaningful margin. The
+    # atom cap prevents confidence from being bought with an impractically
+    # large chain of tiny cubics.
+    if prefer_compound_over_weak and weak_candidate is not None:
+        raw_points = edge.get("pixels") or edge.get("smooth_pts") or []
+        within_point_budget = (
+            weak_compound_max_points <= 0
+            or len(raw_points) <= weak_compound_max_points
+        )
+        if (
+            within_point_budget
+            and weak_candidate["confidence"] < weak_compound_confidence_threshold
+        ):
+            path = _fit_compound_path(
+                edge,
+                edge_id,
+                require_fidelity=True,
+                max_segment_p95=weak_compound_max_segment_p95,
+                max_endpoint_error=weak_compound_max_endpoint_error,
+            )
+            if path is not None:
+                atom_count = _compound_path_atom_count(path)
+                within_atom_budget = (
+                    weak_compound_max_path_atoms <= 0
+                    or atom_count <= weak_compound_max_path_atoms
+                )
+                if (
+                    within_atom_budget
+                    and path["confidence"] >= weak_compound_confidence_threshold
+                    and path["confidence"]
+                    >= weak_candidate["confidence"] + weak_compound_min_gain
+                ):
+                    path["fit_metadata"] = {
+                        "strategy": "compound_over_weak",
+                        "weak_type": weak_candidate.get("type"),
+                        "weak_confidence": float(weak_candidate["confidence"]),
+                        "path_atoms": atom_count,
+                    }
+                    return path
+
+    if weak_candidate is not None:
+        return weak_candidate
 
     # ── Compound-path fallback ────────────────────────────────────────────────
     # No single line/arc/ellipse fit it. Rather than dump a raw jagged polyline,
@@ -978,7 +1472,10 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     config : dict
         Parsed config.yaml. `stage3.confidence_threshold` controls main-geometry
         confidence; hachure-heavy graphs can use
-        `stage3.confidence_threshold_after_hachure`.
+        `stage3.confidence_threshold_after_hachure`. Guarded weak-open and
+        closed-trace policies are controlled by
+        `stage3.prefer_compound_over_weak` and
+        `stage3.simplify_closed_fallback`.
     stroke_width : float | None
         Estimated original stroke width in pixels (from Stage 1). When
         provided it is embedded in the JSON so Stage 4 can produce an SVG
@@ -1020,6 +1517,55 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
 
     stage3_cfg = config.get("stage3", {})
     conf_thresh = float(stage3_cfg.get("confidence_threshold", 0.60))
+    prefer_compound_over_weak = bool(
+        stage3_cfg.get("prefer_compound_over_weak", False)
+    )
+    weak_compound_confidence_threshold = float(
+        stage3_cfg.get("weak_compound_confidence_threshold", conf_thresh)
+    )
+    weak_compound_min_gain = float(
+        stage3_cfg.get("weak_compound_min_gain", 0.05)
+    )
+    weak_compound_max_points = int(
+        stage3_cfg.get("weak_compound_max_points", 20_000) or 0
+    )
+    weak_compound_max_path_atoms = int(
+        stage3_cfg.get("weak_compound_max_path_atoms", 64) or 0
+    )
+    weak_compound_max_segment_p95 = float(
+        stage3_cfg.get(
+            "weak_compound_max_segment_p95", _PATH_SEGMENT_MAX_P95,
+        )
+    )
+    weak_compound_max_endpoint_error = float(
+        stage3_cfg.get(
+            "weak_compound_max_endpoint_error",
+            _PATH_SEGMENT_MAX_ENDPOINT_ERROR,
+        )
+    )
+    simplify_closed_fallback = bool(
+        stage3_cfg.get("simplify_closed_fallback", False)
+    )
+    closed_trace_caps_value = stage3_cfg.get(
+        "closed_trace_vertex_caps", [24, 32, 48, 64, 96, 128],
+    )
+    if isinstance(closed_trace_caps_value, (int, float)):
+        closed_trace_caps_value = [closed_trace_caps_value]
+    closed_trace_vertex_caps = tuple(
+        int(value) for value in closed_trace_caps_value
+    )
+    closed_trace_target_confidence = float(
+        stage3_cfg.get("closed_trace_target_confidence", 0.65)
+    )
+    closed_trace_target_p95 = float(
+        stage3_cfg.get("closed_trace_target_p95", 2.0)
+    )
+    closed_trace_compete_below_confidence = float(
+        stage3_cfg.get("closed_trace_compete_below_confidence", conf_thresh)
+    )
+    closed_trace_min_gain = float(
+        stage3_cfg.get("closed_trace_min_gain", 0.05)
+    )
     effective_conf_thresh = conf_thresh
     hachure_relax_min_edges = int(
         stage3_cfg.get("min_hachure_edges_for_relaxed_confidence", 0) or 0
@@ -1034,8 +1580,34 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     ):
         effective_conf_thresh = min(conf_thresh, hachure_conf_thresh)
 
-    main_primitives = [_scale_primitive(fit_edge_ransac(edge), coord_scale)
-                       for edge in edges]
+    main_primitives = [
+        _scale_primitive(
+            fit_edge_ransac(
+                edge,
+                prefer_compound_over_weak=prefer_compound_over_weak,
+                weak_compound_confidence_threshold=(
+                    weak_compound_confidence_threshold
+                ),
+                weak_compound_min_gain=weak_compound_min_gain,
+                weak_compound_max_points=weak_compound_max_points,
+                weak_compound_max_path_atoms=weak_compound_max_path_atoms,
+                weak_compound_max_segment_p95=weak_compound_max_segment_p95,
+                weak_compound_max_endpoint_error=(
+                    weak_compound_max_endpoint_error
+                ),
+                simplify_closed_fallback=simplify_closed_fallback,
+                closed_trace_vertex_caps=closed_trace_vertex_caps,
+                closed_trace_target_confidence=closed_trace_target_confidence,
+                closed_trace_target_p95=closed_trace_target_p95,
+                closed_trace_compete_below_confidence=(
+                    closed_trace_compete_below_confidence
+                ),
+                closed_trace_min_gain=closed_trace_min_gain,
+            ),
+            coord_scale,
+        )
+        for edge in edges
+    ]
     # Hachures: prefer parametric regions (one HATCH per filled area) over
     # per-line fitting, which fragments at cross-hatch intersections and bloats
     # the output (~45% of all primitives). Fall back to per-line if Stage 2
@@ -1058,6 +1630,15 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     confidences = [p.get("confidence", 0.0) for p in main_primitives]
     mean_conf   = float(np.mean(confidences)) if confidences else 0.0
     flagged     = mean_conf < effective_conf_thresh
+    weak_compound_promotions = [
+        p for p in main_primitives
+        if p.get("fit_metadata", {}).get("strategy") == "compound_over_weak"
+    ]
+    closed_trace_simplifications = [
+        p for p in main_primitives
+        if p.get("fit_metadata", {}).get("strategy")
+        == "closed_simplified_trace"
+    ]
 
     def _to_python(obj):
         if isinstance(obj, dict):
@@ -1084,6 +1665,20 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         "main_mean_confidence": mean_conf,
         "confidence_threshold": conf_thresh,
         "effective_confidence_threshold": effective_conf_thresh,
+        "n_weak_compound_promotions": len(weak_compound_promotions),
+        "n_weak_compound_path_atoms": sum(
+            int(p.get("fit_metadata", {}).get("path_atoms", 0))
+            for p in weak_compound_promotions
+        ),
+        "n_closed_trace_simplifications": len(closed_trace_simplifications),
+        "n_closed_trace_source_points": sum(
+            int(p.get("fit_metadata", {}).get("source_points", 0))
+            for p in closed_trace_simplifications
+        ),
+        "n_closed_trace_output_vertices": sum(
+            int(p.get("fit_metadata", {}).get("output_vertices", 0))
+            for p in closed_trace_simplifications
+        ),
     }
     doc["annotations"] = []   # filled by AP6.4 (Bezugszeichen) when available
     doc = _to_python(doc)

@@ -34,6 +34,7 @@ Author : Yassine Rezgui — HAW Landshut / IP DrawingDrafter
 from __future__ import annotations
 
 import json
+import heapq
 import logging
 import os
 import time
@@ -69,6 +70,8 @@ class Stage2Result:
     median_edge_length: float = 0.0
     micro_edge_ratio: float = 0.0   # open edges shorter than 6 px
     short_edge_ratio: float = 0.0   # open edges shorter than 15 px
+    n_unclaimed_noncycle_components: int = 0
+    max_unclaimed_noncycle_pixels: int = 0
 
 
 # ─── Keypoint type constants ─────────────────────────────────────────────────
@@ -616,6 +619,460 @@ def _fuse_cn_cnn_clusters(
     return base + corners
 
 
+def _hatch_bridge_junction_clusters(
+    skeleton: np.ndarray,
+    hatch_mask: np.ndarray,
+    structural_clusters: list[dict],
+    dedup_radius: float = 5.0,
+) -> list[dict]:
+    """Return temporary CN junctions needed to cross hatch ink.
+
+    A hatch-suppressed detector intentionally does not emit the raster
+    junctions created where hatch lines cross an object contour.  The pixel
+    tracer still needs a temporary node at those crossings so graph
+    simplification can pair the straight-through object branches.  Only CN
+    junctions touching the learned hatch region are admitted; hatch endpoints
+    stay out of the main graph and are retained by the separate hatch prepass.
+    """
+    if hatch_mask.shape != skeleton.shape:
+        raise ValueError(
+            f"hatch mask shape {hatch_mask.shape} != skeleton {skeleton.shape}"
+        )
+    if dedup_radius < 0:
+        raise ValueError("hatch bridge dedup radius must be non-negative")
+
+    structural_xy = np.asarray(
+        [[cluster["x"], cluster["y"]] for cluster in structural_clusters],
+        dtype=np.float64,
+    ).reshape(-1, 2)
+    maximum_squared = float(dedup_radius) ** 2
+    bridges: list[dict] = []
+    for cluster in _cn_keypoint_clusters(skeleton):
+        if cluster.get("type") != KP_JUNCTION:
+            continue
+        if not any(
+            hatch_mask[int(y), int(x)] > 0
+            for x, y in cluster.get("pixels", [])
+        ):
+            continue
+        point = np.asarray([cluster["x"], cluster["y"]], dtype=np.float64)
+        if len(structural_xy):
+            distance_squared = np.sum((structural_xy - point) ** 2, axis=1)
+            if float(np.min(distance_squared)) <= maximum_squared:
+                continue
+        bridge = dict(cluster)
+        bridge["structural_seed"] = False
+        bridge["topology_origin"] = "hatch_bridge_cn"
+        bridges.append(bridge)
+    return bridges
+
+
+def _junction_arm_features(
+    skeleton: np.ndarray,
+    mask: np.ndarray,
+    cluster: dict,
+    *,
+    support_length: float = 10.0,
+    core_radius: int = 1,
+    minimum_pixels: int = 4,
+) -> list[dict]:
+    """Measure direction and thin-mask support for each CN junction arm.
+
+    Removing a one-pixel halo around the CN core separates the local arms. A
+    short direction-preserving trace then measures each arm independently,
+    avoiding a flood fill that could reconnect through the surrounding hatch
+    lattice. The result is used only to decide whether a junction mixes hatch
+    and structural ink; it does not alter topology itself.
+    """
+    if skeleton.shape != mask.shape:
+        raise ValueError("skeleton and junction mask shapes must match")
+    if support_length <= 0:
+        raise ValueError("junction arm support length must be positive")
+    if core_radius < 0:
+        raise ValueError("junction arm core radius must be non-negative")
+    if minimum_pixels <= 0:
+        raise ValueError("junction arm minimum pixels must be positive")
+
+    binary = skeleton > 0
+    height, width = binary.shape
+    core = np.zeros_like(skeleton, dtype=np.uint8)
+    for x, y in cluster.get("pixels", []):
+        x, y = int(x), int(y)
+        if 0 <= x < width and 0 <= y < height and binary[y, x]:
+            core[y, x] = 1
+    if not np.any(core):
+        x, y = int(cluster["x"]), int(cluster["y"])
+        if not (0 <= x < width and 0 <= y < height and binary[y, x]):
+            return []
+        core[y, x] = 1
+
+    if core_radius > 0:
+        size = core_radius * 2 + 1
+        blocked = cv2.dilate(
+            core, np.ones((size, size), dtype=np.uint8)
+        ).astype(bool)
+    else:
+        blocked = core.astype(bool)
+    blocked &= binary
+
+    boundary = (
+        binary
+        & ~blocked
+        & (cv2.dilate(blocked.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0)
+    )
+    component_count, labels = cv2.connectedComponents(
+        boundary.astype(np.uint8), connectivity=8
+    )
+    if component_count <= 1:
+        return []
+
+    centre = np.asarray(
+        [float(cluster["x"]), float(cluster["y"])], dtype=np.float64
+    )
+    features: list[dict] = []
+
+    def neighbours8(point: tuple[int, int]):
+        x, y = point
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                nx_, ny_ = x + dx, y + dy
+                if 0 <= nx_ < width and 0 <= ny_ < height and binary[ny_, nx_]:
+                    yield (nx_, ny_)
+
+    blocked_pixels = {
+        (int(x), int(y))
+        for y, x in zip(*np.where(blocked))
+    }
+    for component_id in range(1, component_count):
+        ys, xs = np.where(labels == component_id)
+        if len(xs) == 0:
+            continue
+        points = [(int(x), int(y)) for x, y in zip(xs, ys)]
+        start = max(
+            points,
+            key=lambda point: (
+                float(np.sum((np.asarray(point, dtype=float) - centre) ** 2)),
+                -point[1],
+                -point[0],
+            ),
+        )
+        initial = np.asarray(start, dtype=np.float64) - centre
+        initial_norm = float(np.linalg.norm(initial))
+        if initial_norm <= 1e-9:
+            continue
+        initial /= initial_norm
+
+        chain = [start]
+        visited = set(blocked_pixels)
+        visited.add(start)
+        travelled = 0.0
+        previous_direction = initial
+        while travelled < support_length:
+            current = chain[-1]
+            candidates = []
+            for candidate in neighbours8(current):
+                if candidate in visited:
+                    continue
+                label = int(labels[candidate[1], candidate[0]])
+                if label > 0 and label != component_id:
+                    continue
+                step = np.asarray(candidate, dtype=np.float64) - np.asarray(
+                    current, dtype=np.float64
+                )
+                step_norm = float(np.linalg.norm(step))
+                if step_norm <= 1e-9:
+                    continue
+                step_direction = step / step_norm
+                radial_gain = float(
+                    np.linalg.norm(np.asarray(candidate, dtype=float) - centre)
+                    - np.linalg.norm(np.asarray(current, dtype=float) - centre)
+                )
+                candidates.append((
+                    float(np.dot(previous_direction, step_direction)),
+                    radial_gain,
+                    float(np.dot(initial, step_direction)),
+                    -candidate[1],
+                    -candidate[0],
+                    candidate,
+                    step_direction,
+                    step_norm,
+                ))
+            if not candidates:
+                break
+            selected = max(candidates)
+            candidate = selected[-3]
+            previous_direction = selected[-2]
+            step_norm = selected[-1]
+            if travelled + step_norm > support_length + 1e-9:
+                break
+            chain.append(candidate)
+            visited.add(candidate)
+            travelled += step_norm
+
+        if len(chain) < minimum_pixels:
+            continue
+        delta = np.asarray(chain[-1], dtype=float) - np.asarray(
+            chain[0], dtype=float
+        )
+        if float(np.linalg.norm(delta)) <= 1e-9:
+            continue
+        features.append({
+            "direction_deg": float(
+                np.degrees(np.arctan2(delta[1], delta[0])) % 360.0
+            ),
+            "angle_deg": float(
+                np.degrees(np.arctan2(delta[1], delta[0])) % 180.0
+            ),
+            "mask_fraction": float(np.mean([
+                bool(mask[y, x]) for x, y in chain
+            ])),
+            "n_pixels": len(chain),
+        })
+    return features
+
+
+def _junction_arm_mask_fractions(
+    skeleton: np.ndarray,
+    mask: np.ndarray,
+    cluster: dict,
+    *,
+    support_length: float = 10.0,
+    core_radius: int = 1,
+    minimum_pixels: int = 4,
+) -> list[float]:
+    """Compatibility view of local junction-arm thin-mask coverage."""
+    return [
+        float(feature["mask_fraction"])
+        for feature in _junction_arm_features(
+            skeleton,
+            mask,
+            cluster,
+            support_length=support_length,
+            core_radius=core_radius,
+            minimum_pixels=minimum_pixels,
+        )
+    ]
+
+
+def _mixed_hatch_junction_clusters(
+    skeleton: np.ndarray,
+    hatch_stroke_mask: np.ndarray,
+    candidates: list[dict],
+    cfg: dict,
+    hough_families: list[dict] | None = None,
+) -> list[dict]:
+    """Keep only junctions joining Hough hatch arms to non-hatch arms."""
+    minimum_hatch_fraction = float(
+        cfg.get("hachure_hough_bridge_min_hatch_arm_frac", 0.55)
+    )
+    maximum_structural_fraction = float(
+        cfg.get("hachure_hough_bridge_max_structural_arm_frac", 0.25)
+    )
+    if not (0.0 <= maximum_structural_fraction < minimum_hatch_fraction <= 1.0):
+        raise ValueError("invalid mixed Hough junction arm thresholds")
+    angle_tolerance = float(
+        cfg.get("hachure_hough_bridge_family_angle_tolerance", 15.0)
+    )
+    minimum_aligned_fraction = float(
+        cfg.get("hachure_hough_bridge_min_aligned_arm_frac", 0.10)
+    )
+    bbox_margin = float(
+        cfg.get("hachure_hough_bridge_family_bbox_margin", 4.0)
+    )
+    if angle_tolerance <= 0 or angle_tolerance > 90:
+        raise ValueError("invalid mixed Hough junction angle tolerance")
+    if not (0.0 <= minimum_aligned_fraction <= 1.0):
+        raise ValueError("invalid aligned Hough arm support threshold")
+    pair_tolerance = float(
+        cfg.get("hachure_hough_bridge_pair_angle_tolerance", 35.0)
+    )
+    if pair_tolerance <= 0 or pair_tolerance > 90:
+        raise ValueError("invalid mixed Hough arm-pair tolerance")
+
+    def has_opposite_pair(features: list[dict], indices: list[int]) -> bool:
+        for first_offset, first in enumerate(indices):
+            for second in indices[first_offset + 1:]:
+                delta = abs(
+                    float(features[first]["direction_deg"])
+                    - float(features[second]["direction_deg"])
+                ) % 360.0
+                delta = min(delta, 360.0 - delta)
+                if abs(180.0 - delta) <= pair_tolerance:
+                    return True
+        return False
+
+    selected: list[dict] = []
+    for candidate in candidates:
+        features = _junction_arm_features(
+            skeleton,
+            hatch_stroke_mask,
+            candidate,
+            support_length=float(
+                cfg.get("hachure_hough_bridge_arm_length", 10.0)
+            ),
+            core_radius=int(
+                cfg.get("hachure_hough_bridge_arm_core_radius", 1)
+            ),
+            minimum_pixels=int(
+                cfg.get("hachure_hough_bridge_min_arm_pixels", 4)
+            ),
+        )
+        local_angles: list[float] = []
+        for family in hough_families or []:
+            bbox = family.get("bbox")
+            if bbox and len(bbox) == 4:
+                left, top, width, height = (float(value) for value in bbox)
+                if not (
+                    left - bbox_margin <= float(candidate["x"])
+                    <= left + width - 1 + bbox_margin
+                    and top - bbox_margin <= float(candidate["y"])
+                    <= top + height - 1 + bbox_margin
+                ):
+                    continue
+            local_angles.append(float(family["angle_deg"]))
+
+        if local_angles:
+            aligned = [
+                min(
+                    _angle_delta_deg(feature["angle_deg"], family_angle)
+                    for family_angle in local_angles
+                ) <= angle_tolerance
+                for feature in features
+            ]
+            hatch_indices = [
+                index for index, is_aligned in enumerate(aligned)
+                if is_aligned
+            ]
+            structural_indices = [
+                index for index, (feature, is_aligned) in enumerate(
+                    zip(features, aligned)
+                )
+                if not is_aligned
+                and feature["mask_fraction"] <= maximum_structural_fraction
+            ]
+            has_supported_hatch_arm = any(
+                is_aligned
+                and feature["mask_fraction"] >= minimum_aligned_fraction
+                for feature, is_aligned in zip(features, aligned)
+            )
+            structural_pair = has_opposite_pair(
+                features, structural_indices
+            )
+            if len(features) == 3:
+                solvable = (
+                    len(hatch_indices) == 1
+                    and len(structural_indices) == 2
+                    and structural_pair
+                )
+            elif len(features) == 4:
+                solvable = (
+                    len(hatch_indices) == 2
+                    and len(structural_indices) == 2
+                    and structural_pair
+                    and has_opposite_pair(features, hatch_indices)
+                )
+            else:
+                solvable = False
+            has_hatch_arm = has_supported_hatch_arm and solvable
+            has_structural_arm = structural_pair and solvable
+        else:
+            has_hatch_arm = any(
+                feature["mask_fraction"] >= minimum_hatch_fraction
+                for feature in features
+            )
+            has_structural_arm = any(
+                feature["mask_fraction"] <= maximum_structural_fraction
+                for feature in features
+            )
+        if has_hatch_arm and has_structural_arm:
+            selected.append(candidate)
+    return selected
+
+
+def _structural_cn_endpoint_clusters(
+    skeleton: np.ndarray,
+    hatch_stroke_mask: np.ndarray,
+    structural_clusters: list[dict],
+    dedup_radius: float = 5.0,
+) -> list[dict]:
+    """Recover missed open-stroke endpoints outside verified hatch ink."""
+    if hatch_stroke_mask.shape != skeleton.shape:
+        raise ValueError(
+            "hatch stroke mask shape "
+            f"{hatch_stroke_mask.shape} != skeleton {skeleton.shape}"
+        )
+    if dedup_radius < 0:
+        raise ValueError("endpoint recovery dedup radius must be non-negative")
+
+    structural_xy = np.asarray(
+        [[cluster["x"], cluster["y"]] for cluster in structural_clusters],
+        dtype=np.float64,
+    ).reshape(-1, 2)
+    maximum_squared = float(dedup_radius) ** 2
+    recovered: list[dict] = []
+    for cluster in _cn_keypoint_clusters(skeleton):
+        if cluster.get("type") != KP_ENDPOINT:
+            continue
+        if any(
+            hatch_stroke_mask[int(y), int(x)] > 0
+            for x, y in cluster.get("pixels", [])
+        ):
+            continue
+        point = np.asarray([cluster["x"], cluster["y"]], dtype=np.float64)
+        if len(structural_xy):
+            distance_squared = np.sum((structural_xy - point) ** 2, axis=1)
+            if float(np.min(distance_squared)) <= maximum_squared:
+                continue
+        endpoint = dict(cluster)
+        endpoint["structural_seed"] = True
+        endpoint["topology_origin"] = "structural_cn_endpoint_recovery"
+        recovered.append(endpoint)
+    return recovered
+
+
+def _hatch_cn_endpoint_clusters(
+    skeleton: np.ndarray,
+    hatch_stroke_mask: np.ndarray,
+    existing_clusters: list[dict],
+    dedup_radius: float = 5.0,
+) -> list[dict]:
+    """Return temporary CN endpoints belonging to a thin hatch stroke mask."""
+    if hatch_stroke_mask.shape != skeleton.shape:
+        raise ValueError(
+            "hatch stroke mask shape "
+            f"{hatch_stroke_mask.shape} != skeleton {skeleton.shape}"
+        )
+    if dedup_radius < 0:
+        raise ValueError("hatch endpoint dedup radius must be non-negative")
+
+    existing_xy = np.asarray(
+        [[cluster["x"], cluster["y"]] for cluster in existing_clusters],
+        dtype=np.float64,
+    ).reshape(-1, 2)
+    maximum_squared = float(dedup_radius) ** 2
+    endpoints: list[dict] = []
+    for cluster in _cn_keypoint_clusters(skeleton):
+        if cluster.get("type") != KP_ENDPOINT:
+            continue
+        if not any(
+            hatch_stroke_mask[int(y), int(x)] > 0
+            for x, y in cluster.get("pixels", [])
+        ):
+            continue
+        point = np.asarray([cluster["x"], cluster["y"]], dtype=np.float64)
+        if len(existing_xy):
+            distance_squared = np.sum((existing_xy - point) ** 2, axis=1)
+            if float(np.min(distance_squared)) <= maximum_squared:
+                continue
+        endpoint = dict(cluster)
+        endpoint["structural_seed"] = False
+        endpoint["topology_origin"] = "hatch_endpoint_cn"
+        endpoints.append(endpoint)
+    return endpoints
+
+
 def _materialize_keypoint_clusters(
     clusters: list[dict], binary: np.ndarray, H: int, W: int
 ) -> tuple[list[dict], dict, dict]:
@@ -633,11 +1090,15 @@ def _materialize_keypoint_clusters(
     kp_pixels: dict = {}
     for cl in clusters:
         kid = len(kp_info)
-        kp_info.append({
+        node = {
             "id": kid,
             "x": int(cl["x"]), "y": int(cl["y"]),
             "type": cl["type"], "confidence": float(cl.get("confidence", 1.0)),
-        })
+        }
+        for attribute in ("structural_seed", "topology_origin"):
+            if attribute in cl:
+                node[attribute] = cl[attribute]
+        kp_info.append(node)
         kp_pixels[kid] = set()
         for x, y in cl["pixels"]:
             kp_map[(int(x), int(y))] = kid
@@ -661,6 +1122,9 @@ def _extract_topology(
     skeleton: np.ndarray,
     kp_clusters: list[dict] | None = None,   # keypoint seeds; None → classical CN
     max_search_radius: int = 60,  # unused — walk terminates at extended kp regions
+    unclaimed_mode: str = "all",
+    directional_walk: bool = False,
+    directional_walk_baseline: float = 6.0,
 ) -> tuple[list[dict], list[dict]]:
     """
     Build a stroke graph using vectorised CN-cluster skeleton tracing.
@@ -674,7 +1138,9 @@ def _extract_topology(
          even when approaching from a diagonal pixel.
       4. Walk outward from each keypoint cluster; one edge per unique
          (src, dst) pair.
-      5. Unclaimed CCs >= min_loop_pixels -> closed loops.
+      5. Unclaimed CCs >= min_loop_pixels -> closed loops.  ``closed_only``
+         retains only components whose induced pixel graph contains no open
+         endpoint; ``none`` omits all unclaimed components.
 
     Returns (nodes, edges) as plain dicts for JSON serialisation.
 
@@ -687,6 +1153,10 @@ def _extract_topology(
     """
     binary = (skeleton > 0).astype(np.uint8)
     H, W   = binary.shape
+    if unclaimed_mode not in {"all", "closed_only", "none"}:
+        raise ValueError(f"invalid unclaimed topology mode: {unclaimed_mode!r}")
+    if directional_walk_baseline <= 0:
+        raise ValueError("directional walk baseline must be positive")
 
     # ── Steps 1–2: keypoint seeds → kp_info / kp_map / kp_pixels ─────────
     # Keypoints now drive topology. None → classical CN seeding (CN==1
@@ -710,6 +1180,43 @@ def _extract_topology(
 
     edges_raw    = []   # list of (sid, did, pixel_chain)
     all_edge_pix = set()
+
+    def _incoming_direction(chain):
+        if len(chain) < 2:
+            return None
+        end = np.asarray(chain[-1], dtype=np.float64)
+        distance = 0.0
+        anchor = chain[0]
+        for index in range(len(chain) - 2, -1, -1):
+            anchor = chain[index]
+            distance += float(np.hypot(
+                chain[index + 1][0] - chain[index][0],
+                chain[index + 1][1] - chain[index][1],
+            ))
+            if distance >= directional_walk_baseline:
+                break
+        vector = end - np.asarray(anchor, dtype=np.float64)
+        norm = float(np.linalg.norm(vector))
+        return vector / norm if norm > 1e-9 else None
+
+    def _next_pixel(chain, neighbours):
+        if not directional_walk or len(neighbours) <= 1:
+            return neighbours[0]
+        incoming = _incoming_direction(chain)
+        if incoming is None:
+            return neighbours[0]
+        current = np.asarray(chain[-1], dtype=np.float64)
+
+        def score(point):
+            vector = np.asarray(point, dtype=np.float64) - current
+            norm = float(np.linalg.norm(vector))
+            continuation = (
+                float(np.dot(incoming, vector / norm)) if norm > 1e-9 else -1.0
+            )
+            # Stable coordinate tie-break keeps output deterministic.
+            return (continuation, -int(point[1]), -int(point[0]))
+
+        return max(neighbours, key=score)
 
     for src_kp in kp_info:
         sid     = src_kp["id"]
@@ -739,7 +1246,7 @@ def _extract_topology(
                                if p not in visited]
                         if not nbs:
                             break
-                        nxt = nbs[0]
+                        nxt = _next_pixel(chain, nbs)
                         chain.append(nxt)
                         if nxt in kp_map:
                             found = kp_map[nxt]
@@ -775,7 +1282,10 @@ def _extract_topology(
     # suppressed.
     min_loop_pixels = 8
 
-    # Build adjacency among unclaimed non-kp pixels
+    # Label unclaimed non-kp pixels in image space. The previous implementation
+    # materialised every pixel and 8-neighbour link as Python NetworkX objects;
+    # a dense 335k-pixel patent component needed nearly 1 GB and minutes just
+    # to discover that it was one connected component.
     remaining = set()
     ys, xs = np.where(binary)
     for y, x in zip(ys, xs):
@@ -783,25 +1293,91 @@ def _extract_topology(
         if px not in kp_map and px not in all_edge_pix:
             remaining.add(px)
 
-    if remaining:
-        import networkx as nx
-        G_rem = nx.Graph()
-        for px in remaining:
-            for nb in _neighbours8(*px):
-                if nb in remaining:
-                    G_rem.add_edge(px, nb)
-        for cc in nx.connected_components(G_rem):
-            if len(cc) < min_loop_pixels:
+    if remaining and unclaimed_mode != "none":
+        remaining_mask = np.zeros_like(binary, dtype=np.uint8)
+        remaining_array = np.asarray(list(remaining), dtype=np.int32)
+        remaining_mask[
+            remaining_array[:, 1], remaining_array[:, 0]
+        ] = 1
+        n_components, component_labels, component_stats, component_centroids = (
+            cv2.connectedComponentsWithStats(
+                remaining_mask, connectivity=8
+            )
+        )
+        for component_label in range(1, n_components):
+            component_size = int(
+                component_stats[component_label, cv2.CC_STAT_AREA]
+            )
+            if component_size < min_loop_pixels:
                 continue
-            xs2 = [p[0] for p in cc]
-            ys2 = [p[1] for p in cc]
-            cx, cy = int(np.mean(xs2)), int(np.mean(ys2))
+            left = int(component_stats[component_label, cv2.CC_STAT_LEFT])
+            top = int(component_stats[component_label, cv2.CC_STAT_TOP])
+            width = int(component_stats[component_label, cv2.CC_STAT_WIDTH])
+            height = int(component_stats[component_label, cv2.CC_STAT_HEIGHT])
+            rel_y, rel_x = np.where(
+                component_labels[top:top + height, left:left + width]
+                == component_label
+            )
+            component_pixels = set(zip(
+                (rel_x + left).tolist(),
+                (rel_y + top).tolist(),
+            ))
+            # A learned keypoint detector can miss an entire dense network.
+            # Historically every such residual component was labelled as one
+            # closed loop, even when it contained thousands of endpoints and
+            # branches.  Record whether this is actually a digital cycle so
+            # the quality gate can reject pathological pseudo-loops before
+            # Stage 3 attempts to order them.
+            component_degrees = []
+            raw_degree_sum = 0
+            minimum_raw_degree = 8
+            for x, y in component_pixels:
+                degree = 0
+                raw_degree = 0
+                for dx, dy in (
+                    (-1, -1), (0, -1), (1, -1),
+                    (-1, 0),            (1, 0),
+                    (-1, 1),  (0, 1),   (1, 1),
+                ):
+                    if (x + dx, y + dy) not in component_pixels:
+                        continue
+                    raw_degree += 1
+                    # Suppress diagonal corner chords when an orthogonal
+                    # connection exists.  Without this, a clean rectangular
+                    # one-pixel loop appears branched at every corner.
+                    if dx and dy and (
+                        (x + dx, y) in component_pixels
+                        or (x, y + dy) in component_pixels
+                    ):
+                        continue
+                    degree += 1
+                component_degrees.append(degree)
+                raw_degree_sum += raw_degree
+                minimum_raw_degree = min(minimum_raw_degree, raw_degree)
+            is_simple_cycle = bool(
+                component_degrees
+                and all(degree == 2 for degree in component_degrees)
+            )
+            if unclaimed_mode == "closed_only":
+                if (
+                    not component_degrees
+                    or minimum_raw_degree < 2
+                    or raw_degree_sum // 2 < component_size
+                ):
+                    continue
+            cx, cy = (
+                int(component_centroids[component_label, 0]),
+                int(component_centroids[component_label, 1]),
+            )
             loop_id = len(nodes)
             nodes.append({
                 "id": loop_id, "x": cx, "y": cy,
                 "type": KP_LOOP_ANCHOR, "confidence": 1.0,
             })
-            pixels = [[int(p[0]), int(p[1])] for p in sorted(cc)]
+            pixels = [
+                [int(point[0]), int(point[1])]
+                for point in sorted(component_pixels)
+            ]
             edges.append({
                 "id": edge_id,
                 "source": loop_id,
@@ -809,6 +1385,8 @@ def _extract_topology(
                 "pixels": pixels,
                 "smooth_pts": [],
                 "is_closed": True,
+                "topology_origin": "unclaimed_component",
+                "is_simple_cycle": is_simple_cycle,
             })
             edge_id += 1
 
@@ -1026,7 +1604,7 @@ def _aggregate_hachure_regions(
 def _cleanup_hatch_residue(
     nodes: list[dict], edges: list[dict], regions: list[dict],
     image_shape: tuple[int, int], cfg: dict,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Drop leftover open edges that lie inside a hatch region and match its angle.
 
     The hatch detector (_remove_hachure_edges) misses some lines (sparser
@@ -1035,10 +1613,11 @@ def _cleanup_hatch_residue(
     remaining edge that is mostly inside a region AND oriented like that region's
     hatch — the region fill already represents it. Conservative: requires both
     high inside-fraction and an angle match, so a real feature line crossing the
-    region (different angle, or only partly inside) is kept.
+    region (different angle, or only partly inside) is kept. Removed residue is
+    returned explicitly so it remains available to the HACHURE side layer.
     """
     if not regions:
-        return nodes, edges
+        return nodes, edges, []
     H, W = int(image_shape[0]), int(image_shape[1])
     angle_tol = float(cfg.get("hachure_cleanup_angle_tol", 14.0))
     inside_frac = float(cfg.get("hachure_cleanup_inside_frac", 0.80))
@@ -1046,6 +1625,7 @@ def _cleanup_hatch_residue(
     for i, r in enumerate(regions):
         cv2.fillPoly(regmask, [np.asarray(r["boundary"], dtype=np.int32)], i + 1)
     kept: list[dict] = []
+    removed: list[dict] = []
     for e in edges:
         pix = e.get("pixels") or []
         if e.get("is_closed") or len(pix) < 2:
@@ -1062,18 +1642,32 @@ def _cleanup_hatch_residue(
         rid = int(np.bincount(ids[inside]).argmax())
         angles = regions[rid - 1].get("angles") or []
         ang = _line_angle_from_pix(pix)
-        if ang is not None and angles and \
-                min(_angle_delta_deg(ang, ra) for ra in angles) <= angle_tol:
-            continue                      # leftover hatch fragment → drop
+        angle_delta = (
+            min(_angle_delta_deg(ang, ra) for ra in angles)
+            if ang is not None and angles
+            else None
+        )
+        if angle_delta is not None and angle_delta <= angle_tol:
+            item = dict(e)
+            item["is_hachure"] = True
+            item["hachure"] = {
+                "pass": "region_residue",
+                "inside_frac": round(float(inside.mean()), 3),
+                "angle_delta": round(float(angle_delta), 3),
+                "region_id": rid,
+            }
+            removed.append(item)
+            continue
         kept.append(e)
     nodes, kept = _drop_unused_nodes(nodes, kept)
-    return nodes, kept
+    return nodes, kept, removed
 
 
 # ─── Learned hatch-region detector (Phase 2 CNN) ─────────────────────────────
 
 _HATCH_PATCH  = 512
 _HATCH_STRIDE = 256
+_HATCH_STROKE_LABEL_CONTRACT = "reference-free-hatch-stroke-multilabel-v1"
 
 
 def load_hatch_model(config: dict):
@@ -1108,11 +1702,11 @@ def load_hatch_model(config: dict):
 
         device = cfg.get("hachure_cnn_device",
                          "cuda" if torch.cuda.is_available() else "cpu")
-        ck    = torch.load(ckpt_path, map_location=device)
+        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
         model = HatchUNet(freeze_encoder=False).to(device)
         model.load_state_dict(ck["model_state"])
         model.eval()
-        model._hatch_device = torch.device(device)   # stashed for inference
+        model._hatch_device = torch.device(device)
         logger.info(
             f"Hatch CNN ready ({ckpt_path}, device={device}, "
             f"val_iou_pos={ck.get('val_iou_pos', '?')})."
@@ -1124,6 +1718,112 @@ def load_hatch_model(config: dict):
             "falling back to geometric hachure removal."
         )
         return None
+
+
+def load_hatch_stroke_model(config: dict):
+    """Load the opt-in two-channel structural/hachure skeleton classifier."""
+    cfg = config.get("stage2", {})
+    if not bool(cfg.get("hachure_stroke_use_cnn", False)):
+        return None
+
+    ckpt_path = cfg.get(
+        "hachure_stroke_cnn_model", "models/hatch_stroke_multilabel.pth"
+    )
+    if not os.path.exists(ckpt_path):
+        logger.warning(
+            "Hatch-stroke CNN weights not found (%s); classifier disabled.",
+            ckpt_path,
+        )
+        return None
+
+    try:
+        import sys
+        root = str(Path(__file__).resolve().parent.parent)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        import torch
+        from tools.hatch_model import HatchUNet
+
+        device = cfg.get(
+            "hachure_stroke_cnn_device",
+            "cuda" if torch.cuda.is_available() else "cpu",
+        )
+        checkpoint = torch.load(
+            ckpt_path, map_location=device, weights_only=False
+        )
+        if checkpoint.get("label_contract") != _HATCH_STROKE_LABEL_CONTRACT:
+            raise ValueError("incompatible hatch-stroke label contract")
+        model = HatchUNet(
+            freeze_encoder=False, out_channels=2, pretrained=False
+        ).to(device)
+        model.load_state_dict(checkpoint["model_state"])
+        model.eval()
+        model._hatch_stroke_device = torch.device(device)
+        model._hatch_stroke_checkpoint = str(ckpt_path)
+        logger.info(
+            "Hatch-stroke CNN ready (%s, device=%s, best_epoch=%s).",
+            ckpt_path,
+            device,
+            checkpoint.get("best_epoch", checkpoint.get("epoch", "?")),
+        )
+        return model
+    except Exception as exc:
+        logger.warning(
+            "Hatch-stroke CNN load failed (%s); classifier disabled.", exc
+        )
+        return None
+
+
+def _window_origins(length: int, patch: int, stride: int) -> list[int]:
+    if length <= patch:
+        return [0]
+    origins = list(range(0, length - patch + 1, stride))
+    if origins[-1] != length - patch:
+        origins.append(length - patch)
+    return origins
+
+
+def _cnn_hatch_stroke_probabilities(
+    skeleton: np.ndarray,
+    model,
+    *,
+    patch: int = _HATCH_PATCH,
+    stride: int = _HATCH_STRIDE,
+) -> np.ndarray:
+    """Return structural/hachure probabilities on existing skeleton pixels."""
+    import torch
+
+    if patch < 32 or patch % 32 or stride < 1:
+        raise ValueError("hatch-stroke patch must be a multiple of 32")
+    binary = (np.asarray(skeleton) > 0).astype(np.float32)
+    height, width = binary.shape
+    accumulated = np.zeros((2, height, width), dtype=np.float32)
+    counts = np.zeros((height, width), dtype=np.float32)
+    device = (
+        getattr(model, "_hatch_stroke_device", None)
+        or next(model.parameters()).device
+    )
+
+    model.eval()
+    with torch.no_grad():
+        for top in _window_origins(height, patch, stride):
+            for left in _window_origins(width, patch, stride):
+                source = binary[top : top + patch, left : left + patch]
+                patch_height, patch_width = source.shape
+                padded = np.zeros((patch, patch), dtype=np.float32)
+                padded[:patch_height, :patch_width] = source
+                tensor = torch.from_numpy(padded[None, None]).to(device)
+                probabilities = torch.sigmoid(model(tensor))[0].cpu().numpy()
+                accumulated[
+                    :, top : top + patch_height, left : left + patch_width
+                ] += probabilities[:, :patch_height, :patch_width]
+                counts[
+                    top : top + patch_height, left : left + patch_width
+                ] += 1.0
+
+    probabilities = accumulated / np.maximum(counts[None], 1.0)
+    probabilities *= binary[None]
+    return probabilities
 
 
 def _cnn_hatch_mask(
@@ -1170,6 +1870,24 @@ def _cnn_hatch_mask(
     return (prob_map >= threshold).astype(np.uint8)
 
 
+def _aligned_hatch_mask(
+    source_image_path: Path,
+    hatch_model,
+    shape: tuple[int, int],
+    cfg: dict,
+) -> tuple[np.ndarray, float]:
+    """Infer a hatch-region mask aligned to the active Stage-2 skeleton."""
+    src_gray = cv2.imread(str(source_image_path), cv2.IMREAD_GRAYSCALE)
+    if src_gray is None:
+        raise FileNotFoundError(source_image_path)
+    threshold = float(cfg.get("hachure_cnn_threshold", 0.70))
+    mask = _cnn_hatch_mask(src_gray, hatch_model, threshold)
+    height, width = shape
+    if mask.shape != shape:
+        mask = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+    return mask, threshold
+
+
 def _remove_hachures_cnn(
     nodes: list[dict],
     edges: list[dict],
@@ -1181,17 +1899,30 @@ def _remove_hachures_cnn(
     """
     Remove open graph edges that lie inside the learned hatch-region mask.
 
-    An open edge is a hachure iff at least ``hachure_cnn_inside_frac`` of its
-    pixels fall inside the CNN mask.  This replaces the geometric clustering
-    heuristic when the Phase 2 detector is available.  A high inside-fraction
-    keeps outlines that merely clip or cross a hatched region — only strokes
-    that lie *within* the hatch fill are dropped.  Removed edges carry
-    ``is_hachure=True`` so the isolation metric and region aggregation treat
-    them exactly like geometrically detected hachures.
+    Mask overlap is the primary evidence.  The C3 structural-topology path can
+    additionally protect edges joining two learned structural seeds and require
+    line-like geometry for ambiguous overlap.  Strong mask overlap overrides
+    those guards so hatch chords between two real contour nodes are still
+    removed.  Removed edges carry ``is_hachure=True`` so the isolation metric
+    and region aggregation treat them exactly like geometrically detected
+    hachures.
     """
     inside_frac = float(cfg.get("hachure_cnn_inside_frac", 0.60))
     min_len     = float(cfg.get("hachure_cnn_min_length", 4.0))
     H, W = hatch_mask.shape
+    main_cnn_pass = (
+        pass_name == "cnn"
+        or pass_name.startswith("hatch_stroke_multilabel")
+    )
+    protect_seeded = bool(
+        main_cnn_pass
+        and cfg.get("hachure_cnn_protect_structural_seed_edges", False)
+    )
+    require_line_like = bool(
+        main_cnn_pass
+        and cfg.get("hachure_cnn_main_require_line_like", False)
+    )
+    node_by_id = {int(node["id"]): node for node in nodes}
 
     selected_ids: set[int] = set()
     selected_meta: dict[int, dict] = {}
@@ -1209,13 +1940,45 @@ def _remove_hachures_cnn(
             if 0 <= y < H and 0 <= x < W and hatch_mask[y, x]:
                 inside += 1
         frac = inside / len(pix)
-        if frac >= inside_frac:
-            selected_ids.add(int(edge["id"]))
-            selected_meta[int(edge["id"])] = {
-                "pass":        pass_name,
-                "inside_frac": round(frac, 3),
-                "n_pixels":    len(pix),
-            }
+        if frac < inside_frac:
+            continue
+
+        feature = None
+        line_like = False
+        if require_line_like or protect_seeded:
+            feature = _edge_line_features(edge)
+            minimum_straightness = float(
+                cfg.get("hachure_cnn_main_min_straightness", 0.70)
+            )
+            maximum_residual = float(
+                cfg.get("hachure_cnn_main_max_residual_rms", 2.2)
+            )
+            line_like = bool(
+                feature is not None
+                and feature["straightness"] >= minimum_straightness
+                and feature["residual_rms"] <= maximum_residual
+            )
+        strong_inside = frac >= float(
+            cfg.get("hachure_cnn_strong_inside_frac", 0.80)
+        )
+        seeded_ends = sum(
+            bool(node_by_id.get(int(node_id), {}).get("structural_seed", False))
+            for node_id in (edge.get("source"), edge.get("target"))
+            if node_id is not None
+        )
+        if protect_seeded and seeded_ends == 2 and not (
+            strong_inside and line_like
+        ):
+            continue
+        if require_line_like and not line_like and not strong_inside:
+            continue
+        selected_ids.add(int(edge["id"]))
+        selected_meta[int(edge["id"])] = {
+            "pass":        pass_name,
+            "inside_frac": round(frac, 3),
+            "n_pixels":    len(pix),
+            "strong_inside": bool(strong_inside),
+        }
 
     if not selected_ids:
         return nodes, edges, []
@@ -1249,6 +2012,81 @@ def _remove_hachures_cnn(
         item = dict(edge)
         item["is_hachure"] = True
         item["hachure"] = selected_meta.get(int(edge["id"]), {"pass": pass_name})
+        removed.append(item)
+
+    nodes, kept = _drop_unused_nodes(nodes, kept)
+    return nodes, kept, removed
+
+
+def _remove_hachures_cnn_geometric(
+    nodes: list[dict],
+    edges: list[dict],
+    hatch_mask: np.ndarray,
+    cfg: dict,
+    *,
+    pass_name: str,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Remove only edges supported by both hatch geometry and the CNN region.
+
+    The hatch network predicts filled regions, so mask overlap alone can erase
+    long contours that bound or cross a section. The geometric pass supplies
+    the missing stroke-level evidence: short, straight, locally repeated edge
+    families. The intersection keeps the region detector as a spatial prior
+    without allowing it to classify arbitrary structural ink.
+    """
+    geometric_cfg = dict(cfg)
+    geometric_cfg["hachure_max_removed_edge_ratio"] = float(
+        cfg.get("hachure_cnn_geometric_max_candidate_ratio", 0.95)
+    )
+    geometric_cfg["hachure_max_length"] = float(
+        cfg.get(
+            "hachure_cnn_geometric_max_length",
+            cfg.get("hachure_max_length", 80.0),
+        )
+    )
+    _nodes, _edges, geometric = _remove_hachure_edges(
+        nodes,
+        edges,
+        geometric_cfg,
+        pass_name=f"{pass_name}_geometric_candidate",
+    )
+    if not geometric:
+        return nodes, edges, []
+
+    mask_cfg = dict(cfg)
+    mask_cfg["hachure_cnn_max_removed_edge_ratio"] = 1.0
+    _nodes, _edges, selected = _remove_hachures_cnn(
+        nodes,
+        geometric,
+        hatch_mask,
+        mask_cfg,
+        pass_name=f"{pass_name}_mask_intersection",
+    )
+    if not selected:
+        return nodes, edges, []
+
+    geometric_meta = {
+        int(edge["id"]): dict(edge.get("hachure", {}))
+        for edge in geometric
+    }
+    selected_meta = {
+        int(edge["id"]): dict(edge.get("hachure", {}))
+        for edge in selected
+    }
+    selected_ids = set(selected_meta)
+    kept: list[dict] = []
+    removed: list[dict] = []
+    for edge in edges:
+        edge_id = int(edge["id"])
+        if edge_id not in selected_ids:
+            kept.append(edge)
+            continue
+        item = dict(edge)
+        item["is_hachure"] = True
+        metadata = geometric_meta.get(edge_id, {})
+        metadata.update(selected_meta[edge_id])
+        metadata["pass"] = pass_name
+        item["hachure"] = metadata
         removed.append(item)
 
     nodes, kept = _drop_unused_nodes(nodes, kept)
@@ -1417,6 +2255,42 @@ def _prune_hachure_residual_edges(
         return nodes, edges, []
     nodes, kept = _drop_unused_nodes(nodes, kept)
     return nodes, kept, removed
+
+
+def _deduplicate_hachure_edges(
+    edges: list[dict], overlap_threshold: float = 0.75
+) -> list[dict]:
+    """Drop duplicate side-layer strokes emitted by two hatch passes.
+
+    The non-destructive C3 prepass and the main-graph cleanup can describe the
+    same hatch with different edge IDs or slightly different endpoint halos.
+    Pixel containment, normalized by the shorter edge, identifies that case
+    without collapsing distinct hatch lines that merely cross once.
+    """
+    if not 0.0 <= overlap_threshold <= 1.0:
+        raise ValueError("hachure dedup overlap threshold must be in [0, 1]")
+    kept: list[dict] = []
+    kept_pixels: list[set[tuple[int, int]]] = []
+    for edge in edges:
+        pixels = {
+            (int(pixel[0]), int(pixel[1]))
+            for pixel in edge.get("pixels", [])
+        }
+        duplicate = False
+        if pixels:
+            for existing in kept_pixels:
+                denominator = min(len(pixels), len(existing))
+                if (
+                    denominator
+                    and len(pixels & existing) / denominator >= overlap_threshold
+                ):
+                    duplicate = True
+                    break
+        if duplicate:
+            continue
+        kept.append(edge)
+        kept_pixels.append(pixels)
+    return kept
 
 
 def _open_edge_length_stats(edges: list[dict]) -> tuple[list[float], float, float, float]:
@@ -1801,6 +2675,7 @@ def _simplify_graph(
     edges: list[dict],
     spur_min_len: float = 6.0,
     collinear_max_angle: float = 28.0,
+    collinear_tangent_baseline: float = 8.0,
     junction_merge_radius: float = 4.0,
     max_iter: int = 40,
 ) -> tuple[list[dict], list[dict]]:
@@ -1826,6 +2701,9 @@ def _simplify_graph(
     untouched. Returns renumbered (nodes, edges).
     """
     from collections import defaultdict
+
+    if collinear_tangent_baseline <= 0:
+        raise ValueError("collinear tangent baseline must be positive")
 
     node_by_id = {n["id"]: dict(n) for n in nodes}
 
@@ -1953,7 +2831,11 @@ def _simplify_graph(
             dirs = {}
             for k in alive:
                 e = E[k]
-                d = _leave_direction(e["pix"], at_start=(e["a"] == nid))
+                d = _leave_direction(
+                    e["pix"],
+                    at_start=(e["a"] == nid),
+                    baseline=collinear_tangent_baseline,
+                )
                 if d is not None:
                     dirs[k] = d
             # candidate straight-through pairs (leaving dirs ~opposite)
@@ -2013,10 +2895,11 @@ def _simplify_graph(
     out_edges = []
     eid = 0
     for e in alive_edges:
+        is_closed = e["a"] == e["b"]
         out_edges.append({
             "id": eid, "source": e["a"], "target": e["b"],
             "pixels": [[int(p[0]), int(p[1])] for p in e["pix"]],
-            "smooth_pts": [], "is_closed": False,
+            "smooth_pts": [], "is_closed": is_closed,
         })
         eid += 1
     for e in closed_edges:
@@ -2026,6 +2909,883 @@ def _simplify_graph(
         eid += 1
 
     return out_nodes, out_edges
+
+
+def _skeleton_without_hachure_edges(
+    skeleton: np.ndarray,
+    kept_edges: list[dict],
+    removed_edges: list[dict],
+) -> tuple[np.ndarray, int]:
+    """Remove hatch-only pixels while retaining every structural shared pixel."""
+    kept_pixels = {
+        (int(pixel[0]), int(pixel[1]))
+        for edge in kept_edges
+        for pixel in edge.get("pixels", [])
+    }
+    removed_pixels = {
+        (int(pixel[0]), int(pixel[1]))
+        for edge in removed_edges
+        for pixel in edge.get("pixels", [])
+    }
+    exclusive = removed_pixels - kept_pixels
+    cleaned = np.where(skeleton > 0, 255, 0).astype(np.uint8)
+    height, width = cleaned.shape
+    for x, y in exclusive:
+        if 0 <= x < width and 0 <= y < height:
+            cleaned[y, x] = 0
+    return cleaned, len(exclusive)
+
+
+def _endpoint_tangent(
+    binary: np.ndarray,
+    endpoint: tuple[int, int],
+    support_length: float,
+) -> np.ndarray | None:
+    """Estimate the direction from an endpoint into its surviving stroke."""
+    height, width = binary.shape
+    start = (int(endpoint[0]), int(endpoint[1]))
+    if not (0 <= start[0] < width and 0 <= start[1] < height):
+        return None
+    if not binary[start[1], start[0]]:
+        return None
+
+    distances = {start: 0.0}
+    queue = [(0.0, start[1], start[0])]
+    farthest = start
+    while queue:
+        distance, y, x = heapq.heappop(queue)
+        point = (x, y)
+        if distance != distances.get(point):
+            continue
+        if distance > distances.get(farthest, 0.0):
+            farthest = point
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                nx_, ny_ = x + dx, y + dy
+                if not (0 <= nx_ < width and 0 <= ny_ < height):
+                    continue
+                if not binary[ny_, nx_]:
+                    continue
+                step = float(np.hypot(dx, dy))
+                candidate = distance + step
+                if candidate > support_length:
+                    continue
+                neighbour = (nx_, ny_)
+                if candidate + 1e-9 >= distances.get(neighbour, float("inf")):
+                    continue
+                distances[neighbour] = candidate
+                heapq.heappush(queue, (candidate, ny_, nx_))
+
+    vector = np.asarray(farthest, dtype=np.float64) - np.asarray(
+        start, dtype=np.float64
+    )
+    norm = float(np.linalg.norm(vector))
+    if norm < min(2.0, support_length * 0.5):
+        return None
+    return vector / norm
+
+
+def _removed_component_path(
+    labels: np.ndarray,
+    component_id: int,
+    start: tuple[int, int],
+    target: tuple[int, int],
+    maximum_length: float,
+) -> list[tuple[int, int]] | None:
+    """Shortest 8-connected path through one removed-pixel component."""
+    height, width = labels.shape
+    queue = [(0.0, start[1], start[0])]
+    parent: dict[tuple[int, int], tuple[int, int] | None] = {start: None}
+    distances = {start: 0.0}
+    while queue:
+        distance, y, x = heapq.heappop(queue)
+        point = (x, y)
+        if distance != distances.get(point):
+            continue
+        if point == target:
+            break
+        if distance >= maximum_length:
+            continue
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                neighbour = (x + dx, y + dy)
+                nx_, ny_ = neighbour
+                if not (0 <= nx_ < width and 0 <= ny_ < height):
+                    continue
+                if neighbour in parent:
+                    previous = distances.get(neighbour, float("inf"))
+                else:
+                    previous = float("inf")
+                if neighbour != target and labels[ny_, nx_] != component_id:
+                    continue
+                candidate = distance + float(np.hypot(dx, dy))
+                if candidate > maximum_length or candidate + 1e-9 >= previous:
+                    continue
+                parent[neighbour] = point
+                distances[neighbour] = candidate
+                heapq.heappush(queue, (candidate, ny_, nx_))
+
+    if target not in parent:
+        return None
+    path = []
+    cursor: tuple[int, int] | None = target
+    while cursor is not None:
+        path.append(cursor)
+        cursor = parent[cursor]
+    path.reverse()
+    return path
+
+
+def _repair_hachure_crossing_gaps(
+    original_skeleton: np.ndarray,
+    cleaned_skeleton: np.ndarray,
+    removed_hachures: list[dict],
+    cfg: dict,
+) -> tuple[np.ndarray, list[dict]]:
+    """Reconnect short structural gaps created while subtracting hatch ink.
+
+    Candidate endpoints must touch the same removed-pixel component, continue
+    nearly straight through it, and be connected by pixels present in the
+    original skeleton. Paths aligned with a nearby removed hatch edge are
+    rejected. This restores contour crossings without redrawing the hatch
+    family or inventing geometry across blank raster space.
+    """
+    if original_skeleton.shape != cleaned_skeleton.shape:
+        raise ValueError("original and cleaned skeleton shapes must match")
+    repaired = np.where(cleaned_skeleton > 0, 255, 0).astype(np.uint8)
+    original = original_skeleton > 0
+    cleaned = repaired > 0
+    removed = original & ~cleaned
+    if not np.any(removed):
+        return repaired, []
+
+    max_path_length = float(cfg.get("hachure_gap_repair_max_path_length", 14.0))
+    max_angle = float(cfg.get("hachure_gap_repair_max_angle", 24.0))
+    tangent_support = float(cfg.get("hachure_gap_repair_tangent_support", 10.0))
+    hatch_angle_margin = float(
+        cfg.get("hachure_gap_repair_hatch_angle_margin", 16.0)
+    )
+    hatch_context_radius = float(
+        cfg.get("hachure_gap_repair_hatch_context_radius", 64.0)
+    )
+    if max_path_length <= 0 or tangent_support <= 0:
+        return repaired, []
+
+    _count, labels = cv2.connectedComponents(
+        removed.astype(np.uint8), connectivity=8
+    )
+    endpoints: list[dict] = []
+    for cluster in _cn_keypoint_clusters(repaired):
+        if cluster.get("type") != KP_ENDPOINT:
+            continue
+        point = min(
+            ((int(x), int(y)) for x, y in cluster.get("pixels", [])),
+            key=lambda p: (p[1], p[0]),
+            default=(int(cluster["x"]), int(cluster["y"])),
+        )
+        tangent = _endpoint_tangent(cleaned, point, tangent_support)
+        if tangent is None:
+            continue
+        component_ids = set()
+        x, y = point
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                nx_, ny_ = x + dx, y + dy
+                if 0 <= ny_ < labels.shape[0] and 0 <= nx_ < labels.shape[1]:
+                    component_id = int(labels[ny_, nx_])
+                    if component_id > 0:
+                        component_ids.add(component_id)
+        if component_ids:
+            endpoints.append({
+                "point": point,
+                "tangent": tangent,
+                "components": component_ids,
+            })
+
+    hatch_features = []
+    for edge in removed_hachures:
+        feature = _edge_line_features(edge)
+        if feature is not None:
+            hatch_features.append(feature)
+
+    cosine_threshold = float(np.cos(np.radians(max_angle)))
+    candidates: list[dict] = []
+    for first_index in range(len(endpoints)):
+        first = endpoints[first_index]
+        for second_index in range(first_index + 1, len(endpoints)):
+            second = endpoints[second_index]
+            shared_components = first["components"] & second["components"]
+            if not shared_components:
+                continue
+            delta = np.asarray(second["point"], dtype=np.float64) - np.asarray(
+                first["point"], dtype=np.float64
+            )
+            chord = float(np.linalg.norm(delta))
+            if chord <= 1.0 or chord > max_path_length:
+                continue
+            direction = delta / chord
+            alignment = min(
+                -float(np.dot(first["tangent"], direction)),
+                float(np.dot(second["tangent"], direction)),
+                -float(np.dot(first["tangent"], second["tangent"])),
+            )
+            if alignment < cosine_threshold:
+                continue
+
+            path = None
+            component_id = None
+            for candidate_component in sorted(shared_components):
+                candidate_path = _removed_component_path(
+                    labels,
+                    candidate_component,
+                    first["point"],
+                    second["point"],
+                    max_path_length,
+                )
+                if candidate_path is None:
+                    continue
+                if _chain_length(candidate_path) > max_path_length:
+                    continue
+                if path is None or _chain_length(candidate_path) < _chain_length(path):
+                    path = candidate_path
+                    component_id = candidate_component
+            if path is None:
+                continue
+
+            candidate_angle = float(
+                np.degrees(np.arctan2(direction[1], direction[0])) % 180.0
+            )
+            midpoint = 0.5 * (
+                np.asarray(first["point"], dtype=np.float64)
+                + np.asarray(second["point"], dtype=np.float64)
+            )
+            local_hatch_angles = [
+                float(feature["angle_deg"])
+                for feature in hatch_features
+                if float(np.linalg.norm(feature["center"] - midpoint))
+                <= hatch_context_radius
+            ]
+            nearest_hatch_delta = min(
+                (_angle_delta_deg(candidate_angle, angle)
+                 for angle in local_hatch_angles),
+                default=90.0,
+            )
+            if nearest_hatch_delta <= hatch_angle_margin:
+                continue
+
+            restored_pixels = [
+                point for point in path if removed[point[1], point[0]]
+            ]
+            if not restored_pixels:
+                continue
+            candidates.append({
+                "first": first_index,
+                "second": second_index,
+                "component_id": int(component_id),
+                "path": path,
+                "restored_pixels": restored_pixels,
+                "alignment": alignment,
+                "candidate_angle": candidate_angle,
+                "nearest_hatch_delta": nearest_hatch_delta,
+                "path_length": _chain_length(path),
+            })
+
+    candidates.sort(
+        key=lambda item: (
+            -item["alignment"],
+            item["path_length"],
+            item["first"],
+            item["second"],
+        )
+    )
+    used_endpoints: set[int] = set()
+    repairs: list[dict] = []
+    for candidate in candidates:
+        if (
+            candidate["first"] in used_endpoints
+            or candidate["second"] in used_endpoints
+        ):
+            continue
+        for x, y in candidate["restored_pixels"]:
+            repaired[y, x] = 255
+        used_endpoints.update((candidate["first"], candidate["second"]))
+        repairs.append({
+            "start": list(endpoints[candidate["first"]]["point"]),
+            "end": list(endpoints[candidate["second"]]["point"]),
+            "path_length": float(candidate["path_length"]),
+            "restored_pixels": len(candidate["restored_pixels"]),
+            "alignment": float(candidate["alignment"]),
+            "hatch_angle_delta": float(candidate["nearest_hatch_delta"]),
+        })
+    return repaired, repairs
+
+
+def _edge_support_mask(
+    edges: list[dict],
+    shape: tuple[int, int],
+    dilation: int = 0,
+) -> np.ndarray:
+    """Rasterize edge pixels into a binary support mask."""
+    if dilation < 0:
+        raise ValueError("edge support dilation must be non-negative")
+    height, width = shape
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for edge in edges:
+        for pixel in edge.get("pixels", []):
+            x, y = int(pixel[0]), int(pixel[1])
+            if 0 <= x < width and 0 <= y < height:
+                mask[y, x] = 1
+    if dilation > 0 and np.any(mask):
+        size = dilation * 2 + 1
+        mask = cv2.dilate(mask, np.ones((size, size), dtype=np.uint8))
+    return mask
+
+
+def _separate_hatch_additive_masks(
+    region_mask: np.ndarray | None,
+    stroke_mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Keep established region evidence separate from model-only evidence."""
+    stroke = np.asarray(stroke_mask) > 0
+    if region_mask is None:
+        region = np.zeros(stroke.shape, dtype=np.uint8)
+    else:
+        region_array = np.asarray(region_mask)
+        if region_array.shape != stroke.shape:
+            raise ValueError(
+                "region and hatch-stroke masks must have identical shapes"
+            )
+        region = (region_array > 0).astype(np.uint8)
+    additive = (stroke & (region == 0)).astype(np.uint8)
+    return region, additive
+
+
+def _cluster_scalar_positions(
+    values: list[float], tolerance: float
+) -> list[float]:
+    """Merge nearby scalar observations into deterministic cluster centres."""
+    if not values:
+        return []
+    groups: list[list[float]] = []
+    for value in sorted(float(item) for item in values):
+        if not groups or value - groups[-1][-1] > tolerance:
+            groups.append([value])
+        else:
+            groups[-1].append(value)
+    return [float(np.mean(group)) for group in groups]
+
+
+def _hough_hachure_stroke_mask(
+    skeleton: np.ndarray,
+    hatch_region_mask: np.ndarray,
+    cfg: dict,
+) -> tuple[np.ndarray, list[dict]]:
+    """Find periodic line families inside a learned filled hatch region.
+
+    Hough fragments on one structural contour collapse to one or two normal
+    offsets, whereas a hatch family yields many distinct, regularly separated
+    offsets. Selecting by physical-line count avoids treating the most common
+    fragment angle as the hatch direction on dense mechanical drawings.
+    """
+    if skeleton.shape != hatch_region_mask.shape:
+        raise ValueError("skeleton and hatch region mask shapes must match")
+    height, width = skeleton.shape
+    output = np.zeros((height, width), dtype=np.uint8)
+    metadata: list[dict] = []
+    if not np.any(skeleton) or not np.any(hatch_region_mask):
+        return output, metadata
+
+    minimum_region_area = int(cfg.get("hachure_hough_min_region_area", 500))
+    threshold = int(cfg.get("hachure_hough_threshold", 15))
+    minimum_length = float(cfg.get("hachure_hough_min_line_length", 8.0))
+    maximum_gap = float(cfg.get("hachure_hough_max_line_gap", 4.0))
+    angle_step = float(cfg.get("hachure_hough_angle_step", 5.0))
+    angle_tolerance = float(cfg.get("hachure_hough_angle_tolerance", 7.5))
+    rho_tolerance = float(cfg.get("hachure_hough_rho_tolerance", 4.0))
+    minimum_family_lines = int(cfg.get("hachure_hough_min_family_lines", 10))
+    maximum_families = int(cfg.get("hachure_hough_max_families", 2))
+    second_family_ratio = float(cfg.get("hachure_hough_second_family_ratio", 0.45))
+    minimum_angle_separation = float(
+        cfg.get("hachure_hough_min_angle_separation", 25.0)
+    )
+    line_thickness = int(cfg.get("hachure_hough_mask_thickness", 3))
+    interior_margin = int(cfg.get("hachure_hough_interior_margin", 2))
+    if angle_step <= 0 or angle_tolerance <= 0 or rho_tolerance < 0:
+        raise ValueError("invalid hachure Hough angular/rho configuration")
+    if maximum_families <= 0 or line_thickness <= 0:
+        return output, metadata
+
+    regions = hatch_region_mask.astype(np.uint8)
+    if interior_margin > 0:
+        size = interior_margin * 2 + 1
+        eroded = cv2.erode(regions, np.ones((size, size), np.uint8))
+        if np.any(eroded):
+            regions = eroded
+    count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        regions, connectivity=8
+    )
+    skeleton_binary = skeleton > 0
+    angle_centres = np.arange(0.0, 180.0, angle_step)
+
+    for component_id in range(1, count):
+        area = int(stats[component_id, cv2.CC_STAT_AREA])
+        if area < minimum_region_area:
+            continue
+        component = labels == component_id
+        component_ink = np.where(
+            skeleton_binary & component, 255, 0
+        ).astype(np.uint8)
+        lines = cv2.HoughLinesP(
+            component_ink,
+            1.0,
+            np.pi / 360.0,
+            threshold=threshold,
+            minLineLength=minimum_length,
+            maxLineGap=maximum_gap,
+        )
+        if lines is None:
+            continue
+
+        records: list[dict] = []
+        for x1, y1, x2, y2 in lines[:, 0]:
+            length = float(np.hypot(x2 - x1, y2 - y1))
+            if length < minimum_length:
+                continue
+            angle = float(
+                np.degrees(np.arctan2(y2 - y1, x2 - x1)) % 180.0
+            )
+            records.append({
+                "points": (int(x1), int(y1), int(x2), int(y2)),
+                "angle": angle,
+                "length": length,
+                "center": (0.5 * (x1 + x2), 0.5 * (y1 + y2)),
+            })
+        if not records:
+            continue
+
+        candidates: list[dict] = []
+        for centre in angle_centres:
+            member_indices = [
+                index for index, record in enumerate(records)
+                if _angle_delta_deg(record["angle"], float(centre))
+                <= angle_tolerance
+            ]
+            if not member_indices:
+                continue
+            theta = np.radians(float(centre))
+            normal = np.asarray([-np.sin(theta), np.cos(theta)])
+            rhos = [
+                float(np.dot(np.asarray(records[index]["center"]), normal))
+                for index in member_indices
+            ]
+            line_positions = _cluster_scalar_positions(rhos, rho_tolerance)
+            if len(line_positions) < minimum_family_lines:
+                continue
+            gaps = np.diff(line_positions)
+            usable_gaps = gaps[
+                (gaps > rho_tolerance)
+                & (gaps <= float(cfg.get("hachure_hough_max_spacing", 50.0)))
+            ]
+            spacing = float(np.median(usable_gaps)) if len(usable_gaps) else 0.0
+            spacing_cv = (
+                float(np.std(usable_gaps) / np.mean(usable_gaps))
+                if len(usable_gaps) > 1 and float(np.mean(usable_gaps)) > 0
+                else 0.0
+            )
+            candidates.append({
+                "angle": float(centre),
+                "member_indices": member_indices,
+                "line_count": len(line_positions),
+                "segment_count": len(member_indices),
+                "total_length": float(sum(
+                    records[index]["length"] for index in member_indices
+                )),
+                "spacing": spacing,
+                "spacing_cv": spacing_cv,
+            })
+
+        candidates.sort(
+            key=lambda item: (
+                -item["line_count"],
+                -item["total_length"],
+                item["angle"],
+            )
+        )
+        selected: list[dict] = []
+        for candidate in candidates:
+            if any(
+                _angle_delta_deg(candidate["angle"], item["angle"])
+                < minimum_angle_separation
+                for item in selected
+            ):
+                continue
+            if selected and (
+                candidate["line_count"]
+                < selected[0]["line_count"] * second_family_ratio
+            ):
+                continue
+            selected.append(candidate)
+            if len(selected) >= maximum_families:
+                break
+
+        for family_index, family in enumerate(selected):
+            family_mask = np.zeros_like(output)
+            for record_index in family["member_indices"]:
+                x1, y1, x2, y2 = records[record_index]["points"]
+                cv2.line(
+                    family_mask,
+                    (x1, y1),
+                    (x2, y2),
+                    1,
+                    thickness=line_thickness,
+                    lineType=cv2.LINE_8,
+                )
+            family_mask &= component.astype(np.uint8)
+            output |= family_mask
+            metadata.append({
+                "component_id": int(component_id),
+                "family_index": int(family_index),
+                "bbox": [
+                    int(stats[component_id, cv2.CC_STAT_LEFT]),
+                    int(stats[component_id, cv2.CC_STAT_TOP]),
+                    int(stats[component_id, cv2.CC_STAT_WIDTH]),
+                    int(stats[component_id, cv2.CC_STAT_HEIGHT]),
+                ],
+                "angle_deg": round(float(family["angle"]), 3),
+                "line_count": int(family["line_count"]),
+                "segment_count": int(family["segment_count"]),
+                "total_length": round(float(family["total_length"]), 3),
+                "spacing": round(float(family["spacing"]), 3),
+                "spacing_cv": round(float(family["spacing_cv"]), 3),
+            })
+
+    # Keep only support near actual skeleton ink. This prevents line gaps from
+    # turning a Hough segment into a broad removal corridor.
+    support = cv2.dilate(
+        skeleton_binary.astype(np.uint8), np.ones((3, 3), np.uint8)
+    )
+    output &= support
+    return output, metadata
+
+
+def _run_hachure_topology_prepass(
+    skeleton: np.ndarray,
+    hatch_mask: np.ndarray,
+    cfg: dict,
+    max_search_radius: int,
+) -> tuple[np.ndarray, list[dict], int]:
+    """Extract repeated hatch strokes inside the CNN hatch-region prior."""
+    nodes, edges = _extract_topology(
+        skeleton,
+        _cn_keypoint_clusters(skeleton),
+        max_search_radius,
+        directional_walk=bool(cfg.get("topology_directional_walk", False)),
+        directional_walk_baseline=float(
+            cfg.get("topology_directional_walk_baseline", 6.0)
+        ),
+    )
+    if cfg.get("simplify_graph", True):
+        nodes, edges = _simplify_graph(
+            nodes,
+            edges,
+            spur_min_len=cfg.get("spur_min_length", 6.0),
+            collinear_max_angle=cfg.get("merge_collinear_max_angle", 28.0),
+            collinear_tangent_baseline=cfg.get(
+                "hachure_topology_prepass_tangent_baseline", 8.0
+            ),
+            junction_merge_radius=cfg.get("junction_merge_radius", 0.0),
+        )
+    geometric_cfg = dict(cfg)
+    geometric_cfg["hachure_max_removed_edge_ratio"] = float(
+        cfg.get("hachure_topology_prepass_max_edge_ratio", 0.95)
+    )
+    _nodes, _kept, geometric = _remove_hachure_edges(
+        nodes,
+        edges,
+        geometric_cfg,
+        pass_name="topology_prepass_geometric",
+    )
+    if not geometric:
+        return skeleton, [], 0
+
+    interior_margin = int(
+        cfg.get("hachure_topology_prepass_interior_margin", 0)
+    )
+    if interior_margin < 0:
+        raise ValueError("hachure prepass interior margin must be non-negative")
+    interior_mask = hatch_mask
+    if interior_margin > 0:
+        size = interior_margin * 2 + 1
+        interior_mask = cv2.erode(
+            hatch_mask.astype(np.uint8),
+            np.ones((size, size), dtype=np.uint8),
+        )
+        if not np.any(interior_mask):
+            return skeleton, [], 0
+
+    mask_cfg = dict(cfg)
+    mask_cfg["hachure_cnn_max_removed_edge_ratio"] = 1.0
+    _nodes, _kept, removed = _remove_hachures_cnn(
+        nodes,
+        geometric,
+        interior_mask,
+        mask_cfg,
+        pass_name="cnn_topology_prepass",
+    )
+    if not removed:
+        return skeleton, [], 0
+
+    geometric_meta = {
+        int(edge["id"]): dict(edge.get("hachure", {})) for edge in geometric
+    }
+    selected_ids = {int(edge["id"]) for edge in removed}
+    for edge in removed:
+        metadata = geometric_meta.get(int(edge["id"]), {})
+        metadata.update(edge.get("hachure", {}))
+        metadata["pass"] = "cnn_topology_prepass_geometric"
+        edge["hachure"] = metadata
+    kept = [edge for edge in edges if int(edge["id"]) not in selected_ids]
+
+    cleaned, removed_pixels = _skeleton_without_hachure_edges(
+        skeleton, kept, removed
+    )
+    foreground = int(np.count_nonzero(skeleton))
+    maximum_ratio = float(
+        cfg.get("hachure_topology_prepass_max_removed_pixel_ratio", 0.95)
+    )
+    removed_ratio = removed_pixels / max(foreground, 1)
+    if not np.any(cleaned) or (
+        maximum_ratio > 0 and removed_ratio > maximum_ratio
+    ):
+        logger.warning(
+            "Hachure topology prepass skipped: removed-pixel ratio %.3f "
+            "exceeds guard %.3f",
+            removed_ratio,
+            maximum_ratio,
+        )
+        return skeleton, [], 0
+    return cleaned, removed, removed_pixels
+
+
+def _trace_hatch_stroke_side_layer(
+    mask: np.ndarray,
+    cfg: dict,
+    max_search_radius: int,
+) -> list[dict]:
+    """Trace a predicted hatch skeleton without changing the main graph."""
+    binary = (np.asarray(mask) > 0).astype(np.uint8) * 255
+    if not np.any(binary):
+        return []
+    nodes, edges = _extract_topology(
+        binary,
+        _cn_keypoint_clusters(binary),
+        max_search_radius,
+        directional_walk=bool(cfg.get("topology_directional_walk", False)),
+        directional_walk_baseline=float(
+            cfg.get("topology_directional_walk_baseline", 6.0)
+        ),
+    )
+    if cfg.get("simplify_graph", True):
+        _nodes, edges = _simplify_graph(
+            nodes,
+            edges,
+            spur_min_len=0.0,
+            collinear_max_angle=cfg.get("merge_collinear_max_angle", 28.0),
+            junction_merge_radius=0.0,
+        )
+    for edge in edges:
+        edge["is_hachure"] = True
+        edge["hachure"] = {
+            "pass": "stroke_multilabel_prepass",
+            "source": "hatch_stroke_cnn",
+        }
+    return edges
+
+
+def _hatch_stroke_masks_from_probabilities(
+    skeleton: np.ndarray,
+    probabilities: np.ndarray,
+    cfg: dict,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Threshold multilabel predictions on existing skeleton ink only."""
+    binary = np.asarray(skeleton) > 0
+    probabilities = np.asarray(probabilities, dtype=np.float32)
+    if probabilities.shape != (2, *binary.shape):
+        raise ValueError(
+            "hatch-stroke probabilities must have shape (2, H, W)"
+        )
+    hatch_threshold = float(
+        cfg.get("hachure_stroke_hatch_high_threshold", 0.8)
+    )
+    structural_threshold = float(
+        cfg.get("hachure_stroke_structural_low_threshold", 0.2)
+    )
+    if not 0.0 <= hatch_threshold <= 1.0:
+        raise ValueError("hatch-stroke hatch threshold must be in [0, 1]")
+    if not 0.0 <= structural_threshold <= 1.0:
+        raise ValueError("hatch-stroke structural threshold must be in [0, 1]")
+
+    predicted_hatch = binary & (probabilities[1] >= hatch_threshold)
+    safe_hatch_only = predicted_hatch & (
+        probabilities[0] < structural_threshold
+    )
+    foreground_pixels = int(np.count_nonzero(binary))
+    safe_candidate_pixels = int(np.count_nonzero(safe_hatch_only))
+    safe_candidate_ratio = safe_candidate_pixels / max(foreground_pixels, 1)
+    maximum_ratio = float(
+        cfg.get("hachure_stroke_max_removed_pixel_ratio", 0.75)
+    )
+    stats = {
+        "applied": False,
+        "foreground_pixels": foreground_pixels,
+        "predicted_hatch_pixels": int(np.count_nonzero(predicted_hatch)),
+        "safe_candidate_pixels": safe_candidate_pixels,
+        "safe_candidate_ratio": safe_candidate_ratio,
+        "safe_removed_pixels": 0,
+        "safe_removed_ratio": 0.0,
+        "hatch_high_threshold": hatch_threshold,
+        "structural_low_threshold": structural_threshold,
+        "maximum_removed_pixel_ratio": maximum_ratio,
+        "side_layer_pixels": 0,
+        "side_layer_edges": 0,
+    }
+    return binary, predicted_hatch, safe_hatch_only, stats
+
+
+def _hatch_stroke_prepass_from_probabilities(
+    skeleton: np.ndarray,
+    probabilities: np.ndarray,
+    cfg: dict,
+    max_search_radius: int,
+) -> tuple[np.ndarray, list[dict], dict]:
+    """Subtract only confident hatch-only pixels and retain a hatch side layer."""
+    binary, predicted_hatch, safe_hatch_only, stats = (
+        _hatch_stroke_masks_from_probabilities(
+            skeleton, probabilities, cfg
+        )
+    )
+    removed_pixels = int(stats["safe_candidate_pixels"])
+    removed_ratio = float(stats["safe_candidate_ratio"])
+    maximum_ratio = float(stats["maximum_removed_pixel_ratio"])
+    stats.update({
+        "mode": "pre_topology",
+        "safe_removed_pixels": removed_pixels,
+        "safe_removed_ratio": removed_ratio,
+    })
+    if removed_pixels == 0:
+        return np.asarray(skeleton).copy(), [], stats
+    if maximum_ratio > 0 and removed_ratio > maximum_ratio:
+        stats["guard"] = "maximum_removed_pixel_ratio"
+        return np.asarray(skeleton).copy(), [], stats
+
+    # Recover multilabel crossing pixels only near confidently hatch-only ink.
+    # Component-wide propagation is unsafe on patent drawings: one crossing can
+    # connect a hatch family to a large structural network and duplicate that
+    # entire network in the side layer.
+    recovery_radius = int(
+        cfg.get("hachure_stroke_overlap_recovery_radius", 1)
+    )
+    if recovery_radius < 0:
+        raise ValueError("hatch-stroke overlap recovery radius must be non-negative")
+    if recovery_radius:
+        size = recovery_radius * 2 + 1
+        local_support = cv2.dilate(
+            safe_hatch_only.astype(np.uint8),
+            np.ones((size, size), dtype=np.uint8),
+        ) > 0
+    else:
+        local_support = safe_hatch_only
+    side_mask = predicted_hatch & local_support
+    side_edges = _trace_hatch_stroke_side_layer(
+        side_mask, cfg, max_search_radius
+    )
+    if not side_edges:
+        stats["guard"] = "empty_side_layer"
+        return np.asarray(skeleton).copy(), [], stats
+
+    cleaned = binary & ~safe_hatch_only
+    if not np.any(cleaned):
+        stats["guard"] = "empty_structural_skeleton"
+        return np.asarray(skeleton).copy(), [], stats
+    stats.update({
+        "applied": True,
+        "side_layer_pixels": int(np.count_nonzero(side_mask)),
+        "side_layer_edges": len(side_edges),
+        "overlap_recovery_radius": recovery_radius,
+    })
+    for edge in side_edges:
+        edge["hachure"].update({
+            "hatch_high_threshold": stats["hatch_high_threshold"],
+            "structural_low_threshold": stats["structural_low_threshold"],
+        })
+    return cleaned.astype(np.uint8) * 255, side_edges, stats
+
+
+def _hatch_stroke_postmask_from_probabilities(
+    skeleton: np.ndarray,
+    probabilities: np.ndarray,
+    cfg: dict,
+) -> tuple[np.ndarray | None, dict]:
+    """Build a structural-vetoed hatch mask without changing the skeleton."""
+    _binary, _predicted_hatch, safe_hatch_only, stats = (
+        _hatch_stroke_masks_from_probabilities(
+            skeleton, probabilities, cfg
+        )
+    )
+    candidate_pixels = int(stats["safe_candidate_pixels"])
+    candidate_ratio = float(stats["safe_candidate_ratio"])
+    maximum_ratio = float(stats["maximum_removed_pixel_ratio"])
+    stats["mode"] = "post_topology"
+    if candidate_pixels == 0:
+        stats["guard"] = "empty_safe_hatch_mask"
+        return None, stats
+    if maximum_ratio > 0 and candidate_ratio > maximum_ratio:
+        stats["guard"] = "maximum_removed_pixel_ratio"
+        return None, stats
+
+    stats.update({
+        "applied": True,
+        "edge_mask_pixels": candidate_pixels,
+        "pixel_subtraction_applied": False,
+    })
+    return safe_hatch_only.astype(np.uint8), stats
+
+
+def _run_hatch_stroke_prepass(
+    skeleton: np.ndarray,
+    model,
+    cfg: dict,
+    max_search_radius: int,
+) -> tuple[np.ndarray, list[dict], dict]:
+    probabilities = _cnn_hatch_stroke_probabilities(
+        skeleton,
+        model,
+        patch=int(cfg.get("hachure_stroke_patch", _HATCH_PATCH)),
+        stride=int(cfg.get("hachure_stroke_stride", _HATCH_STRIDE)),
+    )
+    return _hatch_stroke_prepass_from_probabilities(
+        skeleton, probabilities, cfg, max_search_radius
+    )
+
+
+def _run_hatch_stroke_postmask(
+    skeleton: np.ndarray,
+    model,
+    cfg: dict,
+) -> tuple[np.ndarray | None, dict]:
+    probabilities = _cnn_hatch_stroke_probabilities(
+        skeleton,
+        model,
+        patch=int(cfg.get("hachure_stroke_patch", _HATCH_PATCH)),
+        stride=int(cfg.get("hachure_stroke_stride", _HATCH_STRIDE)),
+    )
+    return _hatch_stroke_postmask_from_probabilities(
+        skeleton, probabilities, cfg
+    )
 
 
 def _snap_to_skeleton(
@@ -2324,6 +4084,7 @@ def run(
     *,
     source_image_path: Optional[Path] = None,
     hatch_model=None,
+    hatch_stroke_model=None,
 ) -> Stage2Result:
     """
     Run Stage 2 on a single skeleton image.
@@ -2348,6 +4109,9 @@ def run(
         Pre-loaded Phase 2 hatch-region detector (see ``load_hatch_model``).
         When present alongside ``source_image_path``, its mask is the primary
         hachure signal; otherwise the geometric heuristic runs.
+    hatch_stroke_model : HatchUNet | None
+        Opt-in two-channel skeleton classifier. Confident hatch-only pixels are
+        removed before topology tracing and retained in the hachure side layer.
 
     Returns
     -------
@@ -2401,6 +4165,190 @@ def run(
     logger.info(f"[{sketch_id}] Stage 2 — skeleton {W}×{H}px, "
                 f"{int((skeleton > 0).sum())} foreground px")
 
+    max_radius = cfg_kp.get("max_search_radius", 60)
+    hatch_mask = None
+    hatch_stroke_mask = None
+    hatch_stroke_additive_mask = None
+    prepass_subtracted = False
+    hachure_gap_repairs: list[dict] = []
+    hachure_hough_families: list[dict] = []
+    removed_hachures: list[dict] = []
+    preliminary_hachures: list[dict] = []
+    hatch_stroke_mode = "disabled"
+    hatch_stroke_stats: dict = {"applied": False}
+    if (
+        hatch_stroke_model is not None
+        and cfg_kp.get("remove_hachures", False)
+    ):
+        try:
+            hatch_stroke_mode = str(
+                cfg_kp.get("hachure_stroke_mode", "pre_topology")
+            ).strip().lower()
+            if hatch_stroke_mode not in {
+                "pre_topology",
+                "post_topology",
+                "post_topology_additive",
+            }:
+                raise ValueError(
+                    "hachure_stroke_mode must be pre_topology, post_topology, "
+                    "or post_topology_additive"
+                )
+            original_foreground = int(np.count_nonzero(skeleton))
+            if hatch_stroke_mode == "pre_topology":
+                cleaned, preliminary_hachures, hatch_stroke_stats = (
+                    _run_hatch_stroke_prepass(
+                        skeleton, hatch_stroke_model, cfg_kp, max_radius
+                    )
+                )
+                if hatch_stroke_stats.get("applied"):
+                    skeleton = cleaned
+                    removed_hachures.extend(preliminary_hachures)
+                    hatch_stroke_mask = _edge_support_mask(
+                        preliminary_hachures, (H, W)
+                    )
+                    hatch_mask = hatch_stroke_mask
+                    prepass_subtracted = True
+                    logger.info(
+                        f"[{sketch_id}] Hatch-stroke prepass: "
+                        f"{len(preliminary_hachures)} side-layer edges, "
+                        f"{hatch_stroke_stats['safe_removed_pixels']}/"
+                        f"{original_foreground} confident hatch-only pixels "
+                        "removed before topology"
+                    )
+            else:
+                hatch_stroke_mask, hatch_stroke_stats = (
+                    _run_hatch_stroke_postmask(
+                        skeleton, hatch_stroke_model, cfg_kp
+                    )
+                )
+                if hatch_stroke_stats.get("applied"):
+                    if hatch_stroke_mode == "post_topology":
+                        hatch_mask = hatch_stroke_mask
+                    logger.info(
+                        f"[{sketch_id}] Hatch-stroke {hatch_stroke_mode} mask: "
+                        f"{hatch_stroke_stats['safe_candidate_pixels']}/"
+                        f"{original_foreground} structurally-vetoed hatch "
+                        "pixels; skeleton retained unchanged"
+                    )
+            if (
+                not hatch_stroke_stats.get("applied")
+                and hatch_stroke_stats.get("guard")
+            ):
+                logger.warning(
+                    f"[{sketch_id}] Hatch-stroke {hatch_stroke_mode} skipped "
+                    "by "
+                    f"{hatch_stroke_stats['guard']} guard"
+                )
+        except Exception as exc:
+            hatch_stroke_stats = {
+                "applied": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            logger.warning(
+                f"[{sketch_id}] Hatch-stroke inference failed ({exc}); "
+                "continuing with the existing hachure path."
+            )
+    hatch_requested = (
+        hatch_model is not None
+        and source_image_path is not None
+        and cfg_kp.get("remove_hachures", False)
+    )
+    if (
+        hatch_requested
+        and not prepass_subtracted
+        and cfg_kp.get("hachure_hough_bridge_keypoints", False)
+        and not cfg_kp.get("hachure_topology_prepass", False)
+    ):
+        try:
+            hatch_mask, threshold = _aligned_hatch_mask(
+                source_image_path, hatch_model, (H, W), cfg_kp
+            )
+            hatch_stroke_mask, hachure_hough_families = (
+                _hough_hachure_stroke_mask(
+                    skeleton,
+                    hatch_mask,
+                    cfg_kp,
+                )
+            )
+            logger.info(
+                f"[{sketch_id}] Early hatch Hough mask: "
+                f"{len(hachure_hough_families)} periodic families, "
+                f"{int(np.count_nonzero(hatch_stroke_mask))} support pixels"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"[{sketch_id}] Early hatch Hough inference failed ({exc}); "
+                "continuing without temporary hatch routing keypoints."
+            )
+            hatch_mask = None
+            hatch_stroke_mask = None
+            hachure_hough_families = []
+    if (
+        hatch_requested
+        and not prepass_subtracted
+        and cfg_kp.get("hachure_topology_prepass", False)
+    ):
+        try:
+            hatch_mask, threshold = _aligned_hatch_mask(
+                source_image_path, hatch_model, (H, W), cfg_kp
+            )
+            logger.info(
+                f"[{sketch_id}] Hatch CNN mask: "
+                f"{int(hatch_mask.sum())}/{H*W} px "
+                f"({hatch_mask.mean()*100:.1f}%) @ thr={threshold}"
+            )
+            original_foreground = int(np.count_nonzero(skeleton))
+            prepass_skeleton, preliminary_hachures, removed_pixels = (
+                _run_hachure_topology_prepass(
+                    skeleton, hatch_mask, cfg_kp, max_radius
+                )
+            )
+            removed_hachures.extend(preliminary_hachures)
+            if preliminary_hachures:
+                hatch_stroke_mask = _edge_support_mask(
+                    preliminary_hachures, (H, W)
+                )
+                subtract_pixels = bool(
+                    cfg_kp.get("hachure_topology_prepass_subtract", True)
+                )
+                if subtract_pixels:
+                    if cfg_kp.get("hachure_gap_repair", False):
+                        prepass_skeleton, hachure_gap_repairs = (
+                            _repair_hachure_crossing_gaps(
+                                skeleton,
+                                prepass_skeleton,
+                                preliminary_hachures,
+                                cfg_kp,
+                            )
+                        )
+                        restored_pixels = sum(
+                            int(repair["restored_pixels"])
+                            for repair in hachure_gap_repairs
+                        )
+                        removed_pixels = max(0, removed_pixels - restored_pixels)
+                        if hachure_gap_repairs:
+                            logger.info(
+                                f"[{sketch_id}] Hatch gap repair: "
+                                f"{len(hachure_gap_repairs)} contour gaps, "
+                                f"{restored_pixels} original pixels restored"
+                            )
+                    skeleton = prepass_skeleton
+                    prepass_subtracted = True
+                logger.info(
+                    f"[{sketch_id}] Hatch topology prepass: "
+                    f"{len(preliminary_hachures)} side-layer edges, "
+                    f"{removed_pixels}/{original_foreground} exclusive pixels "
+                    f"{'removed' if subtract_pixels else 'retained'} before "
+                    "learned topology"
+                )
+        except Exception as exc:
+            logger.warning(
+                f"[{sketch_id}] Hatch topology prepass failed ({exc}); "
+                "using the post-topology hachure path."
+            )
+            hatch_mask = None
+            removed_hachures = []
+
     # ── Layer 1: Keypoint detection ───────────────────────────────────────
     # Keypoint detector knobs live in the `puhachov` config block; fall back to
     # `stage2` then a default for backward compatibility.
@@ -2450,31 +4398,193 @@ def run(
         kp_clusters = _cn_keypoint_clusters(skeleton)
         kp_source   = "classical"
         logger.info(f"[{sketch_id}] Classical CN: {len(kp_clusters)} keypoints")
+    if prepass_subtracted:
+        kp_source += "_hatchstroke_subtracted"
+    elif hatch_stroke_stats.get("applied"):
+        kp_source += "_hatchstroke_edge_mask"
+
+    unclaimed_mode = "all"
+    hachure_routing_candidate_junctions = 0
+    hachure_routing_junctions = 0
+    hachure_routing_endpoints = 0
+    structural_topology = bool(
+        cfg_kp.get("hachure_structural_topology", False)
+        and model is not None
+        and kp_source.startswith("cnn")
+    )
+    if structural_topology:
+        for cluster in kp_clusters:
+            cluster["structural_seed"] = True
+            cluster["topology_origin"] = "cnn_structural"
+        structural_count = len(kp_clusters)
+        if hatch_mask is not None:
+            if prepass_subtracted:
+                kp_source += "_hatch_subtracted"
+                logger.info(
+                    f"[{sketch_id}] Hatch structural topology: "
+                    f"{structural_count} learned structural seeds on the "
+                    "hatch-subtracted skeleton"
+                )
+            else:
+                bridge_mask = (
+                    hatch_stroke_mask
+                    if hatch_stroke_mask is not None
+                    else np.zeros_like(hatch_mask)
+                )
+                bridge_dilation = int(
+                    cfg_kp.get("hachure_bridge_mask_dilation", 0)
+                )
+                if bridge_dilation > 0:
+                    size = bridge_dilation * 2 + 1
+                    bridge_mask = cv2.dilate(
+                        bridge_mask,
+                        np.ones((size, size), dtype=np.uint8),
+                    )
+                recovered_endpoints: list[dict] = []
+                if cfg_kp.get(
+                    "hachure_structural_recover_cn_endpoints", False
+                ):
+                    recovered_endpoints = _structural_cn_endpoint_clusters(
+                        skeleton,
+                        bridge_mask,
+                        kp_clusters,
+                        dedup_radius=float(
+                            cfg_kp.get(
+                                "hachure_endpoint_recovery_dedup_radius",
+                                nms_radius,
+                            )
+                        ),
+                    )
+                    kp_clusters.extend(recovered_endpoints)
+                bridges = _hatch_bridge_junction_clusters(
+                    skeleton,
+                    bridge_mask,
+                    kp_clusters,
+                    dedup_radius=float(
+                        cfg_kp.get("hachure_bridge_dedup_radius", nms_radius)
+                    ),
+                )
+                kp_clusters.extend(bridges)
+                unclaimed_mode = "closed_only"
+                if recovered_endpoints:
+                    kp_source += "_cn_endpoints"
+                kp_source += "_hatch_bridged"
+                logger.info(
+                    f"[{sketch_id}] Hatch structural topology: "
+                    f"{structural_count} learned structural seeds + "
+                    f"{len(recovered_endpoints)} recovered CN endpoints + "
+                    f"{len(bridges)} temporary CN junctions"
+                )
+        else:
+            logger.warning(
+                f"[{sketch_id}] Hatch structural topology requested without "
+                "an aligned hatch mask; using the regular learned tracer."
+            )
+
+    # The learned keypoint model intentionally suppresses many raster-only
+    # hatch crossings. Without an explicit node there, the pixel walker can
+    # turn from a contour onto a hatch stroke and create one mixed edge. Add
+    # only CN nodes supported by a verified thin Hough stroke mask: the tracer
+    # stops locally, simplification pairs straight-through arms, and cleanup
+    # can then classify the separated hatch edge without deleting the contour.
+    if (
+        cfg_kp.get("hachure_hough_bridge_keypoints", False)
+        and hatch_stroke_mask is not None
+        and np.any(hatch_stroke_mask)
+        and not prepass_subtracted
+    ):
+        bridge_dedup_radius = float(
+            cfg_kp.get("hachure_hough_bridge_dedup_radius", nms_radius)
+        )
+        bridge_candidates = _hatch_bridge_junction_clusters(
+            skeleton,
+            hatch_stroke_mask,
+            kp_clusters,
+            dedup_radius=bridge_dedup_radius,
+        )
+        if cfg_kp.get("hachure_hough_bridge_mixed_only", True):
+            bridges = _mixed_hatch_junction_clusters(
+                skeleton,
+                hatch_stroke_mask,
+                bridge_candidates,
+                cfg_kp,
+                hachure_hough_families,
+            )
+        else:
+            bridges = bridge_candidates
+        kp_clusters.extend(bridges)
+
+        hatch_endpoints: list[dict] = []
+        if cfg_kp.get("hachure_hough_recover_cn_endpoints", True):
+            endpoint_mask = hatch_stroke_mask
+            endpoint_dilation = int(
+                cfg_kp.get("hachure_hough_endpoint_mask_dilation", 2)
+            )
+            if endpoint_dilation < 0:
+                raise ValueError(
+                    "hachure Hough endpoint mask dilation must be non-negative"
+                )
+            if endpoint_dilation > 0:
+                size = endpoint_dilation * 2 + 1
+                endpoint_mask = cv2.dilate(
+                    endpoint_mask,
+                    np.ones((size, size), dtype=np.uint8),
+                )
+            hatch_endpoints = _hatch_cn_endpoint_clusters(
+                skeleton,
+                endpoint_mask,
+                kp_clusters,
+                dedup_radius=float(
+                    cfg_kp.get(
+                        "hachure_hough_endpoint_dedup_radius",
+                        nms_radius,
+                    )
+                ),
+            )
+            kp_clusters.extend(hatch_endpoints)
+
+        hachure_routing_candidate_junctions = len(bridge_candidates)
+        hachure_routing_junctions = len(bridges)
+        hachure_routing_endpoints = len(hatch_endpoints)
+        # Keep all unclaimed components. Unlike the older structural-bridge
+        # experiment, Hough endpoints make open hatch strokes traceable, so
+        # dropping open unclaimed ink would only lower structural recall.
+        unclaimed_mode = "all"
+        kp_source += "_hough_cn_routed"
+        logger.info(
+            f"[{sketch_id}] Hough-guided topology routing: "
+            f"{len(bridge_candidates)} candidate -> {len(bridges)} mixed "
+            "temporary CN junctions + "
+            f"{len(hatch_endpoints)} temporary CN endpoints"
+        )
 
     # ── Layer 2: Topology extraction ──────────────────────────────────────
-    max_radius = cfg_kp.get("max_search_radius", 60)
-    nodes, edges = _extract_topology(skeleton, kp_clusters, max_radius)
+    nodes, edges = _extract_topology(
+        skeleton,
+        kp_clusters,
+        max_radius,
+        unclaimed_mode=unclaimed_mode,
+        directional_walk=bool(
+            cfg_kp.get("topology_directional_walk", False)
+        ),
+        directional_walk_baseline=float(
+            cfg_kp.get("topology_directional_walk_baseline", 6.0)
+        ),
+    )
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
 
     # ── Learned hatch-region mask (Phase 2 CNN) ───────────────────────────
     # Run the detector on the same image Stage 1 consumed (identical coordinate
     # frame as the skeleton), then downscale the mask by stage2_scale so it
     # aligns with the possibly resolution-capped skeleton the graph lives in.
-    hatch_mask = None
-    if (hatch_model is not None and source_image_path is not None
-            and cfg_kp.get("remove_hachures", False)):
+    if hatch_mask is None and hatch_requested and not prepass_subtracted:
         try:
-            src_gray = cv2.imread(str(source_image_path), cv2.IMREAD_GRAYSCALE)
-            if src_gray is None:
-                raise FileNotFoundError(source_image_path)
-            thr  = float(cfg_kp.get("hachure_cnn_threshold", 0.70))
-            mask = _cnn_hatch_mask(src_gray, hatch_model, thr)
-            if mask.shape != (H, W):
-                mask = cv2.resize(mask, (W, H), interpolation=cv2.INTER_NEAREST)
-            hatch_mask = mask
+            hatch_mask, threshold = _aligned_hatch_mask(
+                source_image_path, hatch_model, (H, W), cfg_kp
+            )
             logger.info(
                 f"[{sketch_id}] Hatch CNN mask: {int(hatch_mask.sum())}/{H*W} px "
-                f"({hatch_mask.mean()*100:.1f}%) @ thr={thr}"
+                f"({hatch_mask.mean()*100:.1f}%) @ thr={threshold}"
             )
         except Exception as exc:
             logger.warning(
@@ -2482,9 +4592,77 @@ def run(
                 "using geometric hachure removal."
             )
             hatch_mask = None
-    use_cnn_hatch = hatch_mask is not None
+    cleanup_hatch_mask = hatch_mask
+    if (
+        hatch_stroke_mode == "post_topology_additive"
+        and hatch_stroke_stats.get("applied")
+        and hatch_stroke_mask is not None
+    ):
+        region_mask, hatch_stroke_additive_mask = (
+            _separate_hatch_additive_masks(hatch_mask, hatch_stroke_mask)
+        )
+        # Preserve the production region pass exactly. Model-only pixels are
+        # evaluated later against the remaining graph with independent
+        # geometric guards; unioning both masks here made source attribution
+        # impossible and let long structural chains bypass hatch limits.
+        cleanup_hatch_mask = region_mask
+        hatch_stroke_stats.update({
+            "region_mask_pixels": int(np.count_nonzero(region_mask)),
+            "additive_mask_pixels": int(
+                np.count_nonzero(hatch_stroke_additive_mask)
+            ),
+            "combined_mask_pixels": int(
+                np.count_nonzero(
+                    np.maximum(region_mask, hatch_stroke_mask)
+                )
+            ),
+        })
+    if prepass_subtracted and hatch_mask is not None:
+        cleanup_hatch_mask = np.zeros_like(hatch_mask)
+    elif structural_topology:
+        if hatch_mask is None:
+            cleanup_hatch_mask = None
+        elif hatch_stroke_mask is None:
+            cleanup_hatch_mask = np.zeros_like(hatch_mask)
+        else:
+            cleanup_hatch_mask = _edge_support_mask(
+                preliminary_hachures,
+                (H, W),
+                dilation=int(
+                    cfg_kp.get("hachure_cnn_stroke_mask_dilation", 2)
+                ),
+            )
+    if (
+        cleanup_hatch_mask is not None
+        and cfg_kp.get("hachure_hough_stroke_mask", False)
+    ):
+        if (
+            cfg_kp.get("hachure_hough_bridge_keypoints", False)
+            and hatch_stroke_mask is not None
+        ):
+            cleanup_hatch_mask = hatch_stroke_mask
+            logger.info(
+                f"[{sketch_id}] Reusing early hatch Hough mask for cleanup: "
+                f"{len(hachure_hough_families)} periodic families, "
+                f"{int(np.count_nonzero(cleanup_hatch_mask))} support pixels"
+            )
+        else:
+            cleanup_hatch_mask, hachure_hough_families = (
+                _hough_hachure_stroke_mask(
+                    skeleton,
+                    cleanup_hatch_mask,
+                    cfg_kp,
+                )
+            )
+            logger.info(
+                f"[{sketch_id}] Hatch Hough mask: "
+                f"{len(hachure_hough_families)} periodic families, "
+                f"{int(np.count_nonzero(cleanup_hatch_mask))} support pixels"
+            )
+    use_cnn_hatch = (
+        cleanup_hatch_mask is not None and np.any(cleanup_hatch_mask)
+    )
 
-    removed_hachures: list[dict] = []
     if (cfg_kp.get("remove_hachures", False) and cfg_kp.get("hachure_pre_pass", False)
             and not use_cnn_hatch):
         n0, e0 = len(nodes), len(edges)
@@ -2525,11 +4703,44 @@ def run(
     # the geometric clustering heuristic runs only when no mask is available.
     if use_cnn_hatch:
         n0, e0 = len(nodes), len(edges)
-        nodes, edges, removed = _remove_hachures_cnn(
-            nodes, edges, hatch_mask, cfg_kp, pass_name="cnn"
+        cleanup_pass_name = (
+            "hatch_stroke_multilabel"
+            if hatch_stroke_mode == "post_topology"
+            and hatch_stroke_stats.get("applied")
+            else "cnn"
         )
+        if cfg_kp.get("hachure_cnn_intersect_geometric", False):
+            nodes, edges, removed = _remove_hachures_cnn_geometric(
+                nodes,
+                edges,
+                cleanup_hatch_mask,
+                cfg_kp,
+                pass_name=(
+                    f"{cleanup_pass_name}_geometric"
+                    if cleanup_pass_name != "cnn"
+                    else "cnn_geometric"
+                ),
+            )
+        else:
+            nodes, edges, removed = _remove_hachures_cnn(
+                nodes,
+                edges,
+                cleanup_hatch_mask,
+                cfg_kp,
+                pass_name=cleanup_pass_name,
+            )
+        if cleanup_pass_name.startswith("hatch_stroke_multilabel"):
+            for edge in removed:
+                edge.setdefault("hachure", {})["source"] = "hatch_stroke_cnn"
+            hatch_stroke_stats.update({
+                "classified_hachure_edges": len(removed),
+                "side_layer_edges": len(removed),
+                "side_layer_pixels": sum(
+                    len(edge.get("pixels") or []) for edge in removed
+                ),
+            })
         removed_hachures.extend(removed)
-        did_remove_hachures = bool(removed)
+        did_remove_hachures = bool(removed_hachures)
         if removed:
             logger.info(
                 f"[{sketch_id}] Hachures (CNN): "
@@ -2541,6 +4752,7 @@ def run(
         run_hachure_post = (
             cfg_kp.get("remove_hachures", False)
             and cfg_kp.get("hachure_second_pass", True)
+            and not prepass_subtracted
             and _should_run_hachure_cleanup(edges, cfg_kp)
         )
         if run_hachure_post:
@@ -2556,6 +4768,64 @@ def run(
                     f"{n0}→{len(nodes)} nodes, {e0}→{len(edges)} edges "
                     f"({len(removed)} removed)"
                 )
+
+    if (
+        hatch_stroke_mode == "post_topology_additive"
+        and hatch_stroke_stats.get("applied")
+        and hatch_stroke_additive_mask is not None
+        and np.any(hatch_stroke_additive_mask)
+    ):
+        n0, e0 = len(nodes), len(edges)
+        additive_cfg = dict(cfg_kp)
+        additive_cfg["hachure_cnn_geometric_max_length"] = float(
+            cfg_kp.get(
+                "hachure_stroke_additive_max_length",
+                cfg_kp.get("hachure_max_length", 80.0),
+            )
+        )
+        additive_cfg["hachure_cnn_geometric_max_candidate_ratio"] = float(
+            cfg_kp.get("hachure_stroke_additive_max_candidate_ratio", 0.75)
+        )
+        if cfg_kp.get("hachure_stroke_additive_require_geometric", True):
+            nodes, edges, additive_removed = _remove_hachures_cnn_geometric(
+                nodes,
+                edges,
+                hatch_stroke_additive_mask,
+                additive_cfg,
+                pass_name="hatch_stroke_multilabel_additive",
+            )
+        else:
+            nodes, edges, additive_removed = _remove_hachures_cnn(
+                nodes,
+                edges,
+                hatch_stroke_additive_mask,
+                additive_cfg,
+                pass_name="hatch_stroke_multilabel_additive",
+            )
+        for edge in additive_removed:
+            edge.setdefault("hachure", {})["source"] = "hatch_stroke_cnn"
+        removed_hachures.extend(additive_removed)
+        did_remove_hachures = bool(removed_hachures)
+        hatch_stroke_stats.update({
+            "additive_classified_hachure_edges": len(additive_removed),
+            "additive_side_layer_pixels": sum(
+                len(edge.get("pixels") or []) for edge in additive_removed
+            ),
+            "additive_require_geometric": bool(
+                cfg_kp.get(
+                    "hachure_stroke_additive_require_geometric", True
+                )
+            ),
+            "additive_max_length": float(
+                additive_cfg["hachure_cnn_geometric_max_length"]
+            ),
+        })
+        if additive_removed:
+            logger.info(
+                f"[{sketch_id}] Hachures (stroke additive): "
+                f"{n0}→{len(nodes)} nodes, {e0}→{len(edges)} edges "
+                f"({len(additive_removed)} removed)"
+            )
 
     # Shared post-removal cleanup (residual crumbs + re-simplify) — identical
     # for both the learned and geometric paths.
@@ -2591,6 +4861,68 @@ def run(
                 f"{n1}→{len(nodes)} nodes, {e1}→{len(edges)} edges"
             )
 
+    if removed_hachures:
+        before_dedup = len(removed_hachures)
+        removed_hachures = _deduplicate_hachure_edges(
+            removed_hachures,
+            overlap_threshold=float(
+                cfg_kp.get("hachure_side_dedup_overlap", 0.75)
+            ),
+        )
+        if len(removed_hachures) != before_dedup:
+            logger.info(
+                f"[{sketch_id}] Hachure side-layer dedup: "
+                f"{before_dedup}→{len(removed_hachures)} edges"
+            )
+
+    # Aggregate hatch lines before final metrics, then classify any matching
+    # residue and re-simplify. The old late cleanup silently deleted residue
+    # after metrics and left its structural neighbours fragmented.
+    early_region_cleanup = bool(
+        cfg_kp.get("hachure_region_cleanup_before_metrics", False)
+    )
+    hachure_regions: list[dict] = []
+    if (
+        early_region_cleanup
+        and cfg_kp.get("hachure_mode", "region") == "region"
+        and removed_hachures
+    ):
+        try:
+            hachure_regions = _aggregate_hachure_regions(
+                removed_hachures, (H, W), cfg_kp
+            )
+            if hachure_regions:
+                n_before = len(edges)
+                nodes, edges, region_residuals = _cleanup_hatch_residue(
+                    nodes, edges, hachure_regions, (H, W), cfg_kp
+                )
+                removed_hachures.extend(region_residuals)
+                if region_residuals and cfg_kp.get("simplify_graph", True):
+                    nodes, edges = _simplify_graph(
+                        nodes,
+                        edges,
+                        # Residue removal can expose genuine structural ends.
+                        # Reconnect only; do not prune those newly exposed arms.
+                        spur_min_len=0.0,
+                        collinear_max_angle=cfg_kp.get(
+                            "merge_collinear_max_angle", 28.0
+                        ),
+                        junction_merge_radius=cfg_kp.get(
+                            "junction_merge_radius", 0.0
+                        ),
+                    )
+                logger.info(
+                    f"[{sketch_id}] Hachure regions: {len(hachure_regions)} "
+                    f"from {len(removed_hachures) - len(region_residuals)} "
+                    "lines "
+                    f"({sum(r['n_lines'] for r in hachure_regions)} grouped); "
+                    f"residue cleanup {n_before}→{len(edges)} edges "
+                    f"({len(region_residuals)} preserved in side layer)"
+                )
+        except Exception as exc:
+            logger.warning(f"[{sketch_id}] Hachure region aggregation failed: {exc}")
+            hachure_regions = []
+
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
     rdp_eps        = cfg_kp.get("rdp_epsilon",          1.5)
     spline_s       = cfg_kp.get("spline_smoothing",     2.0)
@@ -2611,6 +4943,7 @@ def run(
     if noise_loops:
         noise_ids = {e["id"] for e in noise_loops}
         edges = [e for e in edges if e["id"] not in noise_ids]
+        nodes, edges = _drop_unused_nodes(nodes, edges)
         logger.debug(f"[{sketch_id}] Removed {len(noise_loops)} noise closed loop(s) "
                      f"(< {min_loop_px} px, non-circular): edge ids {sorted(noise_ids)}")
 
@@ -2667,9 +5000,26 @@ def run(
     max_micro_ratio = frag_cfg.get("max_micro_edge_ratio", 0.50)
     max_short_ratio = frag_cfg.get("max_short_edge_ratio", 0.80)
     max_edges = frag_cfg.get("max_edges", 5000)
+    noncycle_unclaimed_sizes = [
+        len(edge.get("pixels") or [])
+        for edge in edges
+        if edge.get("topology_origin") == "unclaimed_component"
+        and not edge.get("is_simple_cycle", False)
+    ]
+    max_noncycle_unclaimed_pixels = max(
+        noncycle_unclaimed_sizes, default=0
+    )
+    max_allowed_noncycle_unclaimed_pixels = int(
+        frag_cfg.get("max_unclaimed_noncycle_pixels", 100000) or 0
+    )
     flagged = (
         iso_ratio > threshold
         or len(edges) > max_edges
+        or (
+            max_allowed_noncycle_unclaimed_pixels
+            and max_noncycle_unclaimed_pixels
+            > max_allowed_noncycle_unclaimed_pixels
+        )
         or (n_open >= 50 and micro_edge_ratio > max_micro_ratio)
         or (n_open >= 50 and short_edge_ratio > max_short_ratio)
     )
@@ -2687,21 +5037,28 @@ def run(
             return float(obj)
         return obj
 
-    # Aggregate removed hatch lines into parametric regions (boundary + pattern)
-    # for native HATCH export — collapses the per-line bloat/fragmentation.
-    hachure_regions: list[dict] = []
-    if cfg_kp.get("hachure_mode", "region") == "region" and removed_hachures:
+    # Compatibility control for paired evaluation. Production keeps the
+    # historical late cleanup until the preservation-first ordering passes the
+    # full PatentData gate.
+    if (
+        not early_region_cleanup
+        and cfg_kp.get("hachure_mode", "region") == "region"
+        and removed_hachures
+    ):
         try:
-            hachure_regions = _aggregate_hachure_regions(removed_hachures, (H, W), cfg_kp)
+            hachure_regions = _aggregate_hachure_regions(
+                removed_hachures, (H, W), cfg_kp
+            )
             if hachure_regions:
                 n_before = len(edges)
-                nodes, edges = _cleanup_hatch_residue(
-                    nodes, edges, hachure_regions, (H, W), cfg_kp)
+                nodes, edges, _late_residuals = _cleanup_hatch_residue(
+                    nodes, edges, hachure_regions, (H, W), cfg_kp
+                )
                 logger.info(
                     f"[{sketch_id}] Hachure regions: {len(hachure_regions)} "
                     f"from {len(removed_hachures)} lines "
                     f"({sum(r['n_lines'] for r in hachure_regions)} grouped); "
-                    f"residue cleanup {n_before}→{len(edges)} edges"
+                    f"legacy residue cleanup {n_before}→{len(edges)} edges"
                 )
         except Exception as exc:
             logger.warning(f"[{sketch_id}] Hachure region aggregation failed: {exc}")
@@ -2717,6 +5074,26 @@ def run(
             "n_hachure_edges_removed": len(removed_hachures),
             "n_hachure_pixels_ignored": len(ignored_hachure_pixels),
             "n_hachure_regions": len(hachure_regions),
+            "n_hachure_hough_families": len(hachure_hough_families),
+            "n_hachure_routing_candidate_junctions": (
+                hachure_routing_candidate_junctions
+            ),
+            "n_hachure_routing_junctions": hachure_routing_junctions,
+            "n_hachure_routing_endpoints": hachure_routing_endpoints,
+            "n_hachure_gaps_repaired": len(hachure_gap_repairs),
+            "n_hachure_gap_pixels_restored": sum(
+                int(repair["restored_pixels"])
+                for repair in hachure_gap_repairs
+            ),
+            "n_hachure_stroke_pixels_removed": int(
+                hatch_stroke_stats.get("safe_removed_pixels", 0)
+            ),
+            "n_unclaimed_noncycle_components": len(
+                noncycle_unclaimed_sizes
+            ),
+            "max_unclaimed_noncycle_pixels": (
+                max_noncycle_unclaimed_pixels
+            ),
             "median_edge_length": median_edge_length,
             "micro_edge_ratio": micro_edge_ratio,
             "short_edge_ratio": short_edge_ratio,
@@ -2725,6 +5102,9 @@ def run(
         "edges": edges,
         "removed_hachures": removed_hachures,
         "hachure_regions": hachure_regions,
+        "hachure_hough_families": hachure_hough_families,
+        "hachure_gap_repairs": hachure_gap_repairs,
+        "hachure_stroke": hatch_stroke_stats,
     })
     with open(graph_path, "w") as f:
         json.dump(graph_doc, f, indent=2)
@@ -2734,7 +5114,8 @@ def run(
     if flagged:
         logger.warning(
             f"[{sketch_id}] FLAGGED — isolation ratio {iso_ratio:.3f} "
-            f"> threshold {threshold:.2f}"
+            f"> threshold {threshold:.2f}; largest non-cycle residual "
+            f"component={max_noncycle_unclaimed_pixels} px"
         )
     else:
         logger.info(
@@ -2756,6 +5137,10 @@ def run(
         median_edge_length = median_edge_length,
         micro_edge_ratio  = micro_edge_ratio,
         short_edge_ratio  = short_edge_ratio,
+        n_unclaimed_noncycle_components = len(
+            noncycle_unclaimed_sizes
+        ),
+        max_unclaimed_noncycle_pixels = max_noncycle_unclaimed_pixels,
     )
 
 

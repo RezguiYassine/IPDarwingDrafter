@@ -40,6 +40,15 @@ models/hatch_grid_v2/
 models/hatch_grid_*/
 models/puhachov_d2c_patentft.pth
 
+# Locally trained Stage 2 research candidates (large and reproducible)
+models/hatch_stroke_multilabel*.pth
+models/puhachov_archcad_ft.pth
+models/puhachov_mixed_ft.pth
+models/puhachov_patentvec_*.pth
+
+# External Free2CAD author checkpoint; keep the selected shipped model above
+models/free2cad_v3_mohamed.pth
+
 # Free2CAD research checkpoints + tensorboard
 **/weights/free2cad/free2cad_ep*.pth
 **/weights/free2cad/free2cad_v3_ep*.pth
@@ -74,6 +83,13 @@ data/FloorPlanCAD/
 # SketchGraphs filtered construction-sequence splits and derived training data.
 # The sketches retain their original creators' copyright; keep the corpus local.
 data/SketchGraphs/
+# ArchCAD is an external Hugging Face/LFS checkout (~15 GB).
+data/ArchCAD/
+
+# Root-level patent comparison snapshots contain partner figures and generated
+# runtime artifacts. Canonical pipeline outputs belong under the ignored output/.
+/latest_run/
+/latest_run_*/
 
 # SketchGraphs-trained research checkpoints are reproducible but too large/noisy
 # for normal source-control history.

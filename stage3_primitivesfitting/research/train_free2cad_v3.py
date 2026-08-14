@@ -20,7 +20,7 @@ ARCHITECTURE
                 ↓
   Masked mean-pool over real points → (B, d_model)
                 ↓
-  TypeHead   : Linear(d_model → 4)    softmax over LINE/ARC/CIRCLE/POLYLINE
+  TypeHead   : Linear(d_model → 5)    LINE/ARC/CIRCLE/POLYLINE/BEZIER
   ParamHead  : Linear(d_model → 6)    L1-regression of geometric parameters
 
 ~1.5M parameters (vs 7.4M for the v2 seq2seq model).
@@ -40,10 +40,10 @@ Reads per-edge JSON files produced by generate_sketches_v3.py:
 
 LOSS
 ----
-  type_loss  : class-weighted CrossEntropy over 4 classes
+  type_loss  : class-weighted CrossEntropy over 5 classes
   param_loss : L1, gated on {LINE, ARC, CIRCLE} only
-               (POLYLINE has no canonical params, so its param target is zero
-                and contributes nothing to the param-loss numerator)
+               (POLYLINE and BEZIER use deterministic geometry after
+                classification and do not contribute parameter loss)
   total      : type_loss + 0.5 * param_loss
 
 CHECKPOINT FORMAT
@@ -56,13 +56,14 @@ CHECKPOINT FORMAT
     "architecture":     "encoder_only",
     "config": {
         "max_pts":       int,
-        "n_cmd_types":   4,
+        "n_cmd_types":   5,
         "d_model":       int,
         "n_heads":       int,
         "n_enc_layers":  int,
         "dropout":       float,
     },
-    "cmd_types":     {"LINE":0, "ARC":1, "CIRCLE":2, "POLYLINE":3},
+    "cmd_types":     {"LINE":0, "ARC":1, "CIRCLE":2, "POLYLINE":3,
+                      "BEZIER":4},
     "class_weights": [w_LINE, w_ARC, w_CIRCLE, w_POLYLINE],
     "metrics":       {... per-class P/R/F1, param_L1, pred_entropy ...},
   }
@@ -108,12 +109,13 @@ import numpy as np
 
 # ─── Vocabulary (v3: no END, no BOS) ─────────────────────────────────────────
 
-CMD_TYPES   = {"LINE": 0, "ARC": 1, "CIRCLE": 2, "POLYLINE": 3}
+CMD_TYPES   = {"LINE": 0, "ARC": 1, "CIRCLE": 2, "POLYLINE": 3, "BEZIER": 4}
 N_CMD_TYPES = len(CMD_TYPES)
 N_PARAMS    = 6
 
 # Classes that contribute to the parameter regression loss.
-# POLYLINE is excluded because it has no canonical parameter form.
+# POLYLINE/BEZIER are excluded because production refits their dense points
+# deterministically; neither has a stable six-value parameter target here.
 PARAM_CLASSES = {CMD_TYPES["LINE"], CMD_TYPES["ARC"], CMD_TYPES["CIRCLE"]}
 
 
@@ -151,6 +153,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--resume",       type=str,   default="")
     p.add_argument("--init_weights", type=str,   default="",
                    help="Warm-start model weights but reset training progress")
+    p.add_argument("--validate_before_training", action="store_true",
+                   help="Evaluate and retain the warm start as a step-zero candidate")
     p.add_argument("--stream_shards", action="store_true",
                    help="Load one training NPZ shard at a time")
     p.add_argument("--save_every_shards", type=int, default=10,
@@ -207,7 +211,7 @@ def _encode_command(cmd: dict) -> tuple[int, np.ndarray]:
     elif cmd["type"] == "CIRCLE":
         p[0:2] = cmd["center"]
         p[2]   = cmd["radius"]
-    # POLYLINE: zeros
+    # POLYLINE / BEZIER: zeros
     return type_id, p
 
 
@@ -508,7 +512,8 @@ def parameter_loss(param_pred, params, types, arc_encoding="center_radius_angles
 # ─── Model ────────────────────────────────────────────────────────────────────
 
 def build_model(max_pts: int, d_model: int, n_heads: int,
-                n_enc_layers: int, dropout: float):
+                n_enc_layers: int, dropout: float,
+                n_cmd_types: int | None = None):
     """
     Encoder-only per-edge model.
 
@@ -536,6 +541,8 @@ def build_model(max_pts: int, d_model: int, n_heads: int,
         def forward(self, x):
             return x + self.pe[:, : x.size(1)]
 
+    output_types = N_CMD_TYPES if n_cmd_types is None else int(n_cmd_types)
+
     class EdgeClassifier(nn.Module):
         def __init__(self):
             super().__init__()
@@ -550,7 +557,7 @@ def build_model(max_pts: int, d_model: int, n_heads: int,
                 norm_first=True,
             )
             self.encoder    = nn.TransformerEncoder(enc_layer, n_enc_layers)
-            self.type_head  = nn.Linear(d_model, N_CMD_TYPES)
+            self.type_head  = nn.Linear(d_model, output_types)
             self.param_head = nn.Linear(d_model, N_PARAMS)
 
         def forward(self, pts, mask):
@@ -566,6 +573,43 @@ def build_model(max_pts: int, d_model: int, n_heads: int,
             return self.type_head(pooled), self.param_head(pooled)
 
     return EdgeClassifier()
+
+
+def load_warm_start(model, checkpoint: dict) -> dict:
+    """Load a v3 checkpoint while allowing a larger type vocabulary.
+
+    This preserves every learned SketchGraphs encoder/regressor weight and the
+    existing type-head rows. Newly introduced classes retain their random
+    initialization. Other shape mismatches remain errors.
+    """
+    current = model.state_dict()
+    source = checkpoint["model_state_dict"]
+    copied_rows: dict[str, int] = {}
+    prepared = {}
+    for name, target in current.items():
+        if name not in source:
+            prepared[name] = target
+            continue
+        value = source[name]
+        if value.shape == target.shape:
+            prepared[name] = value
+            continue
+        if name in {"type_head.weight", "type_head.bias"}:
+            if value.ndim != target.ndim or value.shape[1:] != target.shape[1:]:
+                raise ValueError(f"incompatible warm-start tensor {name}: "
+                                 f"{tuple(value.shape)} -> {tuple(target.shape)}")
+            rows = min(value.shape[0], target.shape[0])
+            expanded = target.clone()
+            expanded[:rows] = value[:rows]
+            prepared[name] = expanded
+            copied_rows[name] = rows
+            continue
+        raise ValueError(
+            f"incompatible warm-start tensor {name}: "
+            f"{tuple(value.shape)} -> {tuple(target.shape)}"
+        )
+    model.load_state_dict(prepared, strict=True)
+    return copied_rows
 
 
 # ─── Validation metrics ───────────────────────────────────────────────────────
@@ -630,19 +674,22 @@ def _stroke_residuals(
 
 def evaluate(model, val_data: EncodedDataset, device, batch_size: int,
              type_loss_fn, param_weight: float,
-             arc_encoding: str = "center_radius_angles") -> dict:
+             arc_encoding: str = "center_radius_angles",
+             cmd_types: dict[str, int] | None = None) -> dict:
     """Run model on val_data; return loss + per-class P/R/F1 + extras."""
     import torch
 
     model.eval()
+    vocabulary = CMD_TYPES if cmd_types is None else cmd_types
+    n_cmd_types = len(vocabulary)
     total_loss   = 0.0
     n_batches    = 0
-    confusion    = np.zeros((N_CMD_TYPES, N_CMD_TYPES), dtype=np.int64)
-    param_l1_sum = np.zeros(N_CMD_TYPES, dtype=np.float64)
-    param_n      = np.zeros(N_CMD_TYPES, dtype=np.int64)
-    residual_sum = np.zeros(N_CMD_TYPES, dtype=np.float64)
-    residual_n   = np.zeros(N_CMD_TYPES, dtype=np.int64)
-    pred_counts  = np.zeros(N_CMD_TYPES, dtype=np.int64)
+    confusion    = np.zeros((n_cmd_types, n_cmd_types), dtype=np.int64)
+    param_l1_sum = np.zeros(n_cmd_types, dtype=np.float64)
+    param_n      = np.zeros(n_cmd_types, dtype=np.int64)
+    residual_sum = np.zeros(n_cmd_types, dtype=np.float64)
+    residual_n   = np.zeros(n_cmd_types, dtype=np.int64)
+    pred_counts  = np.zeros(n_cmd_types, dtype=np.int64)
 
     with torch.no_grad():
         for s in range(0, len(val_data), batch_size):
@@ -695,8 +742,8 @@ def evaluate(model, val_data: EncodedDataset, device, batch_size: int,
 
     # Per-class precision / recall / F1
     metrics: dict = {"per_class": {}}
-    inv = {v: k for k, v in CMD_TYPES.items()}
-    for cls in range(N_CMD_TYPES):
+    inv = {v: k for k, v in vocabulary.items()}
+    for cls in range(n_cmd_types):
         tp = int(confusion[cls, cls])
         fn = int(confusion[cls, :].sum() - tp)
         fp = int(confusion[:, cls].sum() - tp)
@@ -725,7 +772,7 @@ def evaluate(model, val_data: EncodedDataset, device, batch_size: int,
     H     = -(dist * np.where(dist > 0, np.log(dist + 1e-12), 0)).sum()
     metrics["pred_entropy"]      = round(float(H / H_max), 4)
     metrics["pred_distribution"] = {inv[c]: int(pred_counts[c])
-                                    for c in range(N_CMD_TYPES)}
+                                    for c in range(n_cmd_types)}
     metrics["confusion"]  = confusion.tolist()
     metrics["val_loss"]   = total_loss / max(n_batches, 1)
     metrics["accuracy"] = round(float(np.trace(confusion) / max(confusion.sum(), 1)), 4)
@@ -838,8 +885,13 @@ def train(args: argparse.Namespace) -> None:
         if not init_path.exists():
             raise FileNotFoundError(f"missing initial checkpoint: {init_path}")
         checkpoint = torch.load(init_path, map_location=device, weights_only=False)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Warm-started model weights from {init_path}")
+        copied_rows = load_warm_start(model, checkpoint)
+        detail = (
+            f"; expanded type head from {copied_rows['type_head.weight']} "
+            f"to {N_CMD_TYPES} classes"
+            if "type_head.weight" in copied_rows else ""
+        )
+        print(f"Warm-started model weights from {init_path}{detail}")
 
     # ── Loss & optimiser ──────────────────────────────────────────────────────
     cw_tensor = torch.from_numpy(class_weights).to(device)
@@ -895,6 +947,53 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"Resumed epoch {start_epoch + 1}, shard position "
             f"{resume_shard_position}; best val_loss={best_val_loss:.4f}"
+        )
+
+    if args.validate_before_training and not args.resume:
+        print("\nStep-zero validation ...")
+        metrics = evaluate(
+            model, val_data, device, args.batch_size,
+            type_loss_fn, args.param_weight, args.arc_encoding,
+        )
+        print_metrics(metrics)
+        best_val_loss = metrics["val_loss"]
+        best_macro_f1 = metrics["supported_macro_f1"]
+        last_metrics = metrics
+        last_val_loss = best_val_loss
+        baseline = {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optim.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "epoch": -1,
+            "epoch_complete": True,
+            "next_shard_position": 0,
+            "val_loss": best_val_loss,
+            "best_val_loss": best_val_loss,
+            "best_macro_f1": best_macro_f1,
+            "version": 3,
+            "architecture": "encoder_only",
+            "config": {
+                "max_pts": args.max_pts,
+                "n_cmd_types": N_CMD_TYPES,
+                "d_model": args.d_model,
+                "n_heads": args.n_heads,
+                "n_enc_layers": args.n_enc_layers,
+                "dropout": args.dropout,
+                "arc_encoding": args.arc_encoding,
+                "class_weight_power": args.class_weight_power,
+                "label_smoothing": args.label_smoothing,
+                "param_weight": args.param_weight,
+            },
+            "cmd_types": CMD_TYPES,
+            "class_weights": class_weights.tolist(),
+            "metrics": metrics,
+        }
+        _atomic_torch_save(baseline, out_dir / "free2cad_v3_step0.pth")
+        _atomic_torch_save(baseline, out_dir / "free2cad_v3_best.pth")
+        _atomic_torch_save(baseline, out_dir / "free2cad_v3_best_f1.pth")
+        print(
+            f"  Retained step zero: val_loss={best_val_loss:.4f}, "
+            f"supported macro-F1={best_macro_f1:.4f}"
         )
 
     # ── Loop ──────────────────────────────────────────────────────────────────

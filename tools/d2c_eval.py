@@ -197,6 +197,66 @@ def _count_paths_in_svg(svg_path: Path) -> int:
         return -1
 
 
+def _compare_binary_rasters(
+    gt_binary: np.ndarray,
+    out_binary: np.ndarray,
+) -> dict[str, float | None]:
+    """Return Drawing2CAD fidelity metrics for two binary raster images."""
+    if out_binary.shape != gt_binary.shape:
+        out_binary = cv2.resize(
+            out_binary,
+            (gt_binary.shape[1], gt_binary.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+    gt_ink = gt_binary < 128
+    out_ink = out_binary < 128
+    intersection = np.logical_and(gt_ink, out_ink).sum()
+    union = np.logical_or(gt_ink, out_ink).sum()
+    metrics: dict[str, float | None] = {
+        "iou_pixel": float(intersection / union) if union > 0 else 0.0,
+        "precision_pixel": (
+            float(intersection / out_ink.sum()) if out_ink.sum() > 0 else 0.0
+        ),
+        "recall_pixel": (
+            float(intersection / gt_ink.sum()) if gt_ink.sum() > 0 else 0.0
+        ),
+    }
+
+    gt_skel = skeletonize(gt_ink)
+    out_skel = skeletonize(out_ink)
+    kernel = np.ones((3, 3), np.uint8)
+    gt_dilated = cv2.dilate(gt_skel.astype(np.uint8), kernel).astype(bool)
+    out_dilated = cv2.dilate(out_skel.astype(np.uint8), kernel).astype(bool)
+    skel_intersection = np.logical_and(gt_dilated, out_dilated).sum()
+    skel_union = np.logical_or(gt_dilated, out_dilated).sum()
+    metrics["iou_skeleton"] = (
+        float(skel_intersection / skel_union) if skel_union > 0 else 0.0
+    )
+
+    if gt_skel.any() and out_skel.any():
+        dt_to_gt = distance_transform_edt(~gt_skel)
+        dt_to_out = distance_transform_edt(~out_skel)
+        d_out2gt = dt_to_gt[out_skel]
+        d_gt2out = dt_to_out[gt_skel]
+        metrics.update({
+            "chamfer_out2gt": float(d_out2gt.mean()),
+            "chamfer_gt2out": float(d_gt2out.mean()),
+            "chamfer_sym": float(0.5 * (d_out2gt.mean() + d_gt2out.mean())),
+            "chamfer_p95_sym": float(
+                np.percentile(np.concatenate([d_out2gt, d_gt2out]), 95)
+            ),
+        })
+    else:
+        metrics.update({
+            "chamfer_out2gt": None,
+            "chamfer_gt2out": None,
+            "chamfer_sym": None,
+            "chamfer_p95_sym": None,
+        })
+    return metrics
+
+
 # ─── Pipeline runner (worker-local) ──────────────────────────────────────────
 
 _WORKER_CFG = None

@@ -1,0 +1,27 @@
+# Planning configuration only. No full-run command consumes this file yet.
+output_root: "/media/safe/secondary disk/IPdrawings"
+track_a_release: "PatentVec-Compose2D-v1"
+full_generation_started: false
+requires_user_visual_approval: true
+
+source_splits:
+  train: train
+  validation: validation
+  test: test
+
+curriculum:
+  easy: [2, 3]
+  medium: [3, 5]
+  hard: [5, 8]
+  very_hard: [8, 12]
+
+pilot_gates:
+  visual_preview_count: 10
+  frozen_audit_count: 100
+  scale_probe_count: 1000
+  minimum_track_a_pilot_count: 20000
+
+storage:
+  shard_samples: 1000
+  checksums: sha256
+  restart_safe: true

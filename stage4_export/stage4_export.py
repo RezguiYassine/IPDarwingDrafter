@@ -99,12 +99,22 @@ ISO128_LAYERS = {
 
 DEFAULT_STYLE = "visible"   # primitives without an explicit style go here
 
+# Stage 2/3 coordinates are integer raster indices.  A pixel at index (x, y)
+# occupies continuous image space around (x + 0.5, y + 0.5); exporting the raw
+# indices therefore moves re-rasterized SVG geometry one pixel up and left for
+# common stroke widths.  Keep this conversion at the raster-to-vector boundary
+# so all primitive fitters continue to work in their native pixel-index frame.
+PIXEL_CENTER_OFFSET = 0.5
+
 
 # ─── Coordinate helpers ──────────────────────────────────────────────────────
 
 def _flip_y_point(p: list, image_h: float) -> tuple:
-    """Image (Y-down) → CAD (Y-up). x unchanged."""
-    return (p[0], image_h - p[1])
+    """Raster-index image coordinates (Y-down) → CAD coordinates (Y-up)."""
+    return (
+        float(p[0]) + PIXEL_CENTER_OFFSET,
+        float(image_h) - (float(p[1]) + PIXEL_CENTER_OFFSET),
+    )
 
 
 def _flip_y_arc_angles(start_deg: float, end_deg: float) -> tuple:
@@ -241,6 +251,58 @@ def _svg_segment_body(seg: dict, reverse: bool) -> str:
     return ""
 
 
+def _orient_path_segments(segments: list) -> list[tuple[dict, list, list, bool]]:
+    """Choose segment directions that minimize connector length globally.
+
+    Arc fitting identifies the occupied angular interval but not the original
+    pixel-chain direction. Treating the first arc's stored start angle as the
+    path start can therefore reverse it and force a connector across the whole
+    arc chord. A two-state dynamic program solves all forward/reverse choices
+    together and remains deterministic on ties.
+    """
+    valid = []
+    for segment in segments:
+        a, b = _seg_endpoints(segment)
+        if a is not None:
+            valid.append((segment, a, b))
+    if not valid:
+        return []
+
+    # State 0 traverses a -> b; state 1 traverses b -> a.
+    costs = [0.0, 0.0]
+    parents: list[list[int]] = []
+    for index in range(1, len(valid)):
+        _, prev_a, prev_b = valid[index - 1]
+        _, cur_a, cur_b = valid[index]
+        prev_ends = (prev_b, prev_a)
+        cur_starts = (cur_a, cur_b)
+        next_costs = [math.inf, math.inf]
+        next_parents = [0, 0]
+        for current_state in (0, 1):
+            for previous_state in (0, 1):
+                dx = prev_ends[previous_state][0] - cur_starts[current_state][0]
+                dy = prev_ends[previous_state][1] - cur_starts[current_state][1]
+                candidate = costs[previous_state] + math.hypot(dx, dy)
+                if candidate < next_costs[current_state]:
+                    next_costs[current_state] = candidate
+                    next_parents[current_state] = previous_state
+        costs = next_costs
+        parents.append(next_parents)
+
+    state = 0 if costs[0] <= costs[1] else 1
+    states = [state]
+    for choices in reversed(parents):
+        state = choices[state]
+        states.append(state)
+    states.reverse()
+
+    oriented = []
+    for (segment, a, b), reverse in zip(valid, states):
+        start, end = (b, a) if reverse else (a, b)
+        oriented.append((segment, start, end, bool(reverse)))
+    return oriented
+
+
 def _svg_path_continuous(segments: list) -> str:
     """One continuous `d` across all segments — proper joins, no seam notches.
 
@@ -250,20 +312,10 @@ def _svg_path_continuous(segments: list) -> str:
     """
     d = []
     cur = None
-    for seg in segments:
-        a, b = _seg_endpoints(seg)
-        if a is None:
-            continue
+    for seg, start, end, reverse in _orient_path_segments(segments):
         if cur is None:
-            start, reverse, end = a, False, b
-            d.append(f"M {a[0]:.3f} {a[1]:.3f}")
+            d.append(f"M {start[0]:.3f} {start[1]:.3f}")
         else:
-            da = (cur[0] - a[0]) ** 2 + (cur[1] - a[1]) ** 2
-            db = (cur[0] - b[0]) ** 2 + (cur[1] - b[1]) ** 2
-            if da <= db:
-                start, reverse, end = a, False, b
-            else:
-                start, reverse, end = b, True, a
             if (cur[0] - start[0]) ** 2 + (cur[1] - start[1]) ** 2 > 0.01:
                 d.append(f"L {start[0]:.3f} {start[1]:.3f}")
         body = _svg_segment_body(seg, reverse)
@@ -273,7 +325,7 @@ def _svg_path_continuous(segments: list) -> str:
     return " ".join(d)
 
 
-def _svg_add_hatch(dwg, prim: dict, sw: float, uid: int) -> None:
+def _svg_add_hatch(dwg, target, prim: dict, sw: float, uid: int) -> None:
     """Render a hatch region: boundary outline + parallel line family(ies),
     clipped to the boundary. One/two angles ⇒ single/cross hatch."""
     boundary = prim.get("boundary") or []
@@ -282,7 +334,7 @@ def _svg_add_hatch(dwg, prim: dict, sw: float, uid: int) -> None:
     pts = [(float(p[0]), float(p[1])) for p in boundary]
     dstr = "M " + " L ".join(f"{x:.2f} {y:.2f}" for x, y in pts) + " Z"
     # thin boundary outline (the region edge is real geometry)
-    dwg.add(dwg.path(d=dstr, fill="none", stroke="black", stroke_width=sw))
+    target.add(dwg.path(d=dstr, fill="none", stroke="black", stroke_width=sw))
     angles = prim.get("angles") or []
     spacing = float(prim.get("spacing") or 0.0)
     if spacing < 1.0 or not angles:
@@ -304,7 +356,7 @@ def _svg_add_hatch(dwg, prim: dict, sw: float, uid: int) -> None:
             g.add(dwg.line(start=(ox - dx * diag, oy - dy * diag),
                            end=(ox + dx * diag, oy + dy * diag),
                            stroke="black", stroke_width=max(0.5, sw * 0.7)))
-    dwg.add(g)
+    target.add(g)
 
 
 def _export_svg(data: dict, out_path: Path,
@@ -312,8 +364,9 @@ def _export_svg(data: dict, out_path: Path,
     """
     Write SVG file. Returns the count of primitives successfully written.
 
-    SVG keeps image coordinates as-is (Y-down) so previews line up with
-    the source sketch without any extra transform.
+    SVG keeps image coordinates Y-down. Geometry is translated by half a pixel
+    because Stage 2/3 points are raster indices, while SVG uses continuous
+    coordinates whose pixel centres lie at ``index + 0.5``.
 
     default_sw : measured stroke width in pixels from Stage 1. When provided
         it overrides the ISO 128 lineweight calculation so the output SVG
@@ -328,6 +381,14 @@ def _export_svg(data: dict, out_path: Path,
 
     # Background (white) — keeps the SVG consistent regardless of viewer theme
     dwg.add(dwg.rect(insert=(0, 0), size=(W, H), fill="white"))
+
+    # Apply the pixel-index → pixel-centre conversion once to every geometric
+    # element, including annotations re-injected from Stage 0. The background
+    # remains fixed to the viewBox.
+    geometry = dwg.g(
+        transform=f"translate({PIXEL_CENTER_OFFSET} {PIXEL_CENTER_OFFSET})"
+    )
+    dwg.add(geometry)
 
     n_written = 0
 
@@ -346,11 +407,13 @@ def _export_svg(data: dict, out_path: Path,
             ptype = prim["type"]
             if ptype == "line":
                 p1, p2 = prim["p1"], prim["p2"]
-                dwg.add(dwg.line(start=p1, end=p2, **stroke_kw))
+                geometry.add(dwg.line(start=p1, end=p2, **stroke_kw))
 
             elif ptype == "circle":
                 cx, cy = prim["center"]
-                dwg.add(dwg.circle(center=(cx, cy), r=prim["radius"], **stroke_kw))
+                geometry.add(
+                    dwg.circle(center=(cx, cy), r=prim["radius"], **stroke_kw)
+                )
 
             elif ptype == "arc":
                 cx, cy = prim["center"]
@@ -361,7 +424,7 @@ def _export_svg(data: dict, out_path: Path,
                 sweep_deg = (e - s) % 360
                 large_arc = 1 if sweep_deg > 180 else 0
                 d = f"M {sx:.3f} {sy:.3f} A {r:.3f} {r:.3f} 0 {large_arc} 1 {ex:.3f} {ey:.3f}"
-                dwg.add(dwg.path(d=d, **stroke_kw))
+                geometry.add(dwg.path(d=d, **stroke_kw))
 
             elif ptype == "polyline":
                 pts = prim.get("points") or []
@@ -371,7 +434,7 @@ def _export_svg(data: dict, out_path: Path,
                         f"{prim.get('edge_id', '?')})"
                     )
                     continue
-                dwg.add(dwg.polyline(
+                geometry.add(dwg.polyline(
                     points=[(float(p[0]), float(p[1])) for p in pts],
                     **stroke_kw,
                 ))
@@ -384,7 +447,7 @@ def _export_svg(data: dict, out_path: Path,
                         f"{prim.get('edge_id', '?')})"
                     )
                     continue
-                dwg.add(dwg.polygon(
+                geometry.add(dwg.polygon(
                     points=[(float(p[0]), float(p[1])) for p in pts],
                     **stroke_kw,
                 ))
@@ -396,12 +459,12 @@ def _export_svg(data: dict, out_path: Path,
                 el = dwg.ellipse(center=(cx, cy), r=(a, b), **stroke_kw)
                 if angle:
                     el["transform"] = f"rotate({angle} {cx} {cy})"
-                dwg.add(el)
+                geometry.add(el)
 
             elif ptype == "bezier":
                 d = _svg_bezier_d(prim.get("points") or [])
                 if d:
-                    dwg.add(dwg.path(d=d, **stroke_kw))
+                    geometry.add(dwg.path(d=d, **stroke_kw))
 
             elif ptype == "path":
                 # Compound stroke rendered as ONE continuous path so segment
@@ -413,10 +476,10 @@ def _export_svg(data: dict, out_path: Path,
                 if d:
                     skw = dict(stroke_kw)
                     skw["stroke_linejoin"] = "round"
-                    dwg.add(dwg.path(d=d, **skw))
+                    geometry.add(dwg.path(d=d, **skw))
 
             elif ptype == "hatch":
-                _svg_add_hatch(dwg, prim, sw, n_written)
+                _svg_add_hatch(dwg, geometry, prim, sw, n_written)
 
             else:
                 logger.warning(f"SVG: skipping unknown primitive type '{ptype}'")
@@ -434,7 +497,7 @@ def _export_svg(data: dict, out_path: Path,
                 p1, p2 = leader.get("p1"), leader.get("p2")
                 if not p1 or not p2:
                     continue
-                dwg.add(dwg.line(
+                geometry.add(dwg.line(
                     start=(float(p1[0]), float(p1[1])),
                     end=(float(p2[0]), float(p2[1])),
                     stroke="black", stroke_width=0.7,
@@ -442,7 +505,7 @@ def _export_svg(data: dict, out_path: Path,
             if not leader_lines and "leader_to" in ann:
                 x, y = ann["position"]
                 lx, ly = ann["leader_to"]
-                dwg.add(dwg.line(
+                geometry.add(dwg.line(
                     start=(x, y), end=(lx, ly),
                     stroke="black", stroke_width=0.7,
                 ))
@@ -458,12 +521,12 @@ def _export_svg(data: dict, out_path: Path,
                         insert=(float(x), float(y)),
                         size=(float(bw), float(bh)),
                     )
-                    dwg.add(img)
+                    geometry.add(img)
 
             text = str(ann.get("text", "") or "")
             if text:
                 x, y = ann["position"]
-                dwg.add(dwg.text(
+                geometry.add(dwg.text(
                     text,
                     insert=(x, y),
                     font_size=14,

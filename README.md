@@ -113,6 +113,37 @@ output/
 └── vectors/      ← Stage 4 (final .svg / .dxf)
 ```
 
+### 3. Review the synthetic M5/M6 curriculum
+
+The Track-A synthetic-data generator composes split-safe SketchGraphs and
+Drawing2CAD/CAD-VGDrawing geometry into medium/hard interaction graphs, then
+adds separately labelled patent hatching, hidden lines, dimensions,
+references, and callouts:
+
+```bash
+MPLCONFIGDIR=/tmp/mpl-patentvec .venv/bin/python \
+  -m syntheticData.generate_complex_preview \
+  --count 30 --canvas 1024 --seed 250724 \
+  --output output/PatentVecM5M6Preview
+```
+
+This command is review-only, restart-safe, and capped at 50 samples. It does
+not start full generation or write to the planned external dataset root. See
+[`syntheticData/README.md`](syntheticData/README.md) and
+[`syntheticData/STATUS.md`](syntheticData/STATUS.md) for the artifact contract,
+quality gates, and remaining blockers.
+
+The approved curriculum has since been frozen as two controlled 10,000-sample
+experiments. Enhanced B adds a very-hard tail and increases components by
+19.5%, junctions by 34.6%, keypoints by 18.3%, and polyline labels by 13.5%.
+Equal-budget model evaluation is complete: Stage 2 improves the fixed
+three-real-domain selector from `0.8193` to `0.8477` while synthetic validation
+improves by roughly 0.31-0.33 macro-F1. Stage 3 learns the synthetic polyline
+contract but regresses real validation, so its protected real-data warm start
+remains selected and production stays on RANSAC. Full 50k generation has not
+started; filtered-PatentData visual regression and source-license review still
+gate `/media/safe/secondary disk/IPdrawings`.
+
 ---
 
 ## Repository layout
@@ -150,6 +181,10 @@ Vectorization/
 │
 ├── stage4_export/
 │   └── stage4_export.py
+│
+├── syntheticData/                  ← Track-A M0-M6 synthetic curriculum
+│   ├── patentvec/                  ← composition, layers, gates, renderers
+│   └── generate_complex_preview.py ← capped medium/hard review pilot
 │
 ├── docs/                            ← per-stage architectural notes
 │   ├── pipeline_overview.md
@@ -238,6 +273,7 @@ The most common knobs:
 | `stage0.repair_close_kernel`       | `7`     | Local gap repair after reference removal; reconnects small true-stroke breaks inside the removal mask |
 | `stage2.max_input_resolution`      | `1000`  | Skeleton images with long edge > this are downsampled before Stage 2. Prevents CNN over-segmentation on large patent TIFs (2000–2700 px). Set to `0` to disable. |
 | `stage2.isolation_threshold`       | `0.30`  | Flag sketch if > this fraction of foreground pixels are unreached by any extracted stroke. Calibrated for patent TIF scan noise (p75 isolation ≈ 0.16). |
+| `stage2.fragmentation.max_unclaimed_noncycle_pixels` | `100000` | Quality-gate a giant unclaimed branched residual instead of treating it as a closed loop or sending it into unbounded Stage 3 ordering |
 | `stage2.nms_reference_resolution`  | `512`   | Training resolution of the Puhachov model; NMS radius scales as `nms_radius × max(H,W) / this value` on larger inputs (0 = fixed radius) |
 | `stage2.spline_overshoot_limit`    | `5.0`   | Max px a B-spline may exceed the raw pixel bbox; prevents scipy end-effect oscillations |
 | `stage2.min_closed_loop_pixels`    | `80`    | Closed loops shorter than this are treated as noise and removed before Stage 3 |
@@ -247,6 +283,12 @@ The most common knobs:
 | `stage1.quality_threshold`         | `0.70`  | Sketches below this skeleton quality are flagged for review |
 | `stage3.confidence_threshold`      | `0.60`  | Primitives below this are flagged for review |
 | `stage3.confidence_threshold_after_hachure` | `0.50` | Hachure-heavy graphs use this main-geometry threshold because easy hatch-line primitives are no longer part of the confidence average |
+| `stage3.prefer_compound_over_weak` | `true` | Replace a weak open line/arc with a higher-confidence bounded line/arc/Bezier path |
+| `stage3.weak_compound_max_segment_p95` | `2.0` | Reject an open compound path if any fitted segment exceeds this p95 source residual |
+| `stage3.weak_compound_max_endpoint_error` | `3.0` | Reject compound paths whose endpoints drift too far from the Stage 2 edge |
+| `stage3.simplify_closed_fallback` | `true` | Replace weak/raw closed traces only with a fidelity-bounded compact closed path |
+| `stage3.closed_trace_target_p95` | `2.0` | Patent-selected p95 residual limit for closed simplification; the stricter 0.5 px ablation regressed real fidelity |
+| `stage3.closed_trace_vertex_caps` | `[24,32,48,64,96,128]` | Adaptive closed-path complexity ladder; exact trace is retained if no cap passes |
 | `pipeline.quality_gates.enabled`   | `true`  | Batch mode stops bad examples before export using Stage 1/2/3 metrics |
 | `pipeline.quality_gates.max_low_conf_ratio_after_hachure` | `0.65` | Hachure-heavy graphs use this relaxed low-confidence ratio after the hatch side layer is extracted |
 
@@ -361,6 +403,23 @@ resumable SQLite database:
 # Phase 0 pilot — 100 random sketches, one per patent
 python -m tools.batch_run --limit 100 --stratified
 
+# Exactly 100 clean12 drawings, sampled across patents
+python -m tools.batch_run \
+    --limit 100 --limit-after-filter --stratified --seed 850725 \
+    --filter-manifest output/PatentData/filter_manifest_clean12.csv \
+    --config config.yaml \
+    --output output/PatentData_clean12_paired100
+
+# Paired Stage-2 candidate: reuse byte-copied Stage-0/1 artifacts from a
+# completed source arm, after validating that both preprocessing configs match.
+python -m tools.batch_run \
+    --limit 100 --limit-after-filter --stratified --seed 850725 --workers 6 \
+    --filter-manifest output/PatentData/filter_manifest_clean12.csv \
+    --reuse-preprocessing-from output/PatentData_clean12_paired100 \
+    --reuse-preprocessing-config config_source.yaml \
+    --config config_candidate.yaml \
+    --output output/PatentData_clean12_candidate100
+
 # 1 000-TIF clean12 pilot (recommended before full corpus)
 python -m tools.batch_run \
     --limit 1000 --workers 4 \
@@ -376,6 +435,43 @@ python -m tools.batch_run \
     --filter-manifest output/PatentData/filter_manifest_clean12.csv \
     --output output/PatentData_clean12_gated \
     --db output/PatentData_clean12_gated/results.db
+```
+
+`--reuse-preprocessing-from` refuses a missing source row, a different input
+path, missing Stage-0/1 artifacts, or any mismatch in `stage0`, `stage1`, or
+`sketchcleannet` configuration. Reference crops and JSON paths are copied and
+rewritten into the candidate output. Source Stage-0/1 terminal failures are
+propagated unchanged, keeping paired status statistics valid.
+
+For model regression, intrinsic topology metrics are paired with a raster
+fidelity check against the shared Stage-1 skeleton. The fidelity check includes
+the separated hachure layer and reports Stage-2/Stage-3 Chamfer plus 2 px
+precision, recall, and F1, preventing geometry deletion from being mistaken for
+better continuity:
+
+```bash
+python -m tools.compare_patent_runs \
+    --run baseline=output/PatentData100_baseline \
+    --run candidate=output/PatentData100_candidate \
+    --output-json output/PatentData100_comparison/intrinsic.json \
+    --output-csv output/PatentData100_comparison/intrinsic.csv
+
+python -m tools.evaluate_patent_fidelity \
+    --run baseline=output/PatentData100_baseline \
+    --run candidate=output/PatentData100_candidate \
+    --output-json output/PatentData100_comparison/fidelity.json \
+    --output-csv output/PatentData100_comparison/fidelity.csv
+
+python -m tools.build_patent_comparison_viewer \
+    --run baseline=output/PatentData100_baseline \
+    --run candidate=output/PatentData100_candidate \
+    --output output/PatentData100_comparison/viewer
+
+python -m tools.make_patent_comparison_sheet \
+    --run baseline=output/PatentData100_baseline \
+    --run candidate=output/PatentData100_candidate \
+    --sort fragmentation-regression --focus-run candidate --limit 8 \
+    --output output/PatentData100_comparison/regressions.png
 ```
 
 Full clean12 gated batch result:
@@ -605,6 +701,48 @@ Drawing2CAD smoke check with `config_d2c_eval.yaml` (`stage2.remove_hachures:
 false`) remains stable on the same 50-sample Front-view overlap:
 Chamfer `0.908 → 0.906`, pixel IoU `0.677 → 0.678`, 50/50 ok.
 
+#### Preservation-first residue gate (2026-08-07)
+
+The region detector remains the production hachure signal. Region-matching
+residue is now classified before Stage 2 metrics, preserved in
+`removed_hachures`, and followed by reconnect-only simplification. This fixes a
+late-ordering bug that silently deleted side-layer detail and left the main
+graph fragmented.
+
+On the matched 100-case PatentData cohort, 97 figures reached Stage 2 in both
+arms. The fix improves 3 and ties 94 with no raster-fidelity regression:
+
+| Metric | Current control | Residue fix |
+|--------|----------------:|------------:|
+| Stage 2 symmetric Chamfer | 1.585188 | **1.580809** |
+| Stage 2 recall at 2 px | 0.898163 | **0.898944** |
+| Stage 2 F1 at 2 px | 0.942526 | **0.942967** |
+| Stage 2 precision at 2 px | 1.000000 | 1.000000 |
+
+The three affected samples also pass matched Stage 3. Their Stage 3 raster F1
+is equal on two figures and improves `0.679817 -> 0.679922` on the third. The
+setting is enabled by `stage2.hachure_region_cleanup_before_metrics: true` in
+`config_patentvec_A.yaml` and `config_deploy.yaml`.
+
+The separate synthetic two-channel stroke CNN is not enabled in production.
+Its destructive pre-topology mode increases real fragmentation (mean edges
+`+12.55`, median edge length `-19.20 px` on 97 paired figures), and replacing
+the region mask adds `47.85` edges on a 20-case screen. Strict reviewed-real
+adaptation exported 170 train and 33 patent-disjoint validation figures from
+203 successful teacher replays. Full real35/real50 training improves real hatch
+F1 to `0.856876`/`0.927022`, but the selected checkpoints reach only
+`0.994210`/`0.991928` structural recall and no single synthetic-and-real removal
+policy passes the safety gates. Structural-negative-weight continuations failed
+after one epoch because structural recall collapsed further.
+
+A source-separated, geometrically guarded additive integration was safe but
+inert. It tied the production control on all 100 patent-disjoint figures through
+Stage 4 and on every Stage 2/3 raster-fidelity metric. The model produced 19,665
+region-exclusive candidate pixels on eight figures, but zero eligible hatch
+edges; 18,794 pixels came from the known EP2976579 structural false positive.
+Production therefore remains on the reviewed region detector and the stroke CNN
+is retained only as research evidence.
+
 ### Puhachov status
 
 The previous "Puhachov" path was not actually improving topology:
@@ -704,13 +842,16 @@ high-precision pilot result, not a full-corpus claim.
 - **Stage 3** — RANSAC cascade (line / circle / arc / ellipse / **polygon**);
   **compound-path fitter** — curves/angular chains that fit no single primitive
   are corner-split (sharp corners preserved) and fitted line / arc / **cubic
-  Bézier** as one `path`, replacing the raw-polyline fallback (PatentData jagged
-  polylines 16 % → 0 %, 83 % of curved edges now smooth; D2C Chamfer mean +2.4 %
-  / p95 −12 %, paired); closed polygon fitter; sparse-smooth_pts guard; geometric
-  arc guard; hachure side-layer reinjection as styled primitives; Free2CAD
-  Transformer evaluated and retired
+  Bézier** as one `path`; per-segment p95, endpoint, atom-count, and Bezier-handle
+  guards; fidelity-bounded 24-128 vertex closed-trace simplification selected at
+  p95=2 px. On all 31,524 Drawing2CAD views it improves mean Chamfer
+  `0.355585 -> 0.345473`, p95 `1.279391 -> 1.230501`, and every IoU/precision/
+  recall aggregate. On 30 frozen filtered PatentData figures it passes 30/30
+  Stage 3 gates and improves F1 by `0.006978` over the rejected p95=0.5 policy;
+  hachure side-layer reinjection remains intact; Free2CAD was evaluated and retired
 - **Stage 4** — SVG and DXF export; ISO 128 layered patent DXF, including a
-  dedicated `HACHURE` layer
+  dedicated `HACHURE` layer; raster indices are exported at pixel centres and a
+  global segment-orientation solver prevents connector jumps in compound paths
 - **Content classifier** (`tools/filter_patent_data.py`) — deterministic,
   feature-based strict filter (Hough lines + CC/skeleton analysis + density/orientation
   gates + EPO letter codes); clean12 full-corpus pass scanned 275 804 TIFs and
@@ -751,6 +892,8 @@ high-precision pilot result, not a full-corpus claim.
 | 15 | Long strokes fragmented into many primitives | CN map emits a phantom `CN≥3` junction at every Zhang-Suen staircase bend and at every stroke crossing, so one logical stroke is split at each — dense patent scans produce thousands of 2–3 px junction stubs | `_simplify_graph` pass: prune short spurs, dissolve degree-2 phantom junctions, merge collinear edges straight through real junctions. D2C prims −37 % (1 000-sample), PatentData prims −67 %, IoU/Chamfer unchanged-to-better |
 | 16 | Reference numerals/help lines split long patent strokes | Patent reference labels and leader lines enter Stage 1 as normal ink; every leader/feature contact becomes a skeleton junction or tiny post-removal gap | Added Stage 0 reference handling. It now removes leadered labels, segment-adjacent labels, compact unleadered labels, figure/panel captions, and heavy annotation cases before Stage 1, then reinjects the captured crops/leaders during export. On the filtered 100-sample PatentData probe, all-row mean Stage 2 edges moved 307.95 baseline → 270.71 two-pass Stage 0 → 199.31 final Stage 0. Final residual scan on `*_norefs.png`: 100/100 active removals, 0 Stage 0 flags, 99/100 with zero residual detections, max residual 1 |
 | 17 | Hachures reduce long-stroke quality | Dense section hatching creates real Stage 2 junctions and hundreds of short parallel edges before primitive fitting; Stage 3 mostly fits the fragmented graph it receives | Added adaptive Stage 2 hachure side-layer extraction after graph simplification, then re-simplifies the main graph. Stage 3 reinjects extracted hachures as `style: "hachure"` primitives excluded from main-geometry confidence gates; Stage 4 exports them on a `HACHURE` layer. On the filtered 100-sample probe, hachure-cleaned sketches moved from 186.2 → 64.1 main edges, median main edge length 17.2 → 75.1 px, micro-edge ratio 26.8 % → 0.0 %, while v4 exports all hatch primitives (`output/PatentData100_hachures_v4`) |
+
+| 18 | One dense residual stalls Stage 3 | A 335,922-pixel unclaimed branched network was mislabeled as a closed loop; NetworkX pixel components and nearest-neighbour loop ordering added avoidable memory and quadratic time | Stage 2 now uses OpenCV components, exact simple-cycle classification, and a 100,000-pixel noncycle gate. Stage 3 uses linear local cycle traversal and bounded local DFS for malformed networks. Real-case component labeling takes 2.255 s and bounded ordering 4.106 s |
 
 ### Known limitations / next steps
 
@@ -962,29 +1105,33 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
     class-coverage collapse, yet an exact geometric cascade remains ~40× ahead —
     primitive fitting on clean stroke graphs is not a learning problem.
 
-15. **Stage 2 — Puhachov improvement strategy with CAD-VGDrawing (proposed).**
+15. **Stage 2 — Puhachov 60/40 CAD-VGDrawing retraining (in progress).**
+    *(Dataset correction and launch plan 2026-07-19.)*
     Stage 2 keypoint detection is the opposite situation from Stage 3: the
     learned detector now *leads* (SketchGraphs Phase A beats production
     classical on the full untouched test 0.9349 vs 0.4317 macro-F1, and pure-CNN
-    SG beat the classical/fusion paths end-to-end on D2C, Chamfer −7.5%), so
-    additional drawing corpora have a proven mechanism to pay off *here*.
-    Proposed plan once CAD-VGDrawing is downloaded (it is not in `data/` yet):
-    - **Convert** with a `cadvg_to_puhachov.py` following the
-      `tools/archcad_to_puhachov.py` pattern — rasterize vectors → 1-px
-      skeleton; endpoints/junctions from skeleton pixel-degree (captures
-      crossings that share no vector vertex), corners from vector geometry via
-      the shared `derive_keypoints`/`snap_keypoints`. Carry over the two
-      hard-won safeguards from the ArchCAD converter: per-primitive sample caps
-      (`MAX_SAMPLES` — unbounded `n = 2πr` sampling OOM-crashed the server) and
-      thread pinning (OMP/BLAS = 1, `cv2.setNumThreads(0)`).
-    - **Mix, never fine-tune solo.** ArchCAD proved pure-OOD fine-tuning
-      catastrophically forgets (endpoint F1 0.65 → 0.02); mixed training fully
-      prevents it. Enter CAD-VGDrawing as a third corpus in the streaming
-      trainer, warm-started from Phase A — e.g. 50 SG / 30 D2C / 20 VG — and
-      sweep **only the VG fraction** (1-D, ~3 runs), not a full grid; lr/batch
-      are not the bottleneck.
-    - **Gate on the established harness:** D2C keypoint F1 (800-sample
-      subset), the 4-config end-to-end Chamfer eval (pure-CNN/fusion ×
+    SG beat the classical/fusion paths end-to-end on D2C, Chamfer -7.5%), so
+    engineering-drawing supervision has a proven mechanism to pay off here.
+    - **Dataset identity corrected.** `data/Drawing2CAD` is already the official
+      CAD-VGDrawing release: 141,831/7,879/7,881 train/validation/test CAD
+      models, four views each, with the released `svg_raw`, `svg_vec`, and
+      `cad_vec` archives. The cached `output/Drawing2CAD/kp_labels` therefore
+      already contains CAD-VGDrawing labels. Phase A's 70/30 SG/D2C run was in
+      fact **70% SketchGraphs / 30% CAD-VGDrawing**; treating D2C and VG as
+      separate corpora would duplicate the same data.
+    - **Next controlled ratio: 60/40.** A deterministic 20,000-view audit found
+      2.533 junctions/view in CAD-VGDrawing versus 0.941 in the cached
+      SketchGraphs sample. At 40% of images, CAD-VGDrawing supplies about 64%
+      of junction labels while the exact sampler still visits every one of the
+      9,179,789 SketchGraphs training records. Phase B warm-starts the selected
+      Phase A checkpoint at `5e-5` learning rate and adds 6,119,859 sampled
+      CAD-VGDrawing views, for 15,299,648 samples / 637,486 optimizer steps.
+    - **Checkpoint selection is now three-domain.** The trainer evaluates fixed
+      CAD-VGDrawing and SketchGraphs subsets plus all 1,159 ArchCAD validation
+      drawings, then selects by their mean macro-F1. This guards both source
+      domains and an unseen engineering-drawing domain against forgetting.
+    - **Gate on the established harness:** full CAD-VGDrawing and SketchGraphs
+      test F1, the 4-config end-to-end Chamfer eval (pure-CNN/fusion x
       models), cross-domain validation F1 (SG / D2C / ArchCAD, as in item 12),
       and the filtered-PatentData visual regression.
     - **Decision rule:** adopt the VG-mixed model only if combined F1 *and*
@@ -994,6 +1141,64 @@ the primary hachure signal with a geometric fallback — see the hatch tooling u
       D2C itself) — so the realistic win is diversity for the weaker channels
       (junctions 0.856 vs 0.869) and patent-domain robustness, not a step
       change.
+
+16. **PatentVec Track-A controlled training — COMPLETE, full generation still
+    blocked.** *(2026-07-25.)* Baseline A and enhanced B each contain 10,000
+    accepted drawings and pass automated, independent-polyline, and stratified
+    visual audits. The corrected Stage 2 mixer replays Drawing2CAD,
+    SketchGraphs, and ArchCAD while covering every synthetic label once per
+    epoch. After three equal epochs, A/B reach `0.847668/0.847748` mean
+    real-domain macro-F1 versus `0.8193` at step zero, and improve their own
+    synthetic validation from `0.1746→0.5047` and `0.1650→0.4791`. Stage 3's
+    adapted states raise synthetic polyline F1 from `0.1951→0.8419` (A) and
+    `0.2367→0.8228` (B), but real validation falls from `0.9683` to
+    `0.9622/0.9626`; the warm start remains selected. Full reports and artifact
+    paths are in [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#patentvec-synthetic-ab-experiment-2026-07-25).
+    Full cached real-domain evaluation is complete and leaves A/B tied within
+    `0.00047` mean macro-F1. Remaining release gates are filtered PatentData
+    visual regression and source-license/provenance review.
+
+17. **Stage 2 synthetic topology contract repaired; C2 evaluation in progress.**
+    *(2026-07-31.)* The original PatentVec labels supervised selected vector
+    keypoints but omitted most topology induced by the actual raster. A
+    500-drawing audit matched only 4,920/91,773 crossing-number endpoints and
+    5,532/245,331 junctions; roughly 97-98% of hatch topology was unlabeled.
+    The first repair (C1) labeled the complete raster but also learned unwanted
+    reference/leader contacts. The selected C2 contract instead rebuilds the
+    post-Stage-0 skeleton from object, hidden/centre-line, and hatch masks,
+    excludes all annotation branches, labels production-identical endpoints and
+    junctions, and re-snaps true corners. Its independent 500-source audit has
+    zero unmatched endpoints, junctions, or unsupported skeleton pixels.
+    Three exact rehearsal epochs with per-sample/per-class focal normalization
+    selected the final step-14,961 checkpoint at `0.853213` three-real-domain
+    macro-F1. Complete C2 validation improves from `0.705869` to `0.845934`;
+    full SketchGraphs remains `0.935981`, while full ArchCAD is `0.716139` and
+    exposes a `0.01157` tradeoff versus model B. Full Drawing2CAD and paired
+    filtered-PatentData continuity/fidelity evaluation decide promotion. See
+    [`TRAIN_STAGE2_STAGE3.md`](TRAIN_STAGE2_STAGE3.md#reference-free-raster-topology-repair-2026-07-31).
+
+18. **Guarded Stage 3 compound/closed policy promoted.** *(2026-08-14.)*
+    Stage 3 now promotes weak open fits only when a bounded compound path passes
+    per-segment p95=2 px, endpoint=3 px, complexity, and Bezier-handle guards.
+    Weak closed fallbacks use an adaptive 24-128 vertex path and retain the exact
+    trace if the 2 px p95 target cannot be met. A frozen Stage3/4 replay completed
+    all 31,524 Drawing2CAD views with zero errors and significantly improved all
+    six aggregate fidelity metrics versus control. On 30 frozen filtered
+    PatentData figures, p95=2 passes 30/30 quality gates and beats the stricter
+    p95=0.5 ablation in p95 distance, precision, recall, and F1 with all paired
+    95% confidence intervals excluding zero; mean Chamfer is tied. Endpoint=2
+    and p95=0.5 are retained only as rejected ablations. Stage 4 now applies the
+    correct `+0.5 px` pixel-centre transform and globally orients mixed path
+    segments. A second frozen replay on the 100-patent disjoint cohort preserves
+    3 Stage 1 and 6 Stage 2 gates while converting all 73 pass + 18 Stage 3 gate
+    rows into **91/91 Stage 3 passes**. Across those 91 paired figures, p95
+    distance improves by `0.132207`, precision by `0.004989`, recall by
+    `0.005273`, and F1 by `0.005352`; all 95% intervals exclude zero and mean
+    Chamfer is tied. The worst F1 delta is `-0.009132` with no visible structural
+    loss in the ten-case tail audit. Remaining blockers are dense-patent runtime
+    (73.6 s mean, 343.8 s p95, 486.1 s max) and content-filter false positives:
+    `long_engineering_lines` still admitted a chart and a chemistry figure in
+    this reviewed cohort.
 
 ---
 

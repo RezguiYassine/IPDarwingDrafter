@@ -6,11 +6,11 @@ Design choices (agreed):
   • Grayscale input (1 ch): first ResNet conv weights are averaged across the 3 RGB
     channels so the pretrained initialization is preserved.
   • Decoder: 4 bilinear-upsample + skip-concat + DoubleConv blocks → pixel logits.
-  • Output: (B, 1, H, W) raw logits; apply sigmoid for probabilities.
+  • Output: configurable raw-logit channels; apply sigmoid for probabilities.
 
 Usage:
     from tools.hatch_model import HatchUNet
-    model = HatchUNet(freeze_encoder=True)
+    model = HatchUNet(freeze_encoder=True, out_channels=1)
     logits = model(patch)   # patch: (B, 1, 512, 512) float32 in [0, 1]
 """
 from __future__ import annotations
@@ -51,18 +51,29 @@ class HatchUNet(nn.Module):
     """U-Net with ResNet18 encoder for hatch-region pixel segmentation.
 
     Input : (B, 1, H, W)  grayscale patch, float32, values in [0, 1]
-    Output: (B, 1, H, W)  raw logits (apply sigmoid for probabilities)
+    Output: (B, C, H, W)  raw logits (apply sigmoid for probabilities)
     """
 
-    def __init__(self, freeze_encoder: bool = True):
+    def __init__(
+        self,
+        freeze_encoder: bool = True,
+        out_channels: int = 1,
+        pretrained: bool = True,
+    ):
         super().__init__()
-        bb = tvm.resnet18(weights=tvm.ResNet18_Weights.DEFAULT)
+        if out_channels < 1:
+            raise ValueError("out_channels must be positive")
+        weights = tvm.ResNet18_Weights.DEFAULT if pretrained else None
+        bb = tvm.resnet18(weights=weights)
 
         # ── Adapt first conv for grayscale input ──────────────────────────────
         # Average the 3 RGB channels → 1 input channel, preserving learned weights.
         orig_w = bb.conv1.weight.data          # (64, 3, 7, 7)
         new_conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        new_conv.weight.data = orig_w.mean(dim=1, keepdim=True)
+        if pretrained:
+            new_conv.weight.data = orig_w.mean(dim=1, keepdim=True)
+        else:
+            nn.init.kaiming_normal_(new_conv.weight, mode="fan_out", nonlinearity="relu")
         bb.conv1 = new_conv
 
         # ── Encoder stages ────────────────────────────────────────────────────
@@ -90,7 +101,7 @@ class HatchUNet(nn.Module):
         self.dec0 = nn.Sequential(                  # /2  → /1
             _DoubleConv(32, 16),
         )
-        self.head = nn.Conv2d(16, 1, kernel_size=1)
+        self.head = nn.Conv2d(16, out_channels, kernel_size=1)
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
@@ -107,7 +118,7 @@ class HatchUNet(nn.Module):
         d = self.dec1(d, e0)        # (B, 32,  H/2,  W/2)
         d = F.interpolate(d, scale_factor=2, mode="bilinear", align_corners=True)
         d = self.dec0(d)            # (B, 16,  H,    W)
-        return self.head(d)         # (B, 1,   H,    W)  logits
+        return self.head(d)         # (B, C,   H,    W)  logits
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

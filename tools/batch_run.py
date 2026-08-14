@@ -13,6 +13,29 @@ Usage from project root:
     # Phase 0 pilot — 100 sketches, one per random patent
     python -m tools.batch_run --limit 100 --stratified
 
+    # Exactly 100 kept drawings after applying a content filter
+    python -m tools.batch_run --limit 100 --stratified \\
+        --filter-manifest output/PatentData/filter_manifest_clean12.csv \\
+        --limit-after-filter
+
+    # Paired model arm: copy identical Stage-0/1 artifacts, rerun Stage 2 onward
+    python -m tools.batch_run --limit 100 --stratified --limit-after-filter \\
+        --filter-manifest output/PatentData/filter_manifest_clean12.csv \\
+        --reuse-preprocessing-from output/PatentData100_source \\
+        --reuse-preprocessing-config config_source.yaml \\
+        --config config_candidate.yaml --output output/PatentData100_candidate
+
+    # Exact paired arm: source DB defines the cohort despite later filter drift
+    python -m tools.batch_run --reuse-source-worklist --limit 100 \\
+        --reuse-preprocessing-from output/PatentData100_source \\
+        --reuse-preprocessing-config config_source.yaml \\
+        --config config_candidate.yaml --output output/PatentData100_candidate
+
+    # Exact external cohort: CSV columns patent_id, sketch_id, optional input_path
+    python -m tools.batch_run \\
+        --worklist output/reviewed_patent_figures.csv \\
+        --config config_candidate.yaml --output output/reviewed_patent_figures
+
     # Phase 1 full corpus
     python -m tools.batch_run --workers 8
 
@@ -33,6 +56,8 @@ import json
 import logging
 import os
 import random
+import shutil
+import sqlite3
 import sys
 import time
 import traceback
@@ -61,17 +86,44 @@ from tools import results_db       # noqa: E402
 logger = logging.getLogger("batch_run")
 
 
+def _is_success_status(status: str) -> bool:
+    return status == "ok" or status.startswith("ok_stage")
+
+
 # ─── Worker globals (one set per process, lazy-loaded at first task) ─────────
 
 _WORKER_CFG = None
 _WORKER_S1_MODEL = None
 _WORKER_S2_MODEL = None
 _WORKER_HATCH_MODEL = None
+_WORKER_HATCH_STROKE_MODEL = None
+_WORKER_REUSE_PREPROCESSING_ROOT: Path | None = None
+_WORKER_REUSE_PREPROCESSING_DB: Path | None = None
+
+_PREPROCESSING_ROW_FIELDS = (
+    "s0_time", "s0_n_labels", "s0_n_leaders", "s0_n_iterations",
+    "s0_removed_ink_ratio", "s0_active_removal", "s0_flagged",
+    "s1_time", "s1_quality", "s1_model_used", "s1_flagged",
+)
 
 
-def _worker_init(config_path: str) -> None:
+class _ReusedPreprocessingFailure(RuntimeError):
+    def __init__(self, source_row: dict) -> None:
+        super().__init__(
+            f"source preprocessing ended with status={source_row['status']}"
+        )
+        self.source_row = source_row
+
+
+def _worker_init(
+    config_path: str,
+    reuse_preprocessing_root: str = "",
+    reuse_preprocessing_db: str = "",
+) -> None:
     """Initialise per-process state: load config, load Stage-1/2 ML models."""
     global _WORKER_CFG, _WORKER_S1_MODEL, _WORKER_S2_MODEL, _WORKER_HATCH_MODEL
+    global _WORKER_HATCH_STROKE_MODEL
+    global _WORKER_REUSE_PREPROCESSING_ROOT, _WORKER_REUSE_PREPROCESSING_DB
 
     with open(config_path) as f:
         _WORKER_CFG = yaml.safe_load(f) or {}
@@ -85,13 +137,148 @@ def _worker_init(config_path: str) -> None:
             w = block.get("weights", "")
             if w and not Path(w).is_absolute():
                 block["weights"] = str(config_dir / w)
+    stage2_block = _WORKER_CFG.get("stage2")
+    if isinstance(stage2_block, dict):
+        for key in ("hachure_cnn_model", "hachure_stroke_cnn_model"):
+            value = stage2_block.get(key, "")
+            if value and not Path(value).is_absolute():
+                stage2_block[key] = str(config_dir / value)
 
     # Silence per-stage chatter inside workers; only the driver logs.
     logging.basicConfig(level=logging.ERROR, force=True)
 
-    _WORKER_S1_MODEL = stage1_preprocess.load_model(_WORKER_CFG)
+    _WORKER_REUSE_PREPROCESSING_ROOT = (
+        Path(reuse_preprocessing_root) if reuse_preprocessing_root else None
+    )
+    _WORKER_REUSE_PREPROCESSING_DB = (
+        Path(reuse_preprocessing_db) if reuse_preprocessing_db else None
+    )
+    _WORKER_S1_MODEL = (
+        None
+        if _WORKER_REUSE_PREPROCESSING_ROOT is not None
+        else stage1_preprocess.load_model(_WORKER_CFG)
+    )
     _WORKER_S2_MODEL = stage2_stroke_extract.load_model(_WORKER_CFG)
     _WORKER_HATCH_MODEL = stage2_stroke_extract.load_hatch_model(_WORKER_CFG)
+    _WORKER_HATCH_STROKE_MODEL = (
+        stage2_stroke_extract.load_hatch_stroke_model(_WORKER_CFG)
+    )
+
+
+def _resolved_artifact(path_value: str) -> Path:
+    path = Path(path_value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _copy_reused_preprocessing(
+    patent_id: str,
+    sketch_id: str,
+    input_path: Path,
+    output_dir: Path,
+) -> tuple[stage0_handle_references.Stage0Result,
+           stage1_preprocess.Stage1Result]:
+    """Materialise validated Stage-0/1 artifacts from an earlier paired run."""
+    if (_WORKER_REUSE_PREPROCESSING_ROOT is None
+            or _WORKER_REUSE_PREPROCESSING_DB is None):
+        raise RuntimeError("preprocessing reuse was not initialised")
+
+    with sqlite3.connect(_WORKER_REUSE_PREPROCESSING_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        source_result = conn.execute(
+            "SELECT * FROM results WHERE patent_id=? AND sketch_id=?",
+            (patent_id, sketch_id),
+        ).fetchone()
+    if source_result is None:
+        raise FileNotFoundError(
+            f"no preprocessing source row for {patent_id}/{sketch_id}"
+        )
+    source_row = dict(source_result)
+    if source_row["status"] in {"stage0", "stage1"}:
+        raise _ReusedPreprocessingFailure(source_row)
+    if Path(source_row["input_path"]).resolve() != input_path.resolve():
+        raise RuntimeError(
+            f"source input mismatch for {patent_id}/{sketch_id}: "
+            f"{source_row['input_path']} != {input_path}"
+        )
+
+    source_dir = _WORKER_REUSE_PREPROCESSING_ROOT / patent_id
+    source_references = source_dir / "references"
+    source_cleaned = source_dir / "cleaned"
+    target_references = output_dir / "references"
+    target_cleaned = output_dir / "cleaned"
+    target_crops = target_references / "crops"
+    target_references.mkdir(parents=True, exist_ok=True)
+    target_cleaned.mkdir(parents=True, exist_ok=True)
+    target_crops.mkdir(parents=True, exist_ok=True)
+
+    source_norefs = source_references / f"{sketch_id}_norefs.png"
+    source_ref_json = source_references / f"{sketch_id}_references.json"
+    source_mask = source_references / f"{sketch_id}_references_mask.png"
+    source_cleaned_png = source_cleaned / f"{sketch_id}_cleaned.png"
+    source_skeleton = source_cleaned / f"{sketch_id}_skeleton.png"
+    required = (
+        source_norefs, source_ref_json, source_mask,
+        source_cleaned_png, source_skeleton,
+    )
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "missing preprocessing source artifacts: " + ", ".join(missing)
+        )
+
+    target_norefs = target_references / source_norefs.name
+    target_ref_json = target_references / source_ref_json.name
+    target_mask = target_references / source_mask.name
+    target_cleaned_png = target_cleaned / source_cleaned_png.name
+    target_skeleton = target_cleaned / source_skeleton.name
+    for source, target in (
+        (source_norefs, target_norefs),
+        (source_mask, target_mask),
+        (source_cleaned_png, target_cleaned_png),
+        (source_skeleton, target_skeleton),
+    ):
+        shutil.copy2(source, target)
+
+    with open(source_ref_json) as fh:
+        reference_doc = json.load(fh)
+    reference_doc["mask_path"] = str(target_mask)
+    reference_doc["reference_free_path"] = str(target_norefs)
+    for label in reference_doc.get("reference_labels", []):
+        crop_value = label.get("crop_path")
+        if not crop_value:
+            continue
+        source_crop = _resolved_artifact(crop_value)
+        if not source_crop.exists():
+            raise FileNotFoundError(f"missing reference crop: {source_crop}")
+        target_crop = target_crops / source_crop.name
+        shutil.copy2(source_crop, target_crop)
+        label["crop_path"] = str(target_crop)
+    with open(target_ref_json, "w") as fh:
+        json.dump(reference_doc, fh, indent=2)
+
+    s0 = stage0_handle_references.Stage0Result(
+        sketch_id=sketch_id,
+        reference_free_path=target_norefs,
+        references_json_path=target_ref_json,
+        mask_path=target_mask,
+        n_labels=int(source_row["s0_n_labels"] or 0),
+        n_leaders=int(source_row["s0_n_leaders"] or 0),
+        n_iterations=int(source_row["s0_n_iterations"] or 0),
+        removed_ink_ratio=float(source_row["s0_removed_ink_ratio"] or 0.0),
+        active_removal=bool(source_row["s0_active_removal"]),
+        flagged=bool(source_row["s0_flagged"]),
+        processing_time_s=float(source_row["s0_time"] or 0.0),
+    )
+    s1 = stage1_preprocess.Stage1Result(
+        sketch_id=sketch_id,
+        cleaned_path=target_cleaned_png,
+        skeleton_path=target_skeleton,
+        skeleton_quality=float(source_row["s1_quality"] or 0.0),
+        processing_time_s=float(source_row["s1_time"] or 0.0),
+        model_used=str(source_row["s1_model_used"] or "unknown"),
+        flagged=bool(source_row["s1_flagged"]),
+    )
+    return s0, s1
 
 
 def _process_one(job: tuple[str, str, str, str]) -> dict:
@@ -112,6 +299,11 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         "completed_at": _dt.datetime.utcnow().isoformat(timespec="seconds"),
     }
     t0 = time.perf_counter()
+    reused_preprocessing_time = 0.0
+
+    def total_time() -> float:
+        return reused_preprocessing_time + time.perf_counter() - t0
+
     gates = _WORKER_CFG.get("pipeline", {}).get("quality_gates", {})
     gates_enabled = bool(gates.get("enabled", False))
     stage0_enabled = bool((_WORKER_CFG.get("stage0", {}) or {}).get("enabled", False))
@@ -119,7 +311,19 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
     references_json_path = None
 
     try:
-        if stage0_enabled:
+        if _WORKER_REUSE_PREPROCESSING_ROOT is not None:
+            stage1_started = True
+            s0, s1 = _copy_reused_preprocessing(
+                patent_id=patent_id,
+                sketch_id=sketch_id,
+                input_path=input_path,
+                output_dir=output_dir,
+            )
+            stage1_input = s0.reference_free_path
+            references_json_path = s0.references_json_path
+            reused_preprocessing_time = s0.processing_time_s + s1.processing_time_s
+            t0 = time.perf_counter()
+        elif stage0_enabled:
             s0 = stage0_handle_references.run(
                 input_path=input_path, output_dir=output_dir,
                 sketch_id=sketch_id, config=_WORKER_CFG,
@@ -136,21 +340,41 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
                 "s0_flagged":           int(s0.flagged),
             })
 
-        stage1_started = True
-        s1 = stage1_preprocess.run(
-            input_path=stage1_input, output_dir=output_dir,
-            sketch_id=sketch_id, config=_WORKER_CFG, model=_WORKER_S1_MODEL,
-        )
+        if _WORKER_REUSE_PREPROCESSING_ROOT is None:
+            stage1_started = True
+            s1 = stage1_preprocess.run(
+                input_path=stage1_input, output_dir=output_dir,
+                sketch_id=sketch_id, config=_WORKER_CFG, model=_WORKER_S1_MODEL,
+            )
+        if stage0_enabled and _WORKER_REUSE_PREPROCESSING_ROOT is not None:
+            row.update({
+                "s0_time":              s0.processing_time_s,
+                "s0_n_labels":          s0.n_labels,
+                "s0_n_leaders":         s0.n_leaders,
+                "s0_n_iterations":      s0.n_iterations,
+                "s0_removed_ink_ratio": s0.removed_ink_ratio,
+                "s0_active_removal":    int(s0.active_removal),
+                "s0_flagged":           int(s0.flagged),
+            })
         row.update({
             "s1_time":       s1.processing_time_s,
             "s1_quality":    s1.skeleton_quality,
             "s1_model_used": s1.model_used,
             "s1_flagged":    int(s1.flagged),
         })
+    except _ReusedPreprocessingFailure as exc:
+        source_row = exc.source_row
+        row.update({
+            field: source_row.get(field) for field in _PREPROCESSING_ROW_FIELDS
+        })
+        row["status"] = source_row["status"]
+        row["error"] = source_row.get("error")
+        row["total_time"] = source_row.get("total_time") or total_time()
+        return row
     except Exception as exc:
         row["status"] = "stage1" if locals().get("stage1_started") else "stage0"
         row["error"] = f"{type(exc).__name__}: {exc}"
-        row["total_time"] = time.perf_counter() - t0
+        row["total_time"] = total_time()
         return row
 
     if gates_enabled and gates.get("stop_on_stage1", True) and s1.flagged:
@@ -159,7 +383,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             f"skeleton quality {s1.skeleton_quality:.3f} below threshold; "
             "not suitable for accurate vectorization"
         )
-        row["total_time"] = time.perf_counter() - t0
+        row["total_time"] = total_time()
         return row
 
     try:
@@ -167,6 +391,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             skeleton_path=s1.skeleton_path, output_dir=output_dir,
             sketch_id=sketch_id, config=_WORKER_CFG, model=_WORKER_S2_MODEL,
             source_image_path=stage1_input, hatch_model=_WORKER_HATCH_MODEL,
+            hatch_stroke_model=_WORKER_HATCH_STROKE_MODEL,
         )
         row.update({
             "s2_time":         s2.processing_time_s,
@@ -184,7 +409,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
     except Exception as exc:
         row["status"] = "stage2"
         row["error"] = f"{type(exc).__name__}: {exc}"
-        row["total_time"] = time.perf_counter() - t0
+        row["total_time"] = total_time()
         return row
 
     if gates_enabled and gates.get("stop_on_stage2", True) and s2.flagged:
@@ -194,9 +419,20 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             f"median_len={s2.median_edge_length:.1f}, "
             f"micro_ratio={s2.micro_edge_ratio:.3f}, "
             f"short_ratio={s2.short_edge_ratio:.3f}, "
-            f"isolation={s2.isolation_ratio:.3f}"
+            f"isolation={s2.isolation_ratio:.3f}, "
+            "noncycle_residuals="
+            f"{getattr(s2, 'n_unclaimed_noncycle_components', 0)}, "
+            "max_noncycle_residual_pixels="
+            f"{getattr(s2, 'max_unclaimed_noncycle_pixels', 0)}"
         )
-        row["total_time"] = time.perf_counter() - t0
+        row["total_time"] = total_time()
+        return row
+
+    if bool((_WORKER_CFG.get("pipeline", {}) or {}).get(
+        "stop_after_stage2", False
+    )):
+        row["status"] = "ok_stage2"
+        row["total_time"] = total_time()
         return row
 
     try:
@@ -240,7 +476,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
     except Exception as exc:
         row["status"] = "stage3"
         row["error"] = f"{type(exc).__name__}: {exc}"
-        row["total_time"] = time.perf_counter() - t0
+        row["total_time"] = total_time()
         return row
 
     max_primitives = int(gates.get("max_primitives", 0) or 0)
@@ -274,7 +510,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
             f"low_conf_ratio={row.get('s3_low_conf_ratio', 0.0):.3f}, "
             f"max_low_conf_ratio={effective_max_low_conf_ratio:.3f}"
         )
-        row["total_time"] = time.perf_counter() - t0
+        row["total_time"] = total_time()
         return row
 
     try:
@@ -298,7 +534,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         row["status"] = "stage4"
         row["error"] = f"{type(exc).__name__}: {exc}"
 
-    row["total_time"] = time.perf_counter() - t0
+    row["total_time"] = total_time()
     return row
 
 
@@ -322,16 +558,20 @@ def _iter_sketches(patent_root: Path) -> Iterator[tuple[str, str, Path]]:
 
 
 def _stratified_sample(patent_root: Path, n: int,
-                       seed: int = 42) -> list[tuple[str, str, Path]]:
+                       seed: int = 42,
+                       excluded_paths: set[str] | None = None,
+                       ) -> list[tuple[str, str, Path]]:
     """One sketch from each of `n` random patents (those with >=1 sketch)."""
     rng = random.Random(seed)
     candidates = [d for d in patent_root.iterdir() if d.is_dir()]
     rng.shuffle(candidates)
+    excluded_paths = excluded_paths or set()
 
     picks: list[tuple[str, str, Path]] = []
     for patent_dir in candidates:
         tifs = [f for f in sorted(patent_dir.iterdir())
-                if f.suffix.lower() in (".tif", ".tiff")]
+                if f.suffix.lower() in (".tif", ".tiff")
+                and str(f) not in excluded_paths]
         if not tifs:
             continue
         f = tifs[0]
@@ -343,6 +583,116 @@ def _stratified_sample(patent_root: Path, n: int,
         if len(picks) >= n:
             break
     return picks
+
+
+def _select_sketches(
+    patent_root: Path,
+    limit: int | None,
+    stratified: bool,
+    seed: int,
+    excluded_paths: set[str] | None = None,
+) -> list[tuple[str, str, Path]]:
+    """Select a deterministic pilot, optionally filtering before limiting."""
+    excluded_paths = excluded_paths or set()
+    if limit and stratified:
+        return _stratified_sample(
+            patent_root, limit, seed, excluded_paths=excluded_paths,
+        )
+
+    sketches = []
+    for sketch in _iter_sketches(patent_root):
+        if str(sketch[2]) in excluded_paths:
+            continue
+        sketches.append(sketch)
+        if limit and len(sketches) >= limit:
+            break
+    return sketches
+
+
+def _source_worklist(
+    source_db: Path,
+    limit: int | None = None,
+) -> list[tuple[str, str, Path]]:
+    """Load an exact paired cohort from a completed source results DB."""
+    query = (
+        "SELECT patent_id, sketch_id, input_path FROM results "
+        "ORDER BY patent_id, sketch_id"
+    )
+    params: tuple[int, ...] = ()
+    if limit:
+        query += " LIMIT ?"
+        params = (limit,)
+    with results_db.connect(source_db) as connection:
+        rows = connection.execute(query, params).fetchall()
+    return [
+        (str(patent_id), str(sketch_id), Path(input_path))
+        for patent_id, sketch_id, input_path in rows
+    ]
+
+
+def _manifest_worklist(
+    manifest_path: Path,
+    patent_root: Path,
+    limit: int | None = None,
+) -> list[tuple[str, str, Path]]:
+    """Load an exact ordered cohort from a small CSV manifest."""
+    with manifest_path.open(newline="") as stream:
+        reader = csv.DictReader(stream)
+        fields = set(reader.fieldnames or ())
+        required = {"patent_id", "sketch_id"}
+        if not required.issubset(fields):
+            missing = ", ".join(sorted(required - fields))
+            raise ValueError(f"worklist is missing required column(s): {missing}")
+
+        rows: list[tuple[str, str, Path]] = []
+        seen: set[tuple[str, str]] = set()
+        for line_number, row in enumerate(reader, start=2):
+            patent_id = str(row.get("patent_id") or "").strip()
+            sketch_id = str(row.get("sketch_id") or "").strip()
+            if not patent_id or not sketch_id:
+                raise ValueError(
+                    f"worklist row {line_number} has an empty patent/sketch id"
+                )
+            identity = (patent_id, sketch_id)
+            if identity in seen:
+                raise ValueError(
+                    f"worklist row {line_number} duplicates "
+                    f"{patent_id}/{sketch_id}"
+                )
+            seen.add(identity)
+
+            raw_path = str(row.get("input_path") or "").strip()
+            if raw_path:
+                input_path = Path(raw_path).expanduser()
+                if not input_path.is_absolute():
+                    manifest_relative = manifest_path.parent / input_path
+                    input_path = (
+                        manifest_relative
+                        if manifest_relative.exists()
+                        else PROJECT_ROOT / input_path
+                    )
+            else:
+                patent_dir = patent_root / patent_id
+                candidates = (
+                    patent_dir / f"{patent_id}_{sketch_id}.tif",
+                    patent_dir / f"{patent_id}_{sketch_id}.tiff",
+                )
+                input_path = next(
+                    (candidate for candidate in candidates if candidate.exists()),
+                    candidates[0],
+                )
+            rows.append((patent_id, sketch_id, input_path))
+            if limit and len(rows) >= limit:
+                break
+    return rows
+
+
+def _preprocessing_config(cfg: dict) -> dict:
+    """Return only configuration that can affect reusable Stage-0/1 output."""
+    return {
+        section: cfg.get(section, {}) or {}
+        for section in ("stage0", "stage1", "sketchcleannet")
+    }
 
 
 # ─── Driver ──────────────────────────────────────────────────────────────────
@@ -382,7 +732,83 @@ def main() -> int:
     parser.add_argument("--filter-manifest", type=Path, default=None,
                         help="CSV produced by tools/filter_patent_data.py. "
                              "TIFs with label='discard' are skipped.")
+    parser.add_argument(
+        "--worklist", type=Path, default=None,
+        help=("Exact ordered CSV cohort with patent_id, sketch_id, and an "
+              "optional input_path column. --limit truncates this cohort."),
+    )
+    parser.add_argument(
+        "--limit-after-filter", action="store_true",
+        help=("apply --filter-manifest before --limit, so a filtered pilot "
+              "contains exactly N kept drawings when enough are available"),
+    )
+    parser.add_argument(
+        "--reuse-preprocessing-from", type=Path, default=None,
+        help=("reuse and copy Stage-0/1 artifacts from this completed paired "
+              "run, then execute Stage 2 onward"),
+    )
+    parser.add_argument(
+        "--reuse-preprocessing-db", type=Path, default=None,
+        help=("results DB for --reuse-preprocessing-from; default: "
+              "<reuse-root>/results.db"),
+    )
+    parser.add_argument(
+        "--reuse-preprocessing-config", type=Path, default=None,
+        help=("config used by the preprocessing source run; required so "
+              "Stage-0/1 compatibility can be validated"),
+    )
+    parser.add_argument(
+        "--reuse-source-worklist", action="store_true",
+        help=("select the exact patent/sketch/input rows from the reuse DB "
+              "instead of resampling the current corpus; --limit selects "
+              "the first rows in stable patent/sketch order"),
+    )
     args = parser.parse_args()
+    if args.limit_after_filter and not args.limit:
+        parser.error("--limit-after-filter requires --limit")
+    if args.worklist is not None and not args.worklist.exists():
+        parser.error(f"worklist does not exist: {args.worklist}")
+    if args.limit_after_filter and not args.filter_manifest:
+        parser.error("--limit-after-filter requires --filter-manifest")
+    if args.limit_after_filter and not args.filter_manifest.exists():
+        parser.error(
+            f"--limit-after-filter manifest does not exist: "
+            f"{args.filter_manifest}"
+        )
+    if args.reuse_preprocessing_from is None and (
+        args.reuse_preprocessing_db is not None
+        or args.reuse_preprocessing_config is not None
+    ):
+        parser.error(
+            "--reuse-preprocessing-db/config require "
+            "--reuse-preprocessing-from"
+        )
+    if (args.reuse_preprocessing_from is not None
+            and args.reuse_preprocessing_config is None):
+        parser.error(
+            "--reuse-preprocessing-from requires "
+            "--reuse-preprocessing-config"
+        )
+    if args.reuse_source_worklist and args.reuse_preprocessing_from is None:
+        parser.error(
+            "--reuse-source-worklist requires --reuse-preprocessing-from"
+        )
+    if args.reuse_source_worklist and (
+        args.stratified or args.filter_manifest is not None
+        or args.limit_after_filter or args.worklist is not None
+    ):
+        parser.error(
+            "--reuse-source-worklist cannot be combined with stratified or "
+            "filter-based selection"
+        )
+    if args.worklist is not None and (
+        args.stratified or args.filter_manifest is not None
+        or args.limit_after_filter
+    ):
+        parser.error(
+            "--worklist cannot be combined with stratified or filter-based "
+            "selection"
+        )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -400,28 +826,30 @@ def main() -> int:
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f) or {}
+    reuse_root = args.reuse_preprocessing_from
+    reuse_db = args.reuse_preprocessing_db
+    if reuse_root is not None:
+        reuse_db = reuse_db or (reuse_root / "results.db")
+        for label, path in (
+            ("reuse root", reuse_root),
+            ("reuse DB", reuse_db),
+            ("reuse config", args.reuse_preprocessing_config),
+        ):
+            if path is None or not path.exists():
+                parser.error(f"{label} does not exist: {path}")
+        with open(args.reuse_preprocessing_config) as fh:
+            source_cfg = yaml.safe_load(fh) or {}
+        if _preprocessing_config(source_cfg) != _preprocessing_config(cfg):
+            parser.error(
+                "Stage-0/1 configuration differs from the preprocessing "
+                "source; refusing unsafe artifact reuse"
+            )
+        if not bool((cfg.get("stage0", {}) or {}).get("enabled", False)):
+            parser.error("preprocessing reuse currently requires Stage 0")
     workers = args.workers or cfg.get("pipeline", {}).get("workers") \
               or max(1, (os.cpu_count() or 2) - 1)
 
-    # ── Build the job list ────────────────────────────────────────────────
-    if args.limit and args.stratified:
-        sketches = _stratified_sample(args.patent_root, args.limit, args.seed)
-    else:
-        it = _iter_sketches(args.patent_root)
-        if args.limit:
-            sketches = []
-            for s in it:
-                sketches.append(s)
-                if len(sketches) >= args.limit:
-                    break
-        else:
-            sketches = list(it)
-
-    if not sketches:
-        logger.error("No sketches found under %s", args.patent_root)
-        return 2
-
-    # ── Apply content-filter manifest ─────────────────────────────────────
+    discard_paths: set[str] = set()
     if args.filter_manifest and args.filter_manifest.exists():
         with open(args.filter_manifest, newline="") as fh:
             discard_paths = {
@@ -429,12 +857,64 @@ def main() -> int:
                 for row in csv.DictReader(fh)
                 if row.get("label") == "discard"
             }
-        before = len(sketches)
-        sketches = [s for s in sketches if str(s[2]) not in discard_paths]
+
+    # ── Build the job list ────────────────────────────────────────────────
+    if args.reuse_source_worklist:
+        sketches = _source_worklist(reuse_db, args.limit)
+        missing_inputs = [
+            path for _patent, _sketch, path in sketches if not path.exists()
+        ]
+        if missing_inputs:
+            parser.error(
+                "reuse source worklist contains missing input: "
+                f"{missing_inputs[0]}"
+            )
         logger.info(
-            "Filter manifest: skipped %d non-drawing TIFs, %d remain.",
-            before - len(sketches), len(sketches),
+            "Loaded %d exact rows from reuse source worklist.", len(sketches),
         )
+    elif args.worklist is not None:
+        try:
+            sketches = _manifest_worklist(
+                args.worklist, args.patent_root, args.limit
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        missing_inputs = [
+            path for _patent, _sketch, path in sketches if not path.exists()
+        ]
+        if missing_inputs:
+            parser.error(f"worklist contains missing input: {missing_inputs[0]}")
+        logger.info(
+            "Loaded %d exact rows from %s.", len(sketches), args.worklist,
+        )
+    else:
+        prefilter = discard_paths if args.limit_after_filter else None
+        sketches = _select_sketches(
+            args.patent_root,
+            args.limit,
+            args.stratified,
+            args.seed,
+            excluded_paths=prefilter,
+        )
+
+    if not sketches:
+        logger.error("No sketches found under %s", args.patent_root)
+        return 2
+
+    # ── Apply content-filter manifest ─────────────────────────────────────
+    if args.filter_manifest and args.filter_manifest.exists():
+        if args.limit_after_filter:
+            logger.info(
+                "Filter manifest applied before limit: selected %d kept TIFs.",
+                len(sketches),
+            )
+        else:
+            before = len(sketches)
+            sketches = [s for s in sketches if str(s[2]) not in discard_paths]
+            logger.info(
+                "Filter manifest: skipped %d non-drawing TIFs, %d remain.",
+                before - len(sketches), len(sketches),
+            )
 
     # ── Skip already-processed (resume) ──────────────────────────────────
     if not args.no_resume:
@@ -471,7 +951,11 @@ def main() -> int:
              ProcessPoolExecutor(
                  max_workers=workers,
                  initializer=_worker_init,
-                 initargs=(str(args.config),),
+                 initargs=(
+                     str(args.config),
+                     str(reuse_root) if reuse_root is not None else "",
+                     str(reuse_db) if reuse_db is not None else "",
+                 ),
              ) as pool:
 
             futures = [pool.submit(_process_one, j) for j in jobs]
@@ -486,7 +970,7 @@ def main() -> int:
                     n_err += 1
                     continue
                 results_db.insert_row(conn, row)
-                if row["status"] == "ok":
+                if _is_success_status(str(row["status"])):
                     n_ok += 1
                 else:
                     n_err += 1

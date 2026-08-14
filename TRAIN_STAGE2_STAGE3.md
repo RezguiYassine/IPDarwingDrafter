@@ -6,6 +6,172 @@
 > this repository. Use the verified workflow in this section. The longer
 > proposal is retained after it as design history, not as executable commands.
 
+## PatentVec synthetic A/B experiment (2026-07-25)
+
+This controlled experiment compares the frozen baseline curriculum A with the
+enhanced medium/hard/very-hard curriculum B. Both use seed `850725`, identical
+optimizer budgets, fixed real holdouts, and a retained step-zero candidate.
+The data and audit evidence is documented in `syntheticData/README.md`.
+
+### Stage 2
+
+An initial 85% real / 15% synthetic run replayed Drawing2CAD and SketchGraphs
+but used ArchCAD only for validation. At step 5,000 its ArchCAD macro-F1 fell
+from `0.627` to `0.501/0.507`; those runs were stopped and retained under
+`output/PatentVecComplexityABTraining/stage2/diagnostic_replay3way`.
+
+The corrected exact mixer contains 59,840 samples per epoch:
+
+| source | samples/epoch | share |
+|---|---:|---:|
+| Drawing2CAD | 20,346 | 34.0% |
+| cached SketchGraphs | 25,432 | 42.5% |
+| ArchCAD guard replay | 5,086 | 8.5% |
+| PatentVec A or B | 8,976 | 15.0% |
+
+All synthetic labels appear exactly once per epoch. Selected real-domain
+indices are unique within the epoch. Both variants trained for three epochs,
+14,961 optimizer steps, at `lr=1e-5` from
+`models/puhachov_sketchgraphs_cadvg40_phaseB.pth`.
+
+| variant/checkpoint | D2C | SketchGraphs | ArchCAD | mean |
+|---|---:|---:|---:|---:|
+| step zero, shared | 0.8670 | 0.9640 | 0.6270 | 0.8193 |
+| A, step 2,500 | 0.833 | 0.958 | 0.689 | 0.827 |
+| A, step 7,500 | 0.849 | 0.961 | 0.721 | 0.844 |
+| A, step 10,000 | 0.856 | 0.961 | 0.721 | 0.846 |
+| **A, final 14,961** | **0.8510** | **0.9620** | **0.7301** | **0.8477** |
+| B, step 2,500 | 0.829 | 0.958 | 0.687 | 0.825 |
+| B, step 7,500 | 0.848 | 0.961 | 0.718 | 0.842 |
+| B, step 10,000 | 0.855 | 0.961 | 0.719 | 0.845 |
+| **B, final 14,961** | **0.8539** | **0.9617** | **0.7277** | **0.8477** |
+
+The final aggregates differ by only `0.00008`; treat A and B as tied on these
+real selectors. Synthetic validation confirms adaptation:
+
+| checkpoint | synthetic A macro-F1 | synthetic B macro-F1 |
+|---|---:|---:|
+| shared warm start | 0.1746 | 0.1650 |
+| model A | **0.5047** | 0.4678 |
+| model B | 0.5008 | **0.4791** |
+
+Complete cached real-domain evaluation gives the same conclusion:
+
+| checkpoint | Drawing2CAD test (31,524) | SketchGraphs test (9,565) | ArchCAD val (1,159) | three-domain mean |
+|---|---:|---:|---:|---:|
+| model A | 0.856136 | **0.936599** | **0.730050** | **0.840928** |
+| model B | **0.857240** | 0.936426 | 0.727709 | 0.840458 |
+
+B is better on Drawing2CAD by `0.00110`; A is better on SketchGraphs by
+`0.00017` and ArchCAD by `0.00234`. The full-domain mean differs by `0.00047`.
+This is not a meaningful model-selection margin; filtered PatentData remains
+the deployment tie-breaker.
+
+Selected checkpoints:
+
+```text
+models/puhachov_patentvec_complexityA.pth
+models/puhachov_patentvec_complexityB.pth
+```
+
+Logs, resumable states, periodic checkpoints, and evaluation JSON files are in
+`output/PatentVecComplexityABTraining/stage2/guard4way`.
+
+### Stage 3
+
+Each paired corpus contains 914,250 trainer-visible labels, exactly 182,850 per
+class. The 822,349 real rows and 48,996-label validation set are aligned; only
+the 91,901 synthetic rows differ. Both variants trained for eight epochs from
+`models/free2cad_sketchgraphs_d2c_mixed.pth`.
+
+| checkpoint | real val loss | real macro-F1 | synthetic own-set macro-F1 | synthetic polyline F1 |
+|---|---:|---:|---:|---:|
+| shared step zero | **0.3163** | **0.9683** | A 0.6001 / B 0.6111 | A 0.1951 / B 0.2367 |
+| A, epoch 8 | 0.3271 | 0.9622 | **0.7862** | **0.8419** |
+| B, epoch 8 | 0.3262 | 0.9626 | **0.7793** | **0.8228** |
+
+The adapted states learn the synthetic polyline contract but regress the fixed
+real validation set. Therefore both `free2cad_v3_best*.pth` files intentionally
+remain step-zero checkpoints. The epoch-8 states are retained as
+`free2cad_v3_latest.pth` for Pareto analysis and are not production candidates.
+All Stage 3 artifacts are under
+`output/PatentVecComplexityABTraining/stage3`.
+
+### Current decision
+
+Stage 2 synthetic rehearsal is successful and passes full cached real-domain
+evaluation. It advances to filtered-PatentData regression. Stage 3 does not justify replacing the existing
+Free2CAD model; production remains on RANSAC. Full 50k generation remains
+blocked until the PatentData visual gate and source-license review pass.
+
+## Reference-free raster topology repair (2026-07-31)
+
+The A/B experiment exposed a supervision-contract error rather than a model
+capacity limit. The archived synthetic keypoints described selected vector
+geometry, while production Stage 2 traces the complete reference-free raster
+skeleton. On a fixed 500-drawing B audit, crossing number found 91,773
+endpoints and 245,331 junctions, but only 4,920 endpoints and 5,532 junctions
+were represented by the archived labels. Approximately 97-98% of hatch
+topology was therefore unlabeled. Training on that contract penalized correct
+hatch/contact detections and encouraged fragmented long strokes.
+
+Two corrected contracts were evaluated:
+
+- `supported-raster-topology-v1` (C1) exactly labels the complete rendered
+  skeleton. It closes the numerical topology gap, but also teaches junctions
+  created by reference numerals, leaders, dimensions, and text. C1 is retained
+  as a diagnostic export and was not trained.
+- `reference-free-raster-topology-v1` (C2) rebuilds the Stage 2 input from the
+  object, hidden/centre-line, and hatch masks, excluding references, leaders,
+  dimensions, and text. Endpoints and junctions come from the production
+  crossing-number implementation; true vector corners are re-snapped to that
+  skeleton. This mirrors the post-Stage-0 inference contract.
+
+The immutable C2 export is
+`output/PatentVecComplexityB10kTrainingReferenceFreeTopologyV1`. It contains
+8,976 train and 1,024 validation drawings with 4,766,069 labels: 1,153,393
+endpoints, 3,513,144 junctions, and 99,532 corners. An independent in-memory
+audit over 500 source drawings matched all 57,582 endpoints and all 179,539
+junctions, including all 4,595 hatch endpoints and 167,766 hatch junctions.
+All 4,397,254 reference-free skeleton pixels are supported by the declared
+semantic masks. Evidence is stored in:
+
+```text
+output/PatentVecComplexityABTraining/stage2/topology_contract_C2_reference_free_500.json
+output/PatentVecComplexityB10kTrainingReferenceFreeTopologyV1/audit_reference_free_topology.png
+```
+
+Dense C2 junction supply would dominate the previous globally normalized focal
+loss. The trainer therefore adds `--focal-normalization sample-class`, which
+reduces every sample/channel independently before averaging. The historical
+global reduction remains the default for reproducibility. C2 then used the
+same exact 59,840-sample epoch and real-domain replay schedule as A/B.
+
+| checkpoint | Drawing2CAD | SketchGraphs | ArchCAD | selector mean |
+|---|---:|---:|---:|---:|
+| warm start | 0.867 | 0.964 | 0.627 | 0.819 |
+| step 2,500 | 0.851 | 0.961 | 0.698 | 0.837 |
+| step 5,000 | 0.858 | 0.962 | 0.704 | 0.841 |
+| step 7,500 | 0.871 | 0.963 | 0.709 | 0.848 |
+| step 10,000 | 0.878 | 0.962 | 0.710 | 0.850 |
+| step 12,500 | 0.876 | 0.962 | **0.717** | 0.852 |
+| **final 14,961** | **0.880219** | **0.962832** | 0.716589 | **0.853213** |
+
+The final checkpoint was selected and copied immutably after three exact
+epochs. Its C2 validation macro-F1 improves from `0.705869` at warm start to
+`0.845934`; endpoint/junction/corner F1 are
+`0.913605/0.710363/0.913833`. Full SketchGraphs test is effectively unchanged
+at `0.935981`. Full ArchCAD validation is `0.716139`, a `0.01157` regression
+from model B, so deployment still requires a compensating paired PatentData
+continuity/fidelity gain. Full Drawing2CAD and the canonical 100-drawing
+PatentData comparison were still running when this subsection was written.
+
+```text
+models/puhachov_patentvec_referencefree_topology.pth
+SHA-256 2cce917f7db3a3942d8767af8cd0fde1aa7576bdced1556556e0c1931e6b091a
+output/PatentVecComplexityABTraining/stage2/reference_free_topology
+```
+
 ## Verified SketchGraphs workflow for this repository
 
 Run every command from:
@@ -261,6 +427,80 @@ analysis and a filtered-PatentData visual regression before changing the
 default production configuration. Junction recall and the small short-edge
 regression are the two explicit follow-up checks.
 
+#### Phase B: 60/40 CAD-VGDrawing retraining (started 2026-07-19)
+
+The repository's `data/Drawing2CAD` directory is the released CAD-VGDrawing
+corpus, not a separate precursor dataset. Its official split contains 141,831
+train, 7,879 validation, and 7,881 test CAD models, with four drawing views per
+model. The `svg_raw`, `svg_vec`, and `cad_vec` archives and
+`train_val_test_split.json` match that release. Consequently, Phase A already
+trained on 70% SketchGraphs / 30% CAD-VGDrawing; adding a separate "VG" input
+would duplicate the same examples.
+
+A deterministic 20,000-file sample from each cached training pool measured the
+following keypoint supply:
+
+| source | endpoints/view | junctions/view | corners/view |
+|---|---:|---:|---:|
+| CAD-VGDrawing | 0.8192 | 2.5328 | 4.2686 |
+| SketchGraphs pilot cache | 0.4316 | 0.9406 | 2.4646 |
+
+The next controlled increment is therefore **60% SketchGraphs / 40%
+CAD-VGDrawing**. At that image ratio CAD-VGDrawing contributes approximately
+56% of endpoint, 64% of junction, and 54% of corner labels. It targets Phase
+A's remaining junction-recall weakness without giving up exact coverage of any
+SketchGraphs source record. The full mixed epoch has 9,179,789 SketchGraphs
+slots plus 6,119,859 CAD-VGDrawing slots: 15,299,648 samples and 637,486
+two-GPU optimizer steps.
+
+Phase B warm-starts the selected Phase A checkpoint at half the learning rate.
+Checkpoint selection uses the mean macro-F1 over fixed 2,000-view
+CAD-VGDrawing and SketchGraphs validation subsets and all 1,159 ArchCAD
+validation drawings:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 .venv/bin/torchrun \
+  --standalone --nproc_per_node=2 \
+  -m stage2_strokeextraction.research.train_puhachov \
+  --labels output/Drawing2CAD/kp_labels \
+  --sketchgraphs-raw data/SketchGraphs/raw/sg_t16_train.npy \
+  --sketchgraphs-val-labels output/SketchGraphsTraining/stage2 \
+  --tertiary-val-labels output/ArchCAD/kp_labels \
+  --mix 0.40 --steps 0 --epochs 1 --lr 5e-5 \
+  --init-weights models/puhachov_sketchgraphs_full_phaseA.pth \
+  --out models/puhachov_sketchgraphs_cadvg40_phaseB.pth \
+  --state-out models/puhachov_sketchgraphs_cadvg40_phaseB_last.pth \
+  --coverage-file output/SketchGraphsCADVG40/stage2_train.coverage.i8 \
+  --require-full-coverage \
+  --batch 12 --workers 6 --prefetch-factor 2 --amp \
+  --val-subset 2000 --secondary-val-subset 2000 \
+  --tertiary-val-subset 1159 \
+  --val-every 10000 --save-every 5000 --log-every 100
+```
+
+The best checkpoint is not promoted from validation alone. After completion it
+must pass the full SketchGraphs test, full CAD-VGDrawing validation/test,
+ArchCAD validation, paired CAD-VGDrawing end-to-end, and filtered-PatentData
+visual gates against Phase A.
+
+The command above is running as the persistent user service
+`puhachov-cadvg40-phaseb.service`. Its append-only log is
+`output/SketchGraphsCADVG40/phaseB_training.log`. The launch smoke test passed
+DDP, three-domain validation, and both checkpoint formats; the production run
+reached step 300 at 8.15 optimizer steps/s with both GPUs active. At that rate,
+the training portion is approximately 22 hours, excluding validation pauses.
+Inspect it without interrupting training:
+
+```bash
+systemctl --user --no-pager status puhachov-cadvg40-phaseb.service
+tail -50 output/SketchGraphsCADVG40/phaseB_training.log
+```
+
+The resumable checkpoint is written atomically every 5,000 steps. If the
+service is interrupted, repeat the same command with `--resume
+models/puhachov_sketchgraphs_cadvg40_phaseB_last.pth` in place of
+`--init-weights`; world size and per-rank batch must remain unchanged.
+
 The `V2` Stage 3 corpus is a corrected rebuild from the same sampled source
 indices. It was generated without rewriting Stage 2 labels:
 
@@ -323,6 +563,463 @@ output/SketchGraphsStage3Full/evaluation_*_full_test.json
 output/SketchGraphsStage3Full/stage3_full_queue.log
 ```
 
+### Full Stage 3 completion (2026-07-19)
+
+The restart-safe queue completed all extraction, both training epochs, full
+validation, and three full-test evaluations. The systemd unit exited
+successfully. Training ran once; later idempotent queue invocations detected the
+completed epoch-2 state and only regenerated the same evaluation reports.
+
+#### Corpus coverage
+
+Every official source record was attempted. `accepted` means that supported
+non-construction geometry produced a non-empty Stage 2 topology; individual
+edges could still be unmatched to a source primitive or shorter than the
+five-pixel supervision floor.
+
+| split | source sketches | accepted | rejected | graph edges | unmatched | short | Stage 3 samples |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| train | 9,179,789 | 8,802,845 | 376,944 | 32,310,428 | 4,542,234 | 744,200 | **27,023,994** |
+| validation | 315,228 | 302,166 | 13,062 | 1,113,582 | 155,843 | 24,827 | **932,912** |
+| test | 313,271 | 300,093 | 13,178 | 1,108,631 | 156,226 | 25,465 | **926,940** |
+
+| rejection reason | train | validation | test |
+|---|---:|---:|---:|
+| no supported non-construction geometry | 369,486 | 12,831 | 12,922 |
+| topology has no edges | 6,572 | 193 | 228 |
+| degenerate geometry bounds | 886 | 38 | 28 |
+
+The exact post-matching class distribution is:
+
+| split | line | arc | circle | polyline |
+|---|---:|---:|---:|---:|
+| train | 20,430,593 | 1,486,670 | 5,106,731 | 0 |
+| validation | 713,668 | 49,364 | 169,880 | 0 |
+| test | 708,356 | 50,303 | 168,281 | 0 |
+
+#### Training configuration and history
+
+The 794,762-parameter encoder-only model was warm-started from
+`models/free2cad_sketchgraphs.pth`, then trained in FP32 on GPU 1. The point
+encoder uses `max_pts=64`, `d_model=128`, eight heads, four encoder layers, and
+dropout 0.1. Arc targets use the bounded three-point encoding. Other settings:
+
+| setting | value |
+|---|---:|
+| epochs | 2 |
+| batch size | 512 |
+| initial learning rate | `3e-5` |
+| final learning rate | `1e-6` |
+| parameter-loss weight | 0.5 |
+| label smoothing | 0.05 |
+| class-weight power | 0.5 |
+| line / arc / circle / polyline weights | 0.5750 / 2.1318 / 1.1502 / 0.0 |
+
+| epoch | train loss | validation loss | validation accuracy | macro-F1 | ending LR | time |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 0.2357 | 0.2359 | 1.000 (rounded) | 0.9989 | `1.55e-5` | 1,161.1 s |
+| **2** | **0.2338** | **0.2358** | **0.9998** | **0.9992** | `1e-6` | 1,168.7 s |
+
+Epoch 2 won both checkpoint criteria. Its exact validation results are:
+
+| class | precision | recall | F1 | parameter L1 | stroke residual | support |
+|---|---:|---:|---:|---:|---:|---:|
+| line | 1.0000 | 0.9997 | 0.9999 | 0.0012 | 0.0013 | 713,668 |
+| arc | 0.9958 | 0.9998 | 0.9978 | 0.0057 | 0.0233 | 49,364 |
+| circle | 1.0000 | 0.9998 | 0.9999 | 0.0025 | 0.0051 | 169,880 |
+
+Validation has 221 total classification errors: 183 true lines and 26 true
+circles were predicted as arcs, while 12 true arcs were predicted as lines.
+There were no line/circle confusions.
+
+#### Full untouched-test evaluation
+
+The 100,000-source pilot and both full-checkpoint selections were evaluated on
+the same 926,940 test edges. Best validation loss and best validation macro-F1
+both selected epoch 2 and therefore have identical predictions.
+
+| checkpoint | accuracy | supported macro-F1 | line F1 | arc F1 | circle F1 |
+|---|---:|---:|---:|---:|---:|
+| 100K pilot | 0.9997 | 0.9989 | 0.9998 | 0.9971 | 0.9999 |
+| **full epoch 2** | **0.9998** | **0.9993** | **0.9999** | **0.9981** | **1.0000** |
+
+| class | support | pilot param L1 | full param L1 | pilot residual | full residual |
+|---|---:|---:|---:|---:|---:|
+| line | 708,356 | 0.0015 | **0.0012** | 0.0014 | **0.0013** |
+| arc | 50,303 | 0.0058 | **0.0057** | **0.0222** | 0.0233 |
+| circle | 168,281 | 0.0029 | **0.0025** | 0.0058 | **0.0053** |
+
+The full-model test confusion matrix has 162 true lines predicted as arcs, 12
+true arcs predicted as lines, and 15 true circles predicted as arcs. All other
+926,751 predictions are correct. Full training therefore improves classification
+and normalized parameter accuracy, but arc stroke residual regresses by 0.0011
+(about 5%). This is an explicit downstream integration check, not hidden by the
+aggregate score.
+
+Pilot and full `val_loss` values must not be compared: the pilot checkpoint
+predates persisted label-smoothing metadata, so the evaluator uses smoothing
+0.0 for the pilot and 0.05 for the full model. Accuracy, F1, parameter L1, and
+stroke residual use the same contract and are directly comparable.
+
+#### Selected model and decision
+
+The selected checkpoint is the epoch-2 best-validation-loss model:
+
+```text
+output/SketchGraphsStage3Full/checkpoints/free2cad_full_phaseA/free2cad_v3_best.pth
+models/free2cad_sketchgraphs_full.pth
+```
+
+The second path is a stable byte-identical deployment-candidate alias. File
+size is 9,640,160 bytes and SHA-256 is
+`bed27ed08ad794757bb93192c9347caf0af9d18f6f62a15a39537f0fc4d97d3f`.
+`free2cad_v3_best_f1.pth` contains the same epoch and metrics but is a separate
+serialization; use `free2cad_v3_best.pth` as the canonical artifact.
+
+This is the best **SketchGraphs-domain** Free2CAD model, not yet the production
+Stage 3 default. SketchGraphs supplies no polyline examples, and the test is
+in-domain. Production remains the guarded deterministic/RANSAC fitter until a
+paired Drawing2CAD end-to-end comparison measures primitive type, Chamfer,
+parameter error, fragmentation, and runtime, followed by filtered-PatentData
+visual regression focused on arcs and compound paths.
+
+Full evidence files:
+
+```text
+output/SketchGraphsStage3Full/progress_{train,validation,test}.json
+output/SketchGraphsStage3Full/evaluation_pilot_full_test.json
+output/SketchGraphsStage3Full/evaluation_best_full_test.json
+output/SketchGraphsStage3Full/evaluation_best_f1_full_test.json
+output/SketchGraphsStage3Full/stage3_full_queue.log
+```
+
+### Mixed SketchGraphs + Drawing2CAD Stage 3 (2026-07-19)
+
+#### Why sample-count mixing is rejected
+
+SketchGraphs supplies excellent analytic supervision but no polyline class. Its
+full train extraction is dominated by 20,430,593 line edges, so a nominal
+"70% SketchGraphs / 30% Drawing2CAD" source-sketch ratio would still make
+POLYLINE and BEZIER negligible. The mixed run is balanced by the number of
+**post-Stage-2 edge labels** available to each class, not source drawings or
+files.
+
+Drawing2CAD is converted by `tools/d2c_stage3_dataset.py`. For each cached
+Stage 1 skeleton and ground-truth keypoint set, the tool runs the repository's
+actual Stage 2 topology/simplification/smoothing path, then matches each graph
+edge back to dense SVG source geometry. Label guards are:
+
+- one measurably straight linear source span -> `LINE`;
+- several contiguous linear source segments with a non-straight extracted edge
+  -> `POLYLINE`;
+- SVG cubic geometry with a low radial residual -> `ARC` or `CIRCLE`, because
+  CAD SVG exporters encode circles as cubic commands;
+- remaining non-circular cubic geometry -> `BEZIER`;
+- mixed line/cubic, short, and unmatched edges are excluded rather than given a
+  noisy label.
+
+Closed-loop pixels require special handling. Stage 2 stores them in scanline
+order, which produced zigzag point tensors in the first visual audit. Dataset
+construction and Free2CAD inference now both apply the production loop-ordering
+routine before normalization or deterministic curve fitting. The corrected
+class audit is
+`output/Drawing2CAD/stage3_ordered_pilot/val/class_audit.png`.
+
+The converter is restart-safe at source chunks, writes atomic NPZ shards, and
+prebuilds one source-geometry KD-tree per view. Full train, validation, and test
+conversion completed without errors:
+
+| split | views | graph edges | accepted labels | line | arc | circle | polyline | bezier |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| train | 567,324 | 3,946,373 | **3,265,723** | 2,779,020 | 44,157 | 104,870 | **182,850** | **154,826** |
+| validation | 31,516 | 219,243 | **180,889** | 153,366 | 2,632 | 6,042 | **10,049** | **8,800** |
+| test | 31,524 | 220,349 | **182,428** | 155,268 | 2,396 | 5,754 | **10,412** | **8,598** |
+
+Train excluded 552,699 unmatched, 69,330 short, and 58,621 mixed-command edges.
+Validation excluded 30,972 unmatched, 4,093 short, and 3,289 mixed-command
+edges. Test excluded 30,650 unmatched, 3,969 short, and 3,302 mixed-command
+edges. These are edge-level quality exclusions, not failed drawings; every
+view in all three splits completed with zero worker errors.
+
+Reproduce the conversion with BLAS threading disabled inside each process:
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 \
+.venv/bin/python -m tools.d2c_stage3_dataset \
+  --split train --workers 56 --source-chunk-size 512 \
+  --output output/Drawing2CAD/stage3
+```
+
+`tools/build_free2cad_mixed_dataset.py` scans the labels visible to the trainer,
+including the same incomplete-circle rejection and straight-arc relabeling.
+The manifest records both raw and effective supply. Its automatic train target
+is the larger of Drawing2CAD's effective POLYLINE and BEZIER counts. It
+downsamples every analytic class to that target, sources analytic labels from
+SketchGraphs/Drawing2CAD at 70/30 when available, and permits at most 1.5x
+reuse to close a modest rare-class gap. Validation uses no repeated labels
+(`--max-repeats 1.0`). Selected rows are globally shuffled before mixed
+50,000-edge shards are written; class-specific batches are explicitly avoided.
+
+The completed train mix contains **914,250 effective edges**, exactly 182,850
+per class. LINE/ARC/CIRCLE each contribute 127,995 SketchGraphs and 54,855
+Drawing2CAD labels. POLYLINE contributes all 182,850 unique Drawing2CAD labels.
+BEZIER contributes 182,850 Drawing2CAD labels from 154,826 unique labels, a
+bounded 1.181x exposure. The domain totals are 383,985 SketchGraphs and 530,265
+Drawing2CAD labels. The trainer re-audit reports zero filtered or relabeled
+records. The non-duplicated validation mix contains 48,996 edges: 10,049 each
+for LINE/ARC/CIRCLE/POLYLINE and all 8,800 available BEZIER labels.
+
+Exact mixed-corpus materialization commands:
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 \
+.venv/bin/python -m tools.build_free2cad_mixed_dataset \
+  --drawing2cad output/Drawing2CAD/stage3 \
+  --output output/Free2CADMixedSketchGraphsD2C \
+  --split train --max-repeats 1.5 --shard-size 50000 --overwrite
+
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 \
+.venv/bin/python -m tools.build_free2cad_mixed_dataset \
+  --drawing2cad output/Drawing2CAD/stage3 \
+  --output output/Free2CADMixedSketchGraphsD2C \
+  --split val --max-repeats 1.0 --shard-size 50000 --overwrite
+```
+
+The resulting train split has 19 shards: 18 x 50,000 labels and one x 14,250.
+Its domain totals are 383,985 SketchGraphs and 530,265 Drawing2CAD labels.
+
+A 2,500-edge five-class smoke run first verified four-to-five-class checkpoint
+expansion and the complete train/evaluate path. Despite only 500 train labels
+per class, epoch 20 reached 0.8535 validation macro-F1, including POLYLINE F1
+0.892 and BEZIER F1 0.676. This smoke checkpoint is diagnostic only.
+
+Free2CAD v3 now has a five-row type head. Warm-starting from the selected
+four-class SketchGraphs checkpoint copies the encoder, parameter head, and the
+first four classifier rows exactly; only the new BEZIER row keeps its random
+initialization. POLYLINE and BEZIER use deterministic dense-point geometry
+after classification and do not contribute to the six-value parameter loss.
+Old four-class checkpoints remain loadable because model construction and
+evaluation take the checkpoint vocabulary size.
+
+#### Full mixed training
+
+Both runs warm-started `models/free2cad_sketchgraphs_full.pth`, used batch 1,024,
+64 points, three-point arc encoding, label smoothing 0.05, and parameter weight
+0.5. Equal effective class supply makes all class weights exactly 1.0.
+
+| schedule | epochs | learning rate | GPU time | best epoch | val loss | val accuracy | val macro-F1 | polyline F1 | bezier F1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| conservative | 12 | 3e-5 | 572.4 s | 10 | 0.3575 | 0.9536 | 0.9528 | 0.9415 | 0.9203 |
+| **adaptive** | **20** | **1e-4** | **835.0 s** | **20** | **0.3163** | **0.9687** | **0.9683** | **0.9566** | **0.9491** |
+
+Adaptive validation F1 by class is LINE 0.9902, ARC 0.9499, CIRCLE 0.9956,
+POLYLINE 0.9566, and BEZIER 0.9491. The higher-rate schedule wins every full
+evaluation and is selected.
+
+Exact training commands:
+
+```bash
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 \
+NUMEXPR_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=0 \
+.venv/bin/python stage3_primitivesfitting/research/train_free2cad_v3.py \
+  --data_dir output/Free2CADMixedSketchGraphsD2C \
+  --output_dir output/Free2CADMixedSketchGraphsD2C/checkpoints/conservative \
+  --epochs 12 --batch_size 1024 --lr 3e-5 --device cuda --max_pts 64 \
+  --d_model 128 --n_heads 8 --n_enc_layers 4 --dropout 0.1 \
+  --arc_encoding three_point --class_weight_power 0.5 \
+  --label_smoothing 0.05 --param_weight 0.5 --stream_shards \
+  --save_every_shards 0 --init_weights models/free2cad_sketchgraphs_full.pth
+
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 \
+NUMEXPR_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=1 \
+.venv/bin/python stage3_primitivesfitting/research/train_free2cad_v3.py \
+  --data_dir output/Free2CADMixedSketchGraphsD2C \
+  --output_dir output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive \
+  --epochs 20 --batch_size 1024 --lr 1e-4 --device cuda --max_pts 64 \
+  --d_model 128 --n_heads 8 --n_enc_layers 4 --dropout 0.1 \
+  --arc_encoding three_point --class_weight_power 0.5 \
+  --label_smoothing 0.05 --param_weight 0.5 --stream_shards \
+  --save_every_shards 0 --init_weights models/free2cad_sketchgraphs_full.pth
+```
+
+Complete epoch history as written to `train.log` (F1 is rounded to three
+decimal places in the log):
+
+| epoch | conservative train/val/F1 | adaptive train/val/F1 |
+|---:|---:|---:|
+| 1 | 0.7419 / 0.4334 / 0.922 | 0.5545 / 0.3973 / 0.936 |
+| 2 | 0.4376 / 0.3979 / 0.935 | 0.4006 / 0.3765 / 0.943 |
+| 3 | 0.4139 / 0.3869 / 0.939 | 0.3820 / 0.3620 / 0.950 |
+| 4 | 0.4017 / 0.3818 / 0.941 | 0.3697 / 0.3535 / 0.954 |
+| 5 | 0.3930 / 0.3700 / 0.947 | 0.3607 / 0.3415 / 0.958 |
+| 6 | 0.3865 / 0.3658 / 0.949 | 0.3535 / 0.3412 / 0.959 |
+| 7 | 0.3825 / 0.3635 / 0.950 | 0.3487 / 0.3336 / 0.962 |
+| 8 | 0.3788 / 0.3639 / 0.950 | 0.3444 / 0.3321 / 0.961 |
+| 9 | 0.3764 / 0.3607 / 0.951 | 0.3409 / 0.3286 / 0.964 |
+| 10 | 0.3745 / 0.3575 / 0.953 | 0.3377 / 0.3272 / 0.964 |
+| 11 | 0.3731 / 0.3585 / 0.953 | 0.3347 / 0.3248 / 0.965 |
+| 12 | 0.3726 / 0.3570 / 0.953 | 0.3324 / 0.3233 / 0.966 |
+| 13 | n/a | 0.3301 / 0.3253 / 0.965 |
+| 14 | n/a | 0.3285 / 0.3231 / 0.966 |
+| 15 | n/a | 0.3268 / 0.3184 / 0.967 |
+| 16 | n/a | 0.3256 / 0.3199 / 0.967 |
+| 17 | n/a | 0.3243 / 0.3172 / 0.968 |
+| 18 | n/a | 0.3235 / 0.3171 / 0.968 |
+| 19 | n/a | 0.3229 / 0.3169 / 0.968 |
+| 20 | n/a | 0.3223 / 0.3163 / 0.968 |
+
+#### Full held-out evaluation
+
+Drawing2CAD test is the natural, line-heavy distribution. Its loader retains
+181,770 of 182,428 labels after excluding 658 incomplete circle targets.
+SketchGraphs test is the complete 926,940-edge holdout and contains no
+POLYLINE/BEZIER support, so its supported macro-F1 covers LINE/ARC/CIRCLE.
+
+| checkpoint | Drawing2CAD accuracy | Drawing2CAD macro-F1 | SketchGraphs accuracy | SketchGraphs macro-F1 |
+|---|---:|---:|---:|---:|
+| conservative mixed | 0.9330 | 0.8275 | 0.9969 | 0.9912 |
+| **adaptive mixed** | **0.9488** | **0.8603** | **0.9977** | **0.9936** |
+| SketchGraphs specialist | n/a | n/a | **0.9998** | **0.9993** |
+
+Per-class F1 for every candidate and evaluation domain:
+
+| checkpoint / split | line | arc | circle | polyline | bezier |
+|---|---:|---:|---:|---:|---:|
+| conservative / mixed validation | 0.9880 | 0.9223 | 0.9920 | 0.9415 | 0.9203 |
+| **adaptive / mixed validation** | **0.9902** | **0.9499** | **0.9956** | **0.9566** | **0.9491** |
+| conservative / Drawing2CAD test | 0.9652 | 0.6099 | 0.9754 | 0.6828 | 0.9043 |
+| **adaptive / Drawing2CAD test** | **0.9728** | **0.6598** | **0.9870** | **0.7468** | **0.9351** |
+| conservative / SketchGraphs test | 0.9997 | 0.9742 | 0.9997 | n/a | n/a |
+| **adaptive / SketchGraphs test** | **0.9998** | **0.9810** | **0.9999** | n/a | n/a |
+| SketchGraphs specialist / SketchGraphs test | **0.9999** | **0.9981** | **1.0000** | n/a | n/a |
+
+Selected adaptive precision/recall/F1 details:
+
+| split / class | precision | recall | F1 | support |
+|---|---:|---:|---:|---:|
+| mixed validation / line | 0.9955 | 0.9850 | 0.9902 | 10,049 |
+| mixed validation / arc | 0.9354 | 0.9648 | 0.9499 | 10,049 |
+| mixed validation / circle | 0.9934 | 0.9978 | 0.9956 | 10,049 |
+| mixed validation / polyline | 0.9589 | 0.9543 | 0.9566 | 10,049 |
+| mixed validation / bezier | 0.9604 | 0.9380 | 0.9491 | 8,800 |
+| Drawing2CAD test / line | 0.9998 | 0.9473 | 0.9728 | 155,268 |
+| Drawing2CAD test / arc | 0.5017 | 0.9633 | 0.6598 | 2,396 |
+| Drawing2CAD test / circle | 0.9865 | 0.9874 | 0.9870 | 5,096 |
+| Drawing2CAD test / polyline | 0.6110 | 0.9601 | 0.7468 | 10,412 |
+| Drawing2CAD test / bezier | 0.9356 | 0.9345 | 0.9351 | 8,598 |
+| SketchGraphs test / line | 1.0000 | 0.9995 | 0.9998 | 708,356 |
+| SketchGraphs test / arc | 0.9984 | 0.9641 | 0.9810 | 50,303 |
+| SketchGraphs test / circle | 0.9999 | 0.9998 | 0.9999 | 168,281 |
+
+Selected adaptive Drawing2CAD test F1 is LINE 0.9728, ARC 0.6598, CIRCLE
+0.9870, POLYLINE 0.7468, and BEZIER 0.9351. The main residual error is low
+precision for rare ARC (0.5017) and POLYLINE (0.6110): 1,647/6,234 true line
+edges are predicted as ARC/POLYLINE. This is visible in the natural test even
+though recall is 0.9633/0.9601. The inference wrapper therefore also applies a
+raw-pixel straight-line fast path gated by both 1.5-pixel p90 residual and 1%
+relative p90 residual; visibly curved edges continue to the learned model.
+
+Selected checkpoint:
+
+```text
+models/free2cad_sketchgraphs_d2c_mixed.pth
+size 9,642,557 bytes
+SHA-256 dd09a1d54bda5bf178d80cf56f7200723ac132e8a532ede18a5e7c731659db34
+```
+
+Warm-start checkpoint:
+
+```text
+models/free2cad_sketchgraphs_full.pth
+size 9,640,160 bytes
+SHA-256 bed27ed08ad794757bb93192c9347caf0af9d18f6f62a15a39537f0fc4d97d3f
+```
+
+Selected checkpoint metadata is `version=3`, `architecture=encoder_only`,
+zero-based epoch 19 (human epoch 20), five command rows, 64 input points,
+128 hidden dimensions, eight attention heads, four encoder layers, dropout
+0.1, three-point arc encoding, label smoothing 0.05, and parameter-loss weight
+0.5. The saved class weights are `[1, 1, 1, 1, 1]`.
+
+Reproduction environment:
+
+| component | version |
+|---|---|
+| Python | 3.11.8 |
+| PyTorch | 2.11.0+cu130 |
+| CUDA runtime reported by PyTorch | 13.0 |
+| NumPy | 2.4.4 |
+| SciPy | 1.17.1 |
+| GPUs | 2 x NVIDIA GeForce RTX 4090, 24,564 MiB each |
+| NVIDIA driver | 580.159.03 |
+
+Implementation inventory:
+
+| file | responsibility |
+|---|---|
+| `tools/d2c_stage3_dataset.py` | Drawing2CAD SVG-to-Stage-3 supervision, topology matching, circularity guard, loop ordering, atomic restartable shards |
+| `tools/build_free2cad_mixed_dataset.py` | trainer-visible supply scan, bounded class/domain allocation, global shuffle, mixed manifests |
+| `stage3_primitivesfitting/research/train_free2cad_v3.py` | five-class head, four-class warm start, dynamic vocabulary, streaming training/evaluation |
+| `tools/evaluate_free2cad_v3.py` | vocabulary-aware checkpoint evaluation and JSON reports |
+| `stage3_primitivesfitting/research/stage3_primitive_fit_free2cad.py` | five-class loading/decoding, deterministic polyline/Bezier geometry, loop ordering, straight-line guard |
+| `tests/test_d2c_stage3_dataset.py` | conversion and label-guard coverage |
+| `tests/test_free2cad_mixed_dataset.py` | supply allocation and trainer-visibility coverage |
+| `tests/test_free2cad_arc_encoding.py` | warm-start, five-class decoding, circle/arc cleaning, line fast-path coverage |
+
+Evaluation artifacts:
+
+```text
+output/Free2CADMixedSketchGraphsD2C/train/manifest.json
+output/Free2CADMixedSketchGraphsD2C/val/manifest.json
+output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/train.log
+output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/free2cad_v3_best_f1.pth
+output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/evaluation_mixed_val.json
+output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/evaluation_d2c_test.json
+output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/evaluation_sketchgraphs_test.json
+output/Free2CADMixedSketchGraphsD2C/checkpoints/conservative/train.log
+output/Free2CADMixedSketchGraphsD2C/checkpoints/conservative/free2cad_v3_best_f1.pth
+output/Free2CADMixedSketchGraphsD2C/checkpoints/conservative/evaluation_d2c_test.json
+output/Free2CADMixedSketchGraphsD2C/checkpoints/conservative/evaluation_sketchgraphs_test.json
+output/Drawing2CAD/stage3/train/manifest.json
+output/Drawing2CAD/stage3/val/manifest.json
+output/Drawing2CAD/stage3/test/manifest.json
+output/Drawing2CAD/stage3_ordered_pilot/val/class_audit.png
+```
+
+Exact selected-checkpoint evaluation commands:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 .venv/bin/python tools/evaluate_free2cad_v3.py \
+  --data-dir output/Free2CADMixedSketchGraphsD2C \
+  --checkpoint models/free2cad_sketchgraphs_d2c_mixed.pth \
+  --split val --batch-size 1024 --device cuda \
+  --output output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/evaluation_mixed_val.json
+
+CUDA_VISIBLE_DEVICES=0 .venv/bin/python tools/evaluate_free2cad_v3.py \
+  --data-dir output/Drawing2CAD/stage3 \
+  --checkpoint models/free2cad_sketchgraphs_d2c_mixed.pth \
+  --split test --batch-size 1024 --device cuda \
+  --output output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/evaluation_d2c_test.json
+
+CUDA_VISIBLE_DEVICES=0 .venv/bin/python tools/evaluate_free2cad_v3.py \
+  --data-dir output/SketchGraphsStage3Full/stage3 \
+  --checkpoint models/free2cad_sketchgraphs_d2c_mixed.pth \
+  --split test --batch-size 1024 --device cuda \
+  --output output/Free2CADMixedSketchGraphsD2C/checkpoints/adaptive/evaluation_sketchgraphs_test.json
+```
+
+Verification completed on 2026-07-19: `55 passed` from `.venv/bin/pytest -q`,
+checkpoint loading and five-class inference succeeded on CPU, dense straight
+edges exercised the geometric line path, curved edges continued to Free2CAD,
+and `git diff --check` reported no whitespace errors.
+
+This checkpoint remains a research deployment candidate. The next gate before
+changing the production default is a paired Drawing2CAD end-to-end comparison
+and filtered-PatentData visual regression against the RANSAC fitter.
+
 ### Pilot audit (2026-07-17, superseded by the full evaluation above)
 
 The official split files and exact sequence counts are:
@@ -372,12 +1069,13 @@ Stage 2 cross-domain results:
 | 50/50 rehearsal, best step 3,000 | 0.8802 | 0.8199 | not selected |
 | **70/30 rehearsal, best step 8,000** | **0.8813** | **0.8370** | **0.5416** |
 
-The pilot recommendation was `models/puhachov_sketchgraphs_rehearsal70.pth`;
+The pilot Stage 2 recommendation was `models/puhachov_sketchgraphs_rehearsal70.pth`;
 the full evaluation above supersedes it with
-`models/puhachov_sketchgraphs_full_phaseA.pth`. The current Stage 3 checkpoint,
-`models/free2cad_sketchgraphs.pth`, is still a 100,000-source pilot. Both model
-families are ignored by Git; their evaluation JSON reports are under
-`output/SketchGraphsTraining*` and `output/SketchGraphsFull`.
+`models/puhachov_sketchgraphs_full_phaseA.pth`. The Stage 3 pilot
+`models/free2cad_sketchgraphs.pth` is superseded for SketchGraphs-domain use by
+`models/free2cad_sketchgraphs_full.pth`. Both model families are ignored by Git;
+their evaluation JSON reports are under `output/SketchGraphsTraining*`,
+`output/SketchGraphsFull`, and `output/SketchGraphsStage3Full`.
 
 The Stage 3 checkpoint loads and decodes through the research
 `Free2CADFitter`, but the main production Stage 3 entry point still defaults to
@@ -388,17 +1086,11 @@ SketchGraphs code is MIT licensed. The sketch data is different: the official
 release states that the original sketch creators retain copyright and points to
 the Onshape terms. Do not publish or commit the downloaded/derived corpus.
 
-CAD-VGDrawing is intentionally out of scope until both SketchGraphs-only models
-have been evaluated on their untouched test split and on the existing
-Drawing2CAD/filtered PatentData pipeline benchmarks.
-
-**Decision after evaluation:** defer CAD-VGDrawing. Corrected SketchGraphs
-already solves the Stage 3 line/arc/circle task on the untouched pilot test,
-and 70/30 rehearsal improves SketchGraphs and ArchCAD while retaining
-Drawing2CAD. The next evidence gate is visual integration on filtered
-PatentData, not another large dataset download. Reconsider CAD-VGDrawing only
-if that integration exposes mechanical-view failure modes not represented by
-the existing Drawing2CAD labels.
+**Dataset identity correction (2026-07-19):** the local Drawing2CAD corpus is
+the CAD-VGDrawing release. Full mixed Stage 2 Phase A therefore already used it
+at 30%; Phase B above increases its image share to 40%. Stage 3 remains on the
+production RANSAC fitter, so no further Free2CAD corpus or training work is
+planned.
 
 ---
 
@@ -1236,3 +1928,330 @@ At the end of this recipe you should have:
 - [ ] One-page handoff note (`CONTEXT_STAGE2_STAGE3_V4.md`) summarising the training runs and any deviations from this recipe
 
 Once the last item is done, this branch is ready for review and merge into the main AP3 line.
+
+---
+
+## 12. Executed hatch-stroke adaptation (2026-08-07)
+
+This section records the current repository implementation; it supersedes the
+older external-root examples above for the hachure-specific Stage 2 work.
+
+### Synthetic model
+
+- Dataset: `output/PatentVecHatchStroke10k` (`8,976` train, `1,024` validation).
+- Selected checkpoint: `models/hatch_stroke_multilabel.pth`, epoch 30.
+- SHA-256:
+  `8a9b8e1d3f6d1e4dc983d45b597eb9614771aec1d195d1d310350a51526542a6`.
+- Synthetic safe-removal calibration: hatch `>= 0.50`, structural `< 0.03`,
+  precision `0.999507`, recall `0.923380`, structural error `0.000553`.
+- Deployment decision: rejected as a synthetic-only model. Destructive
+  pre-topology and replacement inference both regress real PatentData topology;
+  additive inference is inert.
+
+### Accepted non-learning fix
+
+`stage2.hachure_region_cleanup_before_metrics: true` preserves region residue in
+the hachure side layer and reconnects the structural graph before metrics. On 97
+paired PatentData figures it improves 3, ties 94, and regresses 0. Stage 2 F1 is
+`0.942526 -> 0.942967`; symmetric Chamfer is `1.585188 -> 1.580809`.
+
+Evidence:
+
+```text
+output/PatentVecHatchStrokeTraining/patentdata100_residue_fix_intrinsic.json
+output/PatentVecHatchStrokeTraining/patentdata100_residue_fix_fidelity.json
+output/PatentVecHatchStrokeTraining/residue_fix20_audit.png
+output/PatentVecHatchStrokeTraining/residue_stage3/
+```
+
+### Reviewed-real adaptation
+
+The reviewed `output/PatentData/hatch_gt` set contains 268 subdrawing files,
+grouped into 212 figures (132 positive and 80 negative). Exact patent-disjoint
+worklists replayed all 212 figures through the promoted Stage 0-2 teacher path:
+
+```text
+output/PatentVecHatchStrokeReal/reviewed_figures.csv
+output/PatentVecHatchStrokeReal/reviewed_figures_part0.csv
+output/PatentVecHatchStrokeReal/reviewed_figures_part1.csv
+```
+
+The teacher completed 203 figures: 3 stopped at the Stage 1 quality gate and 6
+at the Stage 2 gate, with no runtime failures. Full no-hachure graph recovery
+was rejected because it added only 87 selected pixels across 8 figures and the
+dominant delta was a false structural contour. Final labels therefore require
+exact reviewed-region and teacher-Hough consensus.
+
+`tools.export_real_hatch_stroke_dataset` exported 170 train and 33 validation
+figures to `output/PatentVecHatchStrokeReal`. The split unit is `patent_id`.
+Structural and hatch channels have independent supervision masks; polygon
+boundaries, unexplained region ink, and unsupported crossings do not contribute
+loss. Corpus totals are:
+
+| Quantity | Pixels / figures |
+|----------|-----------------:|
+| Input skeleton | 8,421,818 |
+| Structural target | 8,246,044 |
+| Trusted hatch target | 199,789 |
+| Hatch-only / overlap | 175,774 / 24,015 |
+| Jointly supervised | 5,661,723 |
+| Unsupervised skeleton | 1,419,036 |
+| Positive figures with trusted hatch | 89 |
+
+### First mixed-domain training result
+
+Two full 30-epoch arms used the same synthetic checkpoint, 8,976 patches per
+epoch, all 1,024 synthetic validation samples, all 33 reviewed-real validation
+figures, and exact 35% or 50% real-domain supply.
+
+| Arm | Selected epoch | Synthetic structural recall | Real structural recall | Real hatch F1 | Decision |
+|-----|---------------:|----------------------------:|-----------------------:|--------------:|----------|
+| real35 | 1 | 0.996378 | 0.994210 | 0.856876 | reject: misses 0.995 real floor |
+| real50 | 24 | 0.996332 | 0.991928 | 0.927022 | reject: stronger hatch, weaker preservation |
+
+Checkpoint SHA-256 values:
+
+```text
+real35 best  6b7f5a38ddd9546567a1fd71f0a028207e0b4ed8af9334e663e0270d39a8d126
+real35 last  e9ad8461da3d78e87a512ee8df4842474c746a856cc126199710e56b9a1611ee
+real50 best  43ab630141d19db07f1f6a03eed50b6ac289b2b3dcde0b3824f7d2258e1953ab
+real50 last  bb5eaa591d1448c5027a5f045e1b0027ac218255305bcf369949202f9e461c45
+```
+
+Full threshold sweeps show a domain-specific structural-score conflict. The
+synthetic safety gate selects structural probability `< 0.03` with safe-removal
+F1 `0.951-0.959`; at that same veto threshold, real safe-removal recall is only
+`0.00014-0.00077`. Raising the real veto to `0.50` recovers up to `0.4603`
+recall and `0.6270` F1, but those checkpoints fail the real structural-recall
+floor. No single policy is eligible on synthetic and real validation.
+
+Synthetic subgroup preservation is baseline-relative plus an aggregate 0.995
+floor. The untouched checkpoint starts at hard `0.996882`, medium `0.998691`,
+and very-hard `0.993482`; every mixed checkpoint preserves or improves those
+three subgroup recalls. `tools.select_hatch_stroke_policy` requires one exact
+threshold pair to pass every dataset rather than choosing per-domain policies.
+
+A controlled second round started from the real35 preservation-best state. Both
+arms used 50% reviewed-real supply, learning rate `1e-5`, structural channel
+weight 8, and structural-negative weights 4 or 8. Both were stopped after epoch
+1 because they moved in the wrong direction:
+
+| Negative weight | Synthetic structural recall | Real structural recall | Real safe F1 | Decision |
+|----------------:|----------------------------:|-----------------------:|-------------:|----------|
+| 4 | 0.99196 | 0.96223 | 0.00088 | stop |
+| 8 | 0.98794 | 0.93579 | 0.00110 | stop |
+
+Increasing negative loss destroys structural preservation before moving enough
+real hatch pixels below the veto. No further hatch-stroke training is promoted.
+
+### Disjoint PatentData gate and scaling fixes
+
+`output/PatentVecHatchStrokeTraining/patentdata100_disjoint_worklist.csv`
+contains 100 figures from 100 patents with zero reviewed-training patent
+overlap. A fresh current-code end-to-end control has 73 `ok`, 3 Stage 1 gates,
+6 Stage 2 gates, and 18 Stage 3 gates. The earlier 65/26 split was generated
+before the bounded Stage 3 traversal and raw closed-curve fitting fixes.
+
+One figure exposed a 335,922-pixel unclaimed branched residual. Stage 2 now uses
+exact OpenCV connected-component labeling, marks only true simple cycles as
+closed, and quality-gates noncycle residuals above 100,000 pixels. Stage 3 loop
+ordering is linear for simple cycles and bounded for malformed networks. The
+real residual benchmark completes Stage 2 component labeling in 2.255 seconds
+and bounded Stage 3 ordering in 4.106 seconds instead of entering quadratic
+work. The exact 20-case high-hachure screen is fixed at:
+
+```text
+output/PatentVecHatchStrokeTraining/patentdata20_disjoint_high_hachure_worklist.csv
+```
+
+### Final guarded integration result
+
+The first additive experiment unioned the region and stroke masks before edge
+classification. That erased source attribution and allowed EP2976579 structural
+chains up to 3,891 pixels to bypass the 80-pixel hatch limit. Stage 2 now keeps
+the established region pass unchanged, subtracts its mask from the stroke-model
+mask, and applies the model-only evidence in a second pass requiring short,
+straight, repeated hatch geometry.
+
+A 2x2 screen separated model evidence from
+`hachure_region_cleanup_before_metrics`. Region cleanup alone reproduced all
+three improvements; guarded model-only inference was an exact 20/20 tie. The
+fresh full end-to-end comparison then replayed 100 patent-disjoint figures under
+one current code revision:
+
+| Result | Control | real50 guarded additive |
+|--------|--------:|------------------------:|
+| OK / Stage 1 / Stage 2 / Stage 3 gates | 73 / 3 / 6 / 18 | 73 / 3 / 6 / 18 |
+| Stage 2 metric ties | 97/97 | 97/97 |
+| Stage 3 metric ties | 91/91 | 91/91 |
+| Stage 2/3 raster-fidelity ties | all | all |
+| Model-exclusive mask figures / pixels | - | 8 / 19,665 |
+| Eligible additive edges | - | 0 |
+
+EP2976579 contributes 18,794 of the 19,665 exclusive pixels and none pass the
+geometric guard. The model is therefore rejected for deployment as safely inert,
+not promoted as an improvement. The reviewed region detector plus early residue
+preservation remains production.
+
+Evidence:
+
+```text
+output/PatentVecHatchStrokeTraining/hatchscreen20_factorial/
+output/PatentVecHatchStrokeTraining/hatchstroke_real50_full100_e2e/
+output/PatentData100_HatchStrokeE2E_ControlCurrent/
+output/PatentData100_HatchStrokeE2E_Real50AdditiveGuardedCurrent/
+```
+
+### Stage 3 confidence policy: completed and promoted (2026-08-14)
+
+The planned Stage 3 work is complete. Weak open line/arc fits may now be
+replaced by the existing corner-split compound fitter, but only when the result
+passes all of these guards:
+
+- confidence at least 0.60 and gain at least 0.05 over the weak primitive;
+- at most 20,000 source points and 64 path atoms;
+- every fitted segment has p95 residual at most 2 px;
+- path endpoint error is at most 3 px;
+- cubic Bezier handles remain inside a source-relative safety envelope.
+
+Weak polygon/raw closed fallbacks now compete with adaptive 24, 32, 48, 64,
+96, and 128 vertex closed paths. The selected path must reach confidence 0.65,
+improve confidence by at least 0.05, and keep p95 residual at or below 2 px. If
+no candidate passes, the exact raw trace is preserved. Quality gates were not
+relaxed.
+
+Stage 4 evaluation also exposed two independent exporter errors. Raster-index
+coordinates are now translated to pixel centres (`+0.5 px`), and mixed path
+segments are globally oriented with a two-state dynamic program. This prevents
+first-arc chord jumps and makes SVG/DXF path continuity deterministic. The
+Stage3/4 replay tools freeze archived Stage 2 graphs so policy comparisons are
+not contaminated by later topology changes:
+
+```text
+tools/replay_d2c_stage3_stage4.py
+tools/replay_patent_stage3_stage4.py
+tools/analyze_d2c_stage3_policy.py
+```
+
+#### Full Drawing2CAD evaluation
+
+The selected p95=2 policy replayed all 31,524 views with zero errors. Relative
+to the pixel-centre-corrected control, all 10,000-resample drawing-cluster
+bootstrap intervals exclude zero in the favorable direction:
+
+| Metric | Control | Selected p95=2 | Mean delta |
+|--------|--------:|----------------:|-----------:|
+| Symmetric Chamfer | 0.355585 | **0.345473** | -0.010112 |
+| Symmetric Chamfer p95 | 1.279391 | **1.230501** | -0.048890 |
+| Pixel IoU | 0.783634 | **0.785794** | +0.002160 |
+| Skeleton IoU | 0.832186 | **0.835159** | +0.002973 |
+| Pixel precision | 0.811151 | **0.812492** | +0.001341 |
+| Pixel recall | 0.954054 | **0.955553** | +0.001499 |
+
+Activation is sparse and bounded: 4,622 weak open promotions use 21,206 atoms;
+1,365 closed simplifications compress 969,138 source points to 36,213 vertices
+(26.76x). No candidate has a mean-Chamfer regression above 1 px. Visual tail
+review showed that several apparent mean-skeleton-Chamfer regressions actually
+recover both sides of narrow outlined geometry; pixel IoU and p95 distance must
+therefore accompany mean Chamfer in policy decisions.
+
+The stricter endpoint=2 px ablation was rejected because it significantly
+regressed all six metrics against endpoint=3 px. A closed p95=0.5 ablation
+improves Drawing2CAD mean Chamfer by 0.001333 and skeleton IoU by 0.000638 over
+p95=2, but p95=2 improves p95 distance by 0.004542, pixel IoU by 0.000209, and
+precision by 0.000300; recall is tied. This is a real metric tradeoff rather
+than a catastrophic tail.
+
+#### Frozen filtered-PatentData evaluation
+
+A normal rerun was discarded for Stage 3 attribution because current Stage 2
+regenerated different graphs. The exact replay instead froze all Stage 0-2
+artifacts from `PatentData30_Stage3OpenClosedGuarded` and reran only Stages 3-4.
+Both candidates completed all 30 figures with zero replay errors.
+
+| Result | Rejected p95=0.5 | Selected fixed p95=2 |
+|--------|-----------------:|---------------------:|
+| Stage 3 pass / quality gate | 22 / 8 | **30 / 0** |
+| Stage 3 mean confidence | 0.753383 | **0.821098** |
+| Low-confidence ratio | 0.196056 | **0.035456** |
+| Chamfer p95 | 9.815303 | **9.695640** |
+| Precision at 2 px | 0.944744 | **0.949599** |
+| Recall at 2 px | 0.819822 | **0.827840** |
+| F1 at 2 px | 0.871916 | **0.878894** |
+
+Direct p95=2 minus p95=0.5 paired deltas are `-0.119663` Chamfer p95
+(`95% CI [-0.212516, -0.041471]`), `+0.004855` precision
+(`[0.002728, 0.007350]`), `+0.008018` recall
+(`[0.004843, 0.011947]`), and `+0.006978` F1
+(`[0.004428, 0.009912]`). Mean Chamfer is tied. The p95=2 policy is therefore
+promoted in `config.yaml`, `config_deploy.yaml`, and `config_patentvec_A.yaml`;
+p95=0.5 remains an explicit clean-CAD ablation only.
+
+#### Broader 100-patent disjoint confirmation
+
+`tools/replay_patent_stage3_stage4.py` now replays only rows that had actually
+reached Stage 3. It preserves upstream terminal rows instead of incorrectly
+advancing a Stage 1/2 failure through later stages. On the frozen current-code
+100-patent control, 91 rows were eligible, 91 completed, and zero replay errors
+occurred. The final status transitions are:
+
+| Source status | Selected status | Count |
+|---------------|-----------------|------:|
+| `ok` | `ok` | 73 |
+| `quality_gate_stage3` | `ok` | 18 |
+| `quality_gate_stage1` | preserved | 3 |
+| `quality_gate_stage2` | preserved | 6 |
+
+All 91 Stage 3 rows improve mean confidence, from `0.764635` to `0.843326` on
+average; low-confidence ratio falls from `0.188156` to `0.019506`. The paired
+full-resolution raster result is:
+
+| Metric | Control | Selected p95=2 | Mean delta, 95% CI |
+|--------|--------:|----------------:|-------------------:|
+| Chamfer | 3.616210 | 3.624344 | +0.008133 [-0.004633, 0.021503] |
+| Chamfer p95 | 15.706233 | **15.574026** | -0.132207 [-0.222991, -0.056177] |
+| Precision at 2 px | 0.907183 | **0.912172** | +0.004989 [0.003708, 0.006372] |
+| Recall at 2 px | 0.852937 | **0.858209** | +0.005273 [0.003580, 0.007089] |
+| F1 at 2 px | 0.873256 | **0.878608** | +0.005352 [0.003953, 0.006869] |
+
+The 73 previously passing rows independently improve F1 by `0.004064`
+(`[0.002738, 0.005531]`). The 18 recovered gates improve by `0.010574`
+(`[0.007044, 0.014792]`). The worst individual F1 regression is `-0.009132`;
+the ten-case side-by-side tail audit shows no structural deletion or connector
+jump. Eight sampled recovered gates produce complete, usable SVGs.
+
+The audit also reconfirms that filtering is not closed: EP3184100B1/F0004 is a
+bar chart and EP3191598B1/F0001 is dense chemistry, but both were accepted by
+the clean12 `long_engineering_lines` rule. They are valid Stage 3 stress tests
+but must be rejected before creating training targets.
+
+Evidence:
+
+```text
+output/Drawing2CAD/stage3_guarded_p2_fixed_full/
+output/PatentData30_Stage3GuardedP2FixedFrozen/
+output/PatentVecHatchStrokeTraining/stage3_guarded_p2_fixed_full_analysis.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_p2_fixed_vs_p05_analysis.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final30/intrinsic_threeway.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final30/fidelity_threeway.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final30/fidelity_final_p05_vs_fixed_p2.json
+output/PatentData100_Stage3GuardedP2FixedFrozen/
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/intrinsic.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/fidelity.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/fidelity_by_source_status.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/worst_f1_1.png
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/worst_f1_2.png
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/recovered_stage3_first8.png
+```
+
+#### Remaining Stage 3 priority
+
+Accuracy promotion is complete, but dense-patent runtime remains poor. The
+100-patent replay averages 73.6 seconds over 91 eligible rows, with a 27.8
+second median, 343.8 second p95, and 486.1 second maximum. Profiling should next
+isolate repeated open-edge compound fits, add safe memoization/early rejection,
+and introduce per-edge runtime telemetry and budgets that fall back to the
+already valid weak primitive without deleting geometry. In parallel, the
+PatentData content filter must add a chart/chemistry veto after the permissive
+`long_engineering_lines` decision. Fidelity and the existing quality gate
+remain the release criteria.

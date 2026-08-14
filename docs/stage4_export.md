@@ -41,7 +41,9 @@ Stage 4 reads a single JSON file produced by Stage 3:
     {"type": "line",   "p1": [x,y], "p2": [x,y], "confidence": 0..1, "style": "..."},
     {"type": "circle", "center": [x,y], "radius": r, "confidence": 0..1, "style": "..."},
     {"type": "arc",    "center": [x,y], "radius": r,
-     "start_angle": deg, "end_angle": deg, "confidence": 0..1, "style": "..."}
+     "start_angle": deg, "end_angle": deg, "confidence": 0..1, "style": "..."},
+    {"type": "path", "segments": [{"type": "line|arc|bezier", "...": "..."}]},
+    {"type": "hatch", "boundary": [[x,y], "..."], "angles": [45], "spacing": 8}
   ],
   "annotations": [               // optional, supplied by AP6 when available
     {"id": "1", "text": "Welle",
@@ -55,7 +57,9 @@ Stage 4 reads a single JSON file produced by Stage 3:
 
 - `style` is **optional** on every primitive. Valid values: `visible | hidden | center | construction`. Missing or unknown values fall back to `visible`. Stage 3 typically does not know styles — they will be assigned by AP3.3 (element relations) or AP6.
 - `annotations` is **optional**. Stage 4 does not generate Bezugszeichen — that is AP6.4's responsibility per the Vorhabensbeschreibung. If absent, patent-mode DXF still produces a valid layered file, just without numerals.
-- Coordinates are in **image pixel space, Y-down** (standard image convention, origin top-left).
+- Coordinates are **raster pixel indices in image space, Y-down**. The integer
+  pair `[x, y]` identifies a pixel whose centre is at continuous vector
+  coordinate `[x + 0.5, y + 0.5]`; Stage 4 owns that conversion.
 
 ---
 
@@ -102,15 +106,32 @@ This is the most subtle part of Stage 4 and the part most likely to confuse down
 
 | System | Origin     | Y direction | Used for                        |
 |--------|------------|-------------|---------------------------------|
-| Input  | Top-left   | **Y-down**  | All upstream stages (image space) |
-| SVG    | Top-left   | **Y-down**  | SVG export — *no transformation* |
-| DXF    | Bottom-left| **Y-up**    | CAD convention — *Y is flipped* |
+| Input  | Top-left   | **Y-down**  | Raster-index frame used by Stages 1–3 |
+| SVG    | Top-left   | **Y-down**  | Pixel centres: `(x + 0.5, y + 0.5)` |
+| DXF    | Bottom-left| **Y-up**    | Pixel centres plus Y flip |
 
-**The flip lives entirely inside `_flip_y_point()` and `_flip_y_arc_angles()`**. SVG export passes coordinates through verbatim; DXF export calls these helpers on every point. As a result:
+The half-pixel conversion is defined by `PIXEL_CENTER_OFFSET`. SVG applies it
+once to a group containing all geometry and re-injected Stage 0 annotations.
+DXF applies the equivalent conversion in `_flip_y_point()`:
+
+```text
+SVG: (x, y) -> (x + 0.5, y + 0.5)
+DXF: (x, y) -> (x + 0.5, H - (y + 0.5))
+```
+
+Arc direction conversion lives in `_flip_y_arc_angles()`. As a result:
 
 - SVG previews match the source sketch 1:1 — useful for QC.
 - DXF imports into AutoCAD/SolidWorks/KiCad with the correct visual orientation.
 - Arcs require a special case: mirroring across the X-axis flips CCW direction, so we mirror the angles around 0° **and** swap start/end. ezdxf draws arcs CCW from start to end, so this preserves the visual arc.
+
+Compound paths have a second orientation problem: an independently fitted arc
+describes the occupied angular interval but not the source chain direction.
+`_orient_path_segments()` therefore uses a deterministic two-state dynamic
+program to choose the forward/reverse direction of every line, arc, and Bezier
+segment while minimizing total connector length. SVG and DXF consume the same
+oriented sequence, preventing chord-sized jumps when an arc is the first path
+atom and preserving continuity across mixed segment types.
 
 ---
 
@@ -235,10 +256,26 @@ Confirmed:
 
 - 9/9 primitives written in both modes
 - Patent DXF produces all 6 ISO 128 layers with correct linetypes
-- Y-flip applied correctly (input y=500 in 600px image → DXF y=100)
+- Pixel-centre conversion is shared by SVG and DXF (input `[4,16]` in a
+  32px image exports to SVG `[4.5,16.5]` and DXF `[4.5,15.5]`).
 - Arc angles mirrored such that visual orientation matches the SVG preview
 - MTEXT entries land on `TEXT` layer with leaders on `LEADER`
 - Circles automatically gain center crosses on the `CENTER` layer
+
+The Drawing2CAD 250-sample/all-view sweep selected `+0.5 px` over `+0.25`,
+`+0.75`, and `+1.0`: candidate mean Chamfer fell from `0.9237` to `0.3423`
+and median Chamfer from `0.9123` to `0.2391`. The old exporter placed common
+integer-coordinate strokes one raster pixel up and left after SVG rendering.
+
+Exporter-only changes can be evaluated without repeating Stages 1–3:
+
+```bash
+python -m tools.rescore_d2c_stage4 \
+  --run-dir output/Drawing2CAD/<completed-run> --workers 12
+```
+
+This writes a cloned `d2c_results_pixel_center.db`, preserving the original
+evaluation database for traceability.
 
 ---
 

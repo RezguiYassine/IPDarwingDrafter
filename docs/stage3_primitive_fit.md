@@ -1,5 +1,123 @@
 # IP DrawingDrafter — Stage 3: Primitive Fitting
-## Claude Code Handoff Context
+
+> **Current status (2026-08-14): production is the deterministic geometric
+> cascade in `stage3_primitivesfitting/stage3_primitive_fit.py`.** Free2CAD was
+> trained and evaluated as a research candidate, but the production RANSAC
+> cascade is roughly 40x more accurate on inference-shaped Drawing2CAD edges.
+> The historical Free2CAD handoff remains below for provenance; it is not the
+> implementation roadmap.
+
+## Current production design
+
+Stage 3 consumes each ordered Stage 2 edge and emits one CAD primitive:
+
+- closed edges: circle -> ellipse -> compact polygon -> guarded simplified
+  closed trace -> exact raw trace;
+- open edges: clean line -> clean arc -> ellipse -> guarded compound path ->
+  weak single candidate -> raw fallback;
+- compound paths split only at concentrated corners and use native line, arc,
+  and cubic Bezier segments;
+- hachures bypass the main confidence gate and are reinjected as a styled side
+  layer for Stage 4.
+
+Two guarded accuracy policies are enabled in the production configurations:
+
+1. `stage3.prefer_compound_over_weak` lets a bounded compound path replace a
+   line/arc below the 0.60 quality threshold only when confidence improves by
+   at least `weak_compound_min_gain` and path complexity stays within
+   `weak_compound_max_path_atoms`.
+2. `stage3.simplify_closed_fallback` replaces weak polygons/raw closed traces
+   only when an adaptive 24-128 vertex approximation satisfies bidirectional
+   confidence and a 2 px p95 residual limit. If the limit cannot be met, Stage
+   3 preserves the exact verbose trace. The 2 px policy is selected for patent
+   production; a stricter 0.5 px Drawing2CAD ablation produced lower confidence
+   and worse real-patent raster fidelity.
+
+Open compound promotion is additionally bounded by a 2 px per-segment p95
+residual and 3 px endpoint error. Cubic Bezier control handles are rejected if
+they leave the source segment's guarded spatial envelope. These checks removed
+the catastrophic outliers seen in the first p95=2 experiment.
+
+Every promoted primitive carries `fit_metadata`; aggregate activation and
+complexity counts are written under `quality_metrics`. Tests live in
+`tests/test_stage3_compound_path.py` and `tests/test_d2c_stage3_dataset.py`.
+
+## Production-policy validation (2026-08-14)
+
+The Drawing2CAD comparison freezes Stages 1-2 and replays Stage 3 plus the
+corrected Stage 4 exporter over all 31,524 paired views. Relative to the current
+control, the selected p95=2 policy improves every aggregate metric with a
+10,000-resample drawing-cluster bootstrap interval excluding zero:
+
+| Metric | Control | Selected p95=2 | Delta |
+|--------|--------:|----------------:|------:|
+| Symmetric Chamfer | 0.355585 | **0.345473** | -0.010112 |
+| Symmetric Chamfer p95 | 1.279391 | **1.230501** | -0.048890 |
+| Pixel IoU | 0.783634 | **0.785794** | +0.002160 |
+| Skeleton IoU | 0.832186 | **0.835159** | +0.002973 |
+| Pixel precision | 0.811151 | **0.812492** | +0.001341 |
+| Pixel recall | 0.954054 | **0.955553** | +0.001499 |
+
+There are no mean-Chamfer regressions above 1 px. The policy promotes 4,622
+weak open edges and simplifies 1,365 closed traces from 969,138 source points
+to 36,213 vertices, a 26.76x compression ratio.
+
+The real-domain check freezes the same archived Stage 2 graph for each of 30
+filtered PatentData figures. Compared directly with the stricter p95=0.5
+ablation, selected p95=2 changes Stage 3 fidelity as follows:
+
+| Metric | p95=0.5 | Selected p95=2 | Paired delta, 95% CI |
+|--------|---------:|----------------:|---------------------:|
+| Chamfer p95 | 9.815303 | **9.695640** | -0.119663 [-0.212516, -0.041471] |
+| Precision at 2 px | 0.944744 | **0.949599** | +0.004855 [0.002728, 0.007350] |
+| Recall at 2 px | 0.819822 | **0.827840** | +0.008018 [0.004843, 0.011947] |
+| F1 at 2 px | 0.871916 | **0.878894** | +0.006978 [0.004428, 0.009912] |
+
+Mean Chamfer is statistically tied. The selected policy passes all 30 Stage 3
+quality gates; p95=0.5 passes 22 and gates 8. A stricter 2 px endpoint guard was
+also rejected because it significantly regressed all six Drawing2CAD metrics
+against the selected 3 px endpoint guard.
+
+A broader frozen replay then covered the 100-patent disjoint cohort. Three
+Stage 1 gates and six Stage 2 gates were preserved; all 91 rows that had reached
+Stage 3 replayed without error. The control split of 73 `ok` and 18 Stage 3
+gates became 91 `ok` and zero Stage 3 gates. Preprocessing is an exact match.
+
+| Metric, 91 paired Stage 3 rows | Control | Selected p95=2 | Delta, 95% CI |
+|--------------------------------|--------:|----------------:|--------------:|
+| Mean confidence | 0.764635 | **0.843326** | +0.078691 [0.068271, 0.090302] |
+| Low-confidence ratio | 0.188156 | **0.019506** | -0.168649 [-0.193868, -0.145744] |
+| Chamfer p95 | 15.706233 | **15.574026** | -0.132207 [-0.222991, -0.056177] |
+| Precision at 2 px | 0.907183 | **0.912172** | +0.004989 [0.003708, 0.006372] |
+| Recall at 2 px | 0.852937 | **0.858209** | +0.005273 [0.003580, 0.007089] |
+| F1 at 2 px | 0.873256 | **0.878608** | +0.005352 [0.003953, 0.006869] |
+
+Mean Chamfer remains tied. The 73 rows that were already `ok` improve F1 by
+0.004064, while the 18 recovered gates improve by 0.010574. The worst individual
+F1 delta is -0.009132; side-by-side review of the ten worst deltas found local
+smoothing/raster differences but no missing structure or path jump.
+
+Evidence is stored in:
+
+```text
+output/PatentVecHatchStrokeTraining/stage3_guarded_p2_fixed_full_analysis.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_p2_fixed_vs_p05_analysis.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final30/intrinsic_threeway.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final30/fidelity_threeway.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final30/fidelity_final_p05_vs_fixed_p2.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/intrinsic.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/fidelity.json
+output/PatentVecHatchStrokeTraining/stage3_guarded_final100/fidelity_by_source_status.json
+```
+
+The remaining Stage 3 issue is runtime on dense patent figures. Across the 91
+eligible disjoint-cohort rows, Stage 3 averages 73.6 seconds, has a 27.8 second
+median and 343.8 second p95, and reaches 486.1 seconds. The selected hard
+30-figure cohort averages 123.7 seconds. This is dominated by repeated compound
+fitting on large open edges and is the next optimization target; the quality
+gate is not relaxed.
+
+## Historical handoff context
 
 > **Purpose:** This file gives Claude Code full context to continue building
 > and validating Stage 3 (Primitive Fitting) of the AP3 Vectorization Pipeline.

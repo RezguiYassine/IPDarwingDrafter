@@ -39,17 +39,23 @@ def main() -> int:
     if int(checkpoint.get("version", 0)) != 3:
         raise SystemExit("checkpoint is not an encoder-only Free2CAD v3 model")
     cfg = checkpoint["config"]
+    cmd_types = checkpoint.get("cmd_types", {
+        "LINE": 0, "ARC": 1, "CIRCLE": 2, "POLYLINE": 3,
+    })
     model = build_model(
         max_pts=cfg["max_pts"], d_model=cfg["d_model"],
         n_heads=cfg["n_heads"], n_enc_layers=cfg["n_enc_layers"],
         dropout=cfg.get("dropout", 0.1),
+        n_cmd_types=cfg.get("n_cmd_types", len(cmd_types)),
     ).to(args.device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     arc_encoding = cfg.get("arc_encoding", "center_radius_angles")
     dataset = load_dataset(
         args.data_dir, args.split, cfg["max_pts"], arc_encoding)
-    weights = np.asarray(checkpoint.get("class_weights", [1.0] * 4), dtype=np.float32)
+    weights = np.asarray(
+        checkpoint.get("class_weights", [1.0] * len(cmd_types)), dtype=np.float32
+    )
     loss_fn = nn.CrossEntropyLoss(
         weight=torch.from_numpy(weights).to(args.device),
         label_smoothing=float(cfg.get("label_smoothing", 0.0)),
@@ -61,7 +67,7 @@ def main() -> int:
     )
     metrics = evaluate(
         model, dataset, torch.device(args.device), args.batch_size,
-        loss_fn, param_weight, arc_encoding,
+        loss_fn, param_weight, arc_encoding, cmd_types,
     )
     report = {
         "checkpoint": str(args.checkpoint), "data_dir": args.data_dir,
