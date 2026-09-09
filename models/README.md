@@ -11,12 +11,55 @@ Pre-trained model weights consumed by the AP3 vectorization pipeline at runtime.
 
 These two weights are small enough to ship inline. The pipeline runs out of the box for Stages 2–4 once the repo is cloned.
 
+## Production checkpoints (`config_deploy.yaml`)
+
+These are the exact weights the canonical deployment configuration references.
+Verify with `sha256sum <file>` before any release or environment rebuild; three
+of the four are Git-ignored, so the hash is the only integrity check available.
+
+| File | SHA-256 | Stage | Loaded at runtime | In Git |
+|---|---|---|---|---|
+| `puhachov_patentvec_complexityA.pth` | `3fd035c9848cf51fdb9b8dafe5065d69d6e053a81e7782763753741b8870ef8c` | 2 — keypoints | yes (`tiled`, `fusion: false`) | ignored |
+| `hatch_unet.pth` | `6c69c76e491810f70b2750262a7ecc9d2a300160a1ab442c02317e48de105280` | 2 — hachure regions | yes | ignored |
+| `sketchcleannet.pth` | `daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b` | 1 — cleanup | **no** — Stage 1 selected `passthrough_binary` on all 100 benchmark figures | ignored |
+| `free2cad_v3_best.pth` | `c438ecd9d34dd4173b18e39e92eb1213473cf36f3764d2fed53b88bc29e91ba9` | 3 — research fitter | **no** — the production fitter imports no Free2CAD; RANSAC is production | tracked |
+
+The last two are configured but inert on the patent path. They are kept so the
+research fitters and non-patent inputs remain runnable from the same file; do
+not treat them as deployment dependencies.
+
+Superseded Stage 2 checkpoint, retained for provenance:
+`puhachov_sketchgraphs_full_phaseA.pth`, SHA-256
+`5214d78238cdc90e6c72ee9d4c22fceffdbc7efa5e9f3b2ee94e448bd128ced2`. It was the
+deploy weight in `fusion` mode until 2026-08-15.
+
+### Why `complexityA` is the deployed Stage 2
+
+`config_deploy.yaml` is reconciled to the chain that produced the frozen
+100-patent-disjoint result (91/100 `ok`, 0 Stage 3 gates, Stage 3 mean
+confidence `0.843326`): PatentVec A weights, `fusion: false`, `tiled: true`,
+512/256 tiles, plus `hatch_unet` regions and
+`hachure_region_cleanup_before_metrics`. Snapshot of that exact config:
+`output/PatentData100_Stage3GuardedP2FixedFrozen/stage34_replay_config.yaml`
+(replay digest `da6084f614eada71eb2cc2138bf5b88247bfd3799af17ab308162afac6650951`).
+The deploy file differs from that snapshot only in `puhachov.device` and
+`stage2.hachure_cnn_device`, which stay `cpu` so the configuration is portable;
+device does not change the selected geometry, only throughput.
+
+**Open item.** This reconciliation makes the deployment reproduce what was
+measured. It does not by itself establish that `complexityA` beats the
+superseded `sketchgraphs_full_phaseA` fusion path: no paired end-to-end
+PatentData A/B was run between those two Stage 2 configurations. The frozen
+comparison varied the Stage 3 policy on a fixed Stage 2 output. Run that paired
+Stage 2 comparison before treating the switch as a measured improvement rather
+than an alignment.
+
 ## Local trained research candidates
 
 | File | Size | Used by | Status |
 |---|---:|---|---|
 | `free2cad_sketchgraphs_d2c_mixed.pth` | 9.2 MB | Stage 3 research fitter | selected five-class mixed checkpoint; generated locally and Git-ignored |
-| `puhachov_patentvec_complexityA.pth` | 29 MB | Stage 2 research detector | final three-epoch PatentVec A candidate; full/PatentData gates pending |
+| `puhachov_patentvec_complexityA.pth` | 29 MB | Stage 2 **production** detector | promoted 2026-08-15; see "Production checkpoints" above for the hash and the outstanding paired Stage 2 comparison |
 | `puhachov_patentvec_complexityB.pth` | 29 MB | Stage 2 research detector | final three-epoch PatentVec B candidate; full/PatentData gates pending |
 | `puhachov_patentvec_referencefree_topology.pth` | 29 MB | Stage 2 research detector | selected C2 reference-free topology candidate; PatentData gate pending |
 | `hatch_stroke_multilabel.pth` | 165 MB | Stage 2 hatch-stroke research | synthetic warm start; rejected for real deployment |

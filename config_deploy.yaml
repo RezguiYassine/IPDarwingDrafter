@@ -21,10 +21,13 @@ pipeline:
   workers: 6
 puhachov:
   device: cpu
-  fusion: true
+  fusion: false
   keypoint_threshold: 0.3
   nms_radius: 5
-  weights: models/puhachov_sketchgraphs_full_phaseA.pth
+  tiled: true
+  tile_size: 512
+  tile_stride: 256
+  weights: models/puhachov_patentvec_complexityA.pth
 sketchcleannet:
   device: cpu
   weights: models/sketchcleannet.pth
