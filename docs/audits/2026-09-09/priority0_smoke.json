@@ -1,0 +1,77 @@
+{
+  "run": "output/PatentData2_Priority0DeploySmoke",
+  "baseline": null,
+  "status_counts": {
+    "ok": 2
+  },
+  "rows": [
+    {
+      "patent_id": "EP2565056B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 88,
+        "region_edges": 9,
+        "fallback_edges": 79,
+        "represented_edges": 88,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 162,
+      "hatch_primitives": 80,
+      "keypoint_source": "cnn_tiled",
+      "hachure_source": "cnn",
+      "stage1_method": "passthrough_binary",
+      "references": {
+        "total": 20,
+        "known_text": 7,
+        "unknown_text": 13,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 20,
+        "svg_texts": 0,
+        "dxf_texts": 7,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 132,
+      "hatch_primitives": 0,
+      "keypoint_source": "cnn_tiled",
+      "hachure_source": "cnn",
+      "stage1_method": "passthrough_binary",
+      "references": {
+        "total": 14,
+        "known_text": 7,
+        "unknown_text": 7,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 7,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    }
+  ],
+  "errors": [],
+  "totals": {
+    "exported_drawings": 2,
+    "source_hatch_edges": 88,
+    "represented_hatch_edges": 88,
+    "known_reference_texts": 14,
+    "unknown_reference_texts": 20
+  }
+}

@@ -1,0 +1,469 @@
+{
+  "policy_version": "2026-09-10.2",
+  "geometry_validator": "source_supported_geometry",
+  "geometry_version": "1",
+  "parameters": {
+    "sample_step": 1.0,
+    "tolerance": 2.0,
+    "pass_fraction": 0.95,
+    "fail_fraction": 0.8,
+    "fail_p95": 4.0,
+    "max_distance": 8.0,
+    "max_unsupported_run": 8.0,
+    "endpoint_tolerance": 3.0,
+    "max_angular_gap_degrees": 30.0,
+    "max_samples_per_primitive": 200000,
+    "max_samples_per_drawing": 2000000,
+    "max_source_pixels": 2000000
+  },
+  "audits": {
+    "patent91": {
+      "validator": "source_supported_geometry",
+      "version": "1",
+      "implementation_sha256": "954730ecd6551b7f25d2151c159e40e1c44e115a1cb0a5bbf56d8de23efbd6fc",
+      "exporter_sha256": "73ec063507ce55ddd08c2230468a3d74777aa9b1954f2ba2826cf937168b2c13",
+      "source": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_Priority0Preservation",
+      "graph_source": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_Priority0Preservation",
+      "available_figures": 91,
+      "audited_figures": 91,
+      "seed": 850725,
+      "scope": "Frozen post-hoc source-support audit, not CAD ground-truth accuracy or canonical acceptance.",
+      "status_counts": {
+        "fail": 91
+      },
+      "drawing_reason_counts": {
+        "geometry_hatch_pattern_unverified": 8,
+        "geometry_incomplete_angular_coverage": 88,
+        "geometry_noncycle_source": 91,
+        "geometry_output_off_skeleton": 72,
+        "geometry_outside_image": 35,
+        "geometry_raster_coverage_incomplete": 12,
+        "geometry_source_trace_lost": 90,
+        "geometry_unsupported_primitive": 90,
+        "geometry_unsupported_run": 89,
+        "geometry_path_discontinuity": 71,
+        "geometry_skeleton_coverage_lost": 79,
+        "geometry_endpoint_mismatch": 65,
+        "geometry_sampling_budget": 4
+      },
+      "primitive_type_status_counts": {
+        "path": {
+          "pass": 5569,
+          "fail": 198,
+          "review": 1345
+        },
+        "line": {
+          "pass": 2622,
+          "fail": 138,
+          "review": 76
+        },
+        "polygon": {
+          "review": 3036,
+          "fail": 649,
+          "pass": 157
+        },
+        "polyline": {
+          "review": 181,
+          "pass": 308,
+          "fail": 3
+        },
+        "circle": {
+          "fail": 979,
+          "review": 195,
+          "pass": 16
+        },
+        "hatch": {
+          "review": 20
+        },
+        "arc": {
+          "fail": 160,
+          "pass": 211,
+          "review": 79
+        },
+        "ellipse": {
+          "fail": 19,
+          "review": 7,
+          "pass": 2
+        }
+      },
+      "summary_path": "output/PatentData100_SourceGeometryValidation/summary.json",
+      "summary_sha256": "298311624b60b9438f86fb7ab84425c071d40e8dc110688733106153affd4125",
+      "implementation_matches_current": true,
+      "elapsed_seconds": 49.42180564906448,
+      "distinct_folders": 91
+    },
+    "drawing2cad250": {
+      "validator": "source_supported_geometry",
+      "version": "1",
+      "implementation_sha256": "954730ecd6551b7f25d2151c159e40e1c44e115a1cb0a5bbf56d8de23efbd6fc",
+      "exporter_sha256": "73ec063507ce55ddd08c2230468a3d74777aa9b1954f2ba2826cf937168b2c13",
+      "source": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_open_closed_full",
+      "graph_source": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_open_closed_full",
+      "available_figures": 31524,
+      "audited_figures": 250,
+      "seed": 850725,
+      "scope": "Frozen post-hoc source-support audit, not CAD ground-truth accuracy or canonical acceptance.",
+      "status_counts": {
+        "pass": 211,
+        "fail": 25,
+        "review": 14
+      },
+      "drawing_reason_counts": {
+        "geometry_endpoint_mismatch": 7,
+        "geometry_source_trace_lost": 17,
+        "geometry_unsupported_primitive": 14,
+        "geometry_unsupported_run": 16,
+        "geometry_noncycle_source": 1,
+        "geometry_output_off_skeleton": 6,
+        "geometry_skeleton_coverage_lost": 9,
+        "geometry_path_discontinuity": 19
+      },
+      "primitive_type_status_counts": {
+        "line": {
+          "pass": 1440,
+          "review": 1,
+          "fail": 2
+        },
+        "path": {
+          "fail": 30,
+          "review": 19,
+          "pass": 121
+        },
+        "arc": {
+          "pass": 57,
+          "review": 2,
+          "fail": 2
+        },
+        "polygon": {
+          "pass": 14,
+          "fail": 3
+        },
+        "circle": {
+          "pass": 52
+        }
+      },
+      "summary_path": "output/Drawing2CAD_GeometryAudit250V1/summary.json",
+      "summary_sha256": "7c339e81732df3624d6c20871c2feda5671ff45eeb101a150ae7bd419720d73f",
+      "implementation_matches_current": true,
+      "elapsed_seconds": 4.127383783459663,
+      "distinct_folders": 250
+    }
+  },
+  "confirmed_circles": [
+    {
+      "index": 95,
+      "type": "circle",
+      "edge_id": 118,
+      "source_collection": "edges",
+      "status": "fail",
+      "reason_codes": [
+        "geometry_incomplete_angular_coverage",
+        "geometry_noncycle_source",
+        "geometry_outside_image",
+        "geometry_unsupported_primitive",
+        "geometry_unsupported_run"
+      ],
+      "metrics": {
+        "source_to_model": {
+          "p95": 0.8781107882849768,
+          "max": 1.6845937198088536,
+          "fraction_within_tolerance": 1.0
+        },
+        "model_to_source": {
+          "p95": 637.7910765127926,
+          "max": 646.5786701150826,
+          "fraction_within_tolerance": 0.08674463937621832
+        },
+        "source_pixels": 141,
+        "model_samples": 2052,
+        "max_connector_gap": 0.0,
+        "worst_model_point_original": [
+          1613.9901984900157,
+          71.56371638924352
+        ],
+        "worst_source_point_original": [
+          1147.0,
+          519.0
+        ],
+        "longest_unsupported_run": 1873.349216779613,
+        "angular": {
+          "coverage_degrees": 30.856532957185664,
+          "largest_gap_degrees": 329.14346704281434,
+          "minor_radius_stage2": 326.31355778348615,
+          "maximum_allowed_gap_degrees": 30.0
+        }
+      }
+    },
+    {
+      "index": 141,
+      "type": "circle",
+      "edge_id": 216,
+      "source_collection": "edges",
+      "status": "fail",
+      "reason_codes": [
+        "geometry_incomplete_angular_coverage",
+        "geometry_noncycle_source",
+        "geometry_unsupported_primitive",
+        "geometry_unsupported_run"
+      ],
+      "metrics": {
+        "source_to_model": {
+          "p95": 0.7805694741604053,
+          "max": 1.0000512116805478,
+          "fraction_within_tolerance": 1.0
+        },
+        "model_to_source": {
+          "p95": 416.4296600657526,
+          "max": 421.8100469212625,
+          "fraction_within_tolerance": 0.08152580403889305
+        },
+        "source_pixels": 99,
+        "model_samples": 1337,
+        "max_connector_gap": 0.0,
+        "worst_model_point_original": [
+          530.4318118088104,
+          1805.451773819521
+        ],
+        "worst_source_point_original": [
+          150.0,
+          1621.0
+        ],
+        "longest_unsupported_run": 1227.8569344442822,
+        "angular": {
+          "coverage_degrees": 28.25492458585802,
+          "largest_gap_degrees": 331.745075414142,
+          "minor_radius_stage2": 212.6064277780513,
+          "maximum_allowed_gap_degrees": 30.0
+        }
+      }
+    }
+  ],
+  "tests": {
+    "report": "docs/audits/2026-09-10/source_geometry_tests.xml",
+    "sha256": "6d5ce5238b7ed8df215cf4e852cb1978fce7f867af7d6924e9a0273c1a49084e",
+    "suites": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "320",
+        "time": "11.296",
+        "timestamp": "2026-09-10T16:41:43.495404+02:00",
+        "hostname": "safe-Super-Server"
+      }
+    ],
+    "geometry_cases": 50
+  },
+  "fresh_smoke": {
+    "run": "output/PatentData2_SourceGeometrySmoke",
+    "deployment_identity_matches_current": true,
+    "records": [
+      {
+        "patent_id": "EP2565056B1",
+        "sketch_id": "F0001",
+        "execution_status": "ok",
+        "acceptance_status": "rejected",
+        "reason_codes": [
+          "content_validation_pending",
+          "geometry_hatch_pattern_unverified",
+          "geometry_incomplete_angular_coverage",
+          "geometry_noncycle_source",
+          "geometry_output_off_skeleton",
+          "geometry_outside_image",
+          "geometry_path_discontinuity",
+          "geometry_raster_coverage_incomplete",
+          "geometry_source_trace_lost",
+          "geometry_unsupported_primitive",
+          "geometry_unsupported_run",
+          "s4_flagged",
+          "unknown_reference_text"
+        ],
+        "checks": {
+          "references": {
+            "status": "review",
+            "reason_codes": [
+              "unknown_reference_text"
+            ]
+          },
+          "hachures": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "stage_flags": {
+            "status": "review",
+            "reason_codes": [
+              "s4_flagged"
+            ]
+          },
+          "content": {
+            "status": "pending",
+            "reason_codes": [
+              "content_validation_pending"
+            ]
+          },
+          "execution": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "exports": {
+            "status": "review",
+            "reason_codes": [
+              "unknown_reference_text"
+            ]
+          },
+          "deployment": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "artifacts": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "geometry": {
+            "status": "fail",
+            "reason_codes": [
+              "geometry_hatch_pattern_unverified",
+              "geometry_incomplete_angular_coverage",
+              "geometry_noncycle_source",
+              "geometry_output_off_skeleton",
+              "geometry_outside_image",
+              "geometry_path_discontinuity",
+              "geometry_raster_coverage_incomplete",
+              "geometry_source_trace_lost",
+              "geometry_unsupported_primitive",
+              "geometry_unsupported_run"
+            ],
+            "validator": "source_supported_geometry",
+            "version": "1"
+          }
+        },
+        "training_eligible": 0,
+        "selector_reason": "acceptance_rejected",
+        "primitives_unchanged": true,
+        "raster_hashes_unchanged": {
+          "references/F0001_norefs.png": true,
+          "references/F0001_references_mask.png": true,
+          "cleaned/F0001_skeleton.png": true
+        }
+      },
+      {
+        "patent_id": "EP3082506B1",
+        "sketch_id": "F0001",
+        "execution_status": "ok",
+        "acceptance_status": "rejected",
+        "reason_codes": [
+          "content_validation_pending",
+          "geometry_endpoint_mismatch",
+          "geometry_incomplete_angular_coverage",
+          "geometry_noncycle_source",
+          "geometry_output_off_skeleton",
+          "geometry_outside_image",
+          "geometry_path_discontinuity",
+          "geometry_skeleton_coverage_lost",
+          "geometry_source_trace_lost",
+          "geometry_unsupported_primitive",
+          "geometry_unsupported_run",
+          "s4_flagged",
+          "unknown_reference_text"
+        ],
+        "checks": {
+          "references": {
+            "status": "review",
+            "reason_codes": [
+              "unknown_reference_text"
+            ]
+          },
+          "hachures": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "stage_flags": {
+            "status": "review",
+            "reason_codes": [
+              "s4_flagged"
+            ]
+          },
+          "content": {
+            "status": "pending",
+            "reason_codes": [
+              "content_validation_pending"
+            ]
+          },
+          "execution": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "exports": {
+            "status": "review",
+            "reason_codes": [
+              "unknown_reference_text"
+            ]
+          },
+          "deployment": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "artifacts": {
+            "status": "pass",
+            "reason_codes": []
+          },
+          "geometry": {
+            "status": "fail",
+            "reason_codes": [
+              "geometry_endpoint_mismatch",
+              "geometry_incomplete_angular_coverage",
+              "geometry_noncycle_source",
+              "geometry_output_off_skeleton",
+              "geometry_outside_image",
+              "geometry_path_discontinuity",
+              "geometry_skeleton_coverage_lost",
+              "geometry_source_trace_lost",
+              "geometry_unsupported_primitive",
+              "geometry_unsupported_run"
+            ],
+            "validator": "source_supported_geometry",
+            "version": "1"
+          }
+        },
+        "training_eligible": 0,
+        "selector_reason": "acceptance_rejected",
+        "primitives_unchanged": true,
+        "raster_hashes_unchanged": {
+          "references/F0001_norefs.png": true,
+          "references/F0001_references_mask.png": true,
+          "cleaned/F0001_skeleton.png": true
+        }
+      }
+    ],
+    "manifest_included": 0,
+    "manifest_excluded": 2,
+    "manifest_exclusion_reasons": {
+      "acceptance_rejected": 2
+    }
+  },
+  "previous_cad_gt_diagnostic": {
+    "database": "output/Drawing2CAD/stage3_open_closed_full/d2c_results_pixel_center.db",
+    "groups": {
+      "pass": {
+        "n": 211,
+        "iou_pixel": 0.7891341322022829,
+        "recall_pixel": 0.9615418100594589,
+        "chamfer_p95_sym": 0.8814156808749719
+      },
+      "fail": {
+        "n": 25,
+        "iou_pixel": 0.7694872342188325,
+        "recall_pixel": 0.9283763424491477,
+        "chamfer_p95_sym": 2.163483826579012
+      },
+      "review": {
+        "n": 14,
+        "iou_pixel": 0.8183150344269426,
+        "recall_pixel": 0.9644656057627882,
+        "chamfer_p95_sym": 1.0591733660532994
+      }
+    },
+    "note": "Joined existing CAD ground-truth scores; not a new ground-truth evaluation or false-rejection estimate."
+  }
+}

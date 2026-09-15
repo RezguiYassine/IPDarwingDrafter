@@ -1,5 +1,184 @@
 # Training Stages 2 and 3 on Real CAD Vector Ground Truth
 
+## Recovered Connection Integration (2026-09-14)
+
+No new training, checkpoints, or data generation. Stage 2 now integrates bounded
+source-only recovery into existing traces and joins unambiguous endpoints,
+preserving the exact main pixel set and all hatch records. Stage 3 applies a
+stricter fitting safeguard to integrated strokes so refitting does not erase
+recovered detail or shift defined endpoints. Acceptance thresholds are unchanged.
+
+All 411 tests pass. Paired CAD250 primitives fall 5,581 -> 1,166, retaining
+250/250 geometry passes. Mean rendered F1 improves 0.989766 -> 0.993725, but
+13 views regress, worst -0.075913. Diagnostic width=1 restores F1=1.0 for the
+three largest regressions; actual widths remain unchanged and need validation.
+Fresh model-backed checks also preserve all source pixels in three targeted
+CAD views, with one small rendered regression despite better Chamfer.
+
+The canonical two-patent main graphs shrink 656 -> 477 and 527 -> 257. The
+first still hits the Stage 2 fragmentation gate. The second exports SVG/DXF
+but remains acceptance-rejected for source singletons, reference text, and
+content validation. Both diagnostic patent F1 values are maintained or improved;
+all emitted primitive checks pass. The training manifest still admits zero.
+
+Next: export-width/rendered-topology validation, hatch-adjacent ownership and
+continuation, unresolved junctions, then expanded patent evaluation. This is
+pipeline repair, not evidence for another model-training run.
+Full results, trade-offs, artifacts, and reproduction:
+[Stage 2 connection integration](docs/STAGE2_CONNECTION_INTEGRATION.md).
+
+## Stage 2 Coverage (2026-09-14)
+
+No training, new weights, generation, or numerical acceptance-threshold
+relaxation. Stage 2 now records per-operation pixel losses, preserves small
+components/closed shapes, guards hatch deduplication against source loss, and
+recovers final residuals with source-only paths. Singletons remain explicit
+review items. Geometry validator version 3 verifies coverage against source
+evidence; acceptance policy is `2026-09-14.1`.
+
+All 391 tests pass. Frozen CAD250 recovery changes geometry 247 -> 250 passes,
+mean raster F1 0.988022 -> 0.989766, and budget primitives 1,743 -> 5,581.
+F1 regresses in 30 views, worst -0.024703: exported stroke-width/topology
+interactions are not certified by centerline source support. All three former
+CAD failures also pass fresh model-backed Stage 2 checks. These are shared-
+skeleton fidelity results, not original CAD ground-truth accuracy.
+
+Fresh canonical patents represent 40,074/40,074 and 54,015/54,017 source pixels.
+The remaining two pixels are unresolved singletons, not approved noise.
+However, both now hit the unchanged Stage 2 micro-edge gate (ratios 0.689 and
+0.634); neither exports canonically or enters training. Diagnostic exports
+remain available. The next priority is source-preserving edge splicing and
+rendered topology validation, not another training run. Full Patent91 was
+not replayed for this first implementation.
+
+Methods, regressions, complete outputs, and reproduction:
+[Stage 2 source coverage](docs/STAGE2_SOURCE_COVERAGE.md).
+
+## Compact Hatches and Fitting Repair (2026-09-14)
+
+No new training, data generation, checkpoints, or threshold relaxation.
+Canonical RANSAC now guards ordinary fits and path joins against raw source;
+the separate legacy hatch fitter also preserves complete traces. Bounded
+explicit hatch bundles retain per-stroke ownership, disconnected SVG subpaths,
+and separate DXF polylines. Acceptance policy is `2026-09-13.1`, geometry
+validator version `2`; older reports are not silently accepted under it.
+
+All 370 tests pass. Final fixed-graph Patent91 primitive failures drop from
+513 to zero, with 20 native hatch patterns still under review; whole-drawing
+geometry remains 83 failures/eight reviews/zero passes. Raster F1 improves
+0.915722 -> 0.920001 (74 improvements, 15 regressions, two ties). CAD250 has
+247 geometry passes and three coverage failures, up from 212 passes; F1 rises
+0.985261 -> 0.988022. These are source-skeleton fidelity, not CAD ground-truth
+accuracy or measured hatch-classifier improvements.
+
+The canonical two-patent pilot preserves all 1,544 hatch strokes with 71.15%
+less hatch JSON. JSON object counts fall 1,557 -> 264 and 388 -> 217, but true
+budget costs remain 1,557 and 388. The first still fails the 900-budget gate;
+the second exports. Both are acceptance-rejected; the training manifest keeps
+zero. Frozen Patent91 still costs 611,969 budget primitives and is not compact
+enough for unrestricted deployment. Full JSON grows as source detail returns.
+
+Next: Stage 2 source coverage and actual stroke complexity, native hatch/DXF
+pattern and spline parity, content routing, and unresolved references.
+Results, regressions, reproducible artifacts, and previews:
+[compact hatch and fitting repair](docs/COMPACT_HATCH_FIT_REPAIR.md).
+
+## Residual and Curve Repair (2026-09-12)
+
+No new training, data generation, model weights, or threshold changes.
+Stage 2 decomposes non-cycle residuals into source-preserving paths. RANSAC
+circle/ellipse fitting now requires independent bidirectional and angular
+support; the ellipse solver/rotation are corrected. Recovered strokes fall
+back to raw-source fits or checked traces when smoothing loses geometry.
+
+Completed paired replays: Patent91 mean raster F1 0.881590 -> 0.915722,
+83 improvements/eight regressions; failing primitive checks 2,146 -> 513.
+All 3,491 emitted full circles/ellipses pass source checks, but whole-drawing
+geometry remains 90 failures/one review/zero passes. Frozen primitive count
+grows to 611,969; 51 drawings exceed 900 primitives. CAD250 F1 moves
+0.984643 -> 0.985261, with all 52 original circles retained and 14 supported
+ellipses recovered. Its geometry outcomes are 212 pass/14 review/24 fail.
+These are shared-skeleton fidelity checks, not new CAD ground-truth scores.
+
+Fresh execution exposed unsupported hatch-region fill after residual recovery.
+The final guard keeps actual hatch strokes. Diagnostic F1 becomes 0.995728
+and 0.994482 on two patents, but the first needs 1,557 primitives and the
+canonical 900-primitive gate blocks it. The final paired canonical run has one
+export and one quality-gated row, both rejected for training; the manifest
+builder keeps zero. All 347 tests pass. Compact faithful hatch representation,
+other unsupported fits/path gaps, DXF parity, and content routing remain.
+
+Full methods, both iterations, regressions, output paths, exact parity checks,
+and machine-readable evidence: [residual repair](docs/RESIDUAL_CURVE_REPAIR.md).
+
+## Source-Supported Geometry (2026-09-10)
+
+No new training or reconstruction changes. Acceptance now measures raw-source
+support, angular coverage, endpoints, path gaps, exact ownership, and Stage 1
+skeleton coverage. The new policy is `2026-09-10.2`; external geometry-pass
+claims cannot override the validator. All 320 tests pass.
+
+Frozen audit: all 91 exported PatentData drawings have at least one geometry
+failure. Of 1,190 circles, 979 fail and 195 require review. In 250 seeded
+Drawing2CAD views, 211 pass, 14 require review, and 25 fail; all 52 CAD circle
+primitives pass. These are source-support outcomes, not a new accuracy score.
+No historical output is promoted to training. Content routing, hatch-pattern
+parity, serialized DXF geometry validation, and targeted fitting repairs remain.
+The fresh canonical smoke finishes 2/2 without process errors, but geometry
+failures reject both rows; the real manifest builder keeps zero. All primitives
+and reference-removal/skeleton rasters are unchanged from the prior smoke.
+See [the implementation and evidence](docs/SOURCE_SUPPORTED_GEOMETRY.md).
+
+## Acceptance Contract (2026-09-10)
+
+No weights were trained or changed. The pipeline now separates execution from
+training-target acceptance, checks SVG/DXF independently, records source-item
+export coverage, and binds acceptance to deployment and artifact hashes.
+`build_training_manifest` refuses legacy, missing, stale, or non-accepted
+evidence before applying its existing curation rules.
+
+At this initial contract checkpoint, content routing and geometric source-support
+validation were still pending. Real runs therefore remained review-only, not newly certified training
+data. This deliberately prevents unsupported circles or semantically invalid
+figures from being accepted merely because processing completed. Verification
+passes all 268 tests (45 new); the frozen Stage 4 check preserves geometry in
+91/91 drawings and validates all 182 exports, with unchanged SVG thumbnails.
+Both fresh full-chain smoke rows execute successfully but remain under review;
+the manifest builder excludes both rather than silently making training targets.
+See
+[the contract](docs/ACCEPTANCE_CONTRACT.md) for the failure tests, fresh smoke,
+frozen export regression, output paths, and remaining work.
+
+## Preservation and Deployment Validation (2026-09-09)
+
+The [Priority 0 implementation record](docs/PRIORITY0_IMPLEMENTATION_2026-09-09.md)
+documents the post-audit fixes, exact evidence, commands, and remaining gates.
+No new model training or data generation was needed. Production remains
+PatentVec A tiled Stage 2, hatch regions, and guarded RANSAC Stage 3 under
+`config_deploy.yaml`; Free2CAD remains research and 50k generation is still
+unstarted.
+
+The full frozen 100-patent Stage 3/4 replay completes all 91 eligible rows and
+preserves the three Stage 1 and six Stage 2 gates. Main primitives are exactly
+unchanged in 91/91 drawings. Explicit hatch accounting represents all 1,190
+side-layer edges and restores 341 fallback primitives in eight drawings. Mean
+full-resolution raster F1 rises from **0.878608 to 0.881590**, with eight
+improvements, 83 ties, and zero regressions. This is shared-skeleton fidelity,
+not absolute CAD ground truth or a newly untouched test set.
+
+Fresh CPU Stage 0-4 checks on two real figures pass and preserve 14 recognized
+reference tokens into DXF, with all 34 label crops retained once in SVG. Masks,
+reference-free rasters, and skeletons match the frozen baseline exactly. A
+final missing-OCR dependency guard is also covered by the **223 passing tests**;
+the repeat smoke also passed 2/2 with identical primitives and no export audit
+errors. Canonical batches now check
+selected checkpoint hashes and refuse silent model fallback/incompatible resume.
+
+Next: content routing using existing labels; paired Stage 2 canonical versus
+historical fusion evaluation; deployed-threshold hatch evaluation and GPU
+parity. These are required before interpreting the successful exports as
+automatically acceptable LLM targets.
+
 > **Repository audit (2026-07-17):** The original proposal below assumed a
 > different, flat checkout at `~/ip-drawing-drafter` and an external
 > `~/datasets` tree. Those paths and several data/model contracts do not match

@@ -1,0 +1,2289 @@
+{
+  "source": "output/PatentData100_Priority0Preservation",
+  "output": "output/PatentData100_AcceptanceExportCheck",
+  "summary": {
+    "drawings": 91,
+    "identical_svg_thumbnails": 91,
+    "fully_exported_geometry": 91,
+    "serialized_formats_valid": 182,
+    "unknown_dxf_labels": 2744
+  },
+  "scope": "Stage 4 only; thumbnail appearance is not a full-resolution geometry accuracy metric.",
+  "rows": [
+    {
+      "patent_id": "EP1467415B1",
+      "sketch_id": "F0003",
+      "expected_primitives": 137,
+      "minimum_exported_primitives": 137,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 137,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 137,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 12,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP1833535B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 497,
+      "minimum_exported_primitives": 497,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 497,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 497,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 55,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP1838040B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 124,
+      "minimum_exported_primitives": 124,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 124,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 124,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 59,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP1839350B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 220,
+      "minimum_exported_primitives": 220,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 220,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 220,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 13,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP1923025B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 142,
+      "minimum_exported_primitives": 142,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 142,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 142,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 29,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP1974619B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 395,
+      "minimum_exported_primitives": 395,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 395,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 395,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 28,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2143139B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 89,
+      "minimum_exported_primitives": 89,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 89,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 89,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 22,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2162724B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 374,
+      "minimum_exported_primitives": 374,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 374,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 374,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 12,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2214148B1",
+      "sketch_id": "F0008",
+      "expected_primitives": 209,
+      "minimum_exported_primitives": 209,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 209,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 209,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 67,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2326827B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 373,
+      "minimum_exported_primitives": 373,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 373,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 373,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 12,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2430983B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 34,
+      "minimum_exported_primitives": 34,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 34,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 34,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 12,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2433378B1",
+      "sketch_id": "F0003",
+      "expected_primitives": 113,
+      "minimum_exported_primitives": 113,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 113,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 113,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 48,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2472954B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 105,
+      "minimum_exported_primitives": 105,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 105,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 105,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 31,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2565056B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 240,
+      "minimum_exported_primitives": 240,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 240,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 240,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 20,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2623349B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 155,
+      "minimum_exported_primitives": 155,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 155,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 155,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 14,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2664947B1",
+      "sketch_id": "F0014",
+      "expected_primitives": 40,
+      "minimum_exported_primitives": 40,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 40,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 40,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 19,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2693964B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 34,
+      "minimum_exported_primitives": 34,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 34,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 34,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 9,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2734148B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 74,
+      "minimum_exported_primitives": 74,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 74,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 74,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 26,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2734860B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 116,
+      "minimum_exported_primitives": 116,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 116,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 116,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 33,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2793370B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 164,
+      "minimum_exported_primitives": 164,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 164,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 164,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 26,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2795159B1",
+      "sketch_id": "F0005",
+      "expected_primitives": 402,
+      "minimum_exported_primitives": 402,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 402,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 402,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 21,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2832512B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 161,
+      "minimum_exported_primitives": 161,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 161,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 161,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 42,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2861732B1",
+      "sketch_id": "F0012",
+      "expected_primitives": 104,
+      "minimum_exported_primitives": 104,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 104,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 104,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 100,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2881873B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 338,
+      "minimum_exported_primitives": 338,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 338,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 338,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 14,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP2976579B1",
+      "sketch_id": "F0003",
+      "expected_primitives": 629,
+      "minimum_exported_primitives": 629,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 629,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 629,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 9,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3011884B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 355,
+      "minimum_exported_primitives": 355,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 355,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 355,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 35,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3016904B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 66,
+      "minimum_exported_primitives": 66,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 66,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 66,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 15,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3025084B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 110,
+      "minimum_exported_primitives": 110,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 110,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 110,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 31,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3029408B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 67,
+      "minimum_exported_primitives": 67,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 67,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 67,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 12,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3033586B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 406,
+      "minimum_exported_primitives": 406,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 406,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 406,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 30,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3046835B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 127,
+      "minimum_exported_primitives": 127,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 127,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 127,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 62,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3049766B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 161,
+      "minimum_exported_primitives": 161,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 161,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 161,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 14,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3064097B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 82,
+      "minimum_exported_primitives": 82,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 82,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 82,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 37,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3078734B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 199,
+      "minimum_exported_primitives": 199,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 199,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 199,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 14,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3082005B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 58,
+      "minimum_exported_primitives": 58,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 58,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 58,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 22,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 132,
+      "minimum_exported_primitives": 132,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 132,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 132,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 14,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3088045B1",
+      "sketch_id": "F0007",
+      "expected_primitives": 25,
+      "minimum_exported_primitives": 25,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 25,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 25,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 13,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3088963B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 267,
+      "minimum_exported_primitives": 267,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 267,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 267,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 38,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3091721B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 118,
+      "minimum_exported_primitives": 118,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 118,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 118,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 84,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3101366B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 79,
+      "minimum_exported_primitives": 79,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 79,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 79,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 29,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3104691B1",
+      "sketch_id": "F0003",
+      "expected_primitives": 259,
+      "minimum_exported_primitives": 259,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 259,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 259,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 15,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3119165B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 142,
+      "minimum_exported_primitives": 142,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 142,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 142,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 25,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3129274B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 681,
+      "minimum_exported_primitives": 681,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 681,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 681,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 28,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3173415B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 50,
+      "minimum_exported_primitives": 50,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 50,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 50,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 40,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3184100B1",
+      "sketch_id": "F0004",
+      "expected_primitives": 62,
+      "minimum_exported_primitives": 62,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 62,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 62,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 45,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3186468B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 125,
+      "minimum_exported_primitives": 125,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 125,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 125,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 26,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3190364B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 159,
+      "minimum_exported_primitives": 159,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 159,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 159,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 21,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3191598B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 89,
+      "minimum_exported_primitives": 89,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 89,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 89,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 52,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3193044B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 231,
+      "minimum_exported_primitives": 231,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 231,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 231,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 15,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3205737B1",
+      "sketch_id": "F0006",
+      "expected_primitives": 184,
+      "minimum_exported_primitives": 184,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 184,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 184,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 86,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3233746B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 96,
+      "minimum_exported_primitives": 96,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 96,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 96,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 41,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3239928B1",
+      "sketch_id": "F0008",
+      "expected_primitives": 392,
+      "minimum_exported_primitives": 392,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 392,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 392,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 13,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3240209B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 184,
+      "minimum_exported_primitives": 184,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 184,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 184,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 54,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3240268B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 74,
+      "minimum_exported_primitives": 74,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 74,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 74,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 61,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3244123B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 139,
+      "minimum_exported_primitives": 139,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 139,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 139,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 20,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3257351B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 94,
+      "minimum_exported_primitives": 94,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 94,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 94,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 15,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3261922B1",
+      "sketch_id": "F0004",
+      "expected_primitives": 363,
+      "minimum_exported_primitives": 363,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 363,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 363,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 7,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3280570B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 123,
+      "minimum_exported_primitives": 123,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 123,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 123,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 22,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3281211B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 178,
+      "minimum_exported_primitives": 178,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 178,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 178,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 36,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3283256B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 427,
+      "minimum_exported_primitives": 427,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 427,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 427,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 10,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3305875B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 242,
+      "minimum_exported_primitives": 242,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 242,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 242,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 32,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3322902B1",
+      "sketch_id": "F0002",
+      "expected_primitives": 266,
+      "minimum_exported_primitives": 266,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 266,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 266,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 21,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3332519B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 398,
+      "minimum_exported_primitives": 398,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 398,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 398,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 13,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3337593B1",
+      "sketch_id": "F0001",
+      "expected_primitives": 87,
+      "minimum_exported_primitives": 87,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 87,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 87,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 16,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3340025B1",
+      "sketch_id": "F0020",
+      "expected_primitives": 174,
+      "minimum_exported_primitives": 174,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 174,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 174,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 68,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3347465B1",
+      "sketch_id": "F0005",
+      "expected_primitives": 137,
+      "minimum_exported_primitives": 137,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 137,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 137,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 22,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3363610B1",
+      "sketch_id": "F0003",
+      "expected_primitives": 78,
+      "minimum_exported_primitives": 78,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 78,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 78,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 21,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3491995A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 17,
+      "minimum_exported_primitives": 17,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 17,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 17,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 16,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3493219A1",
+      "sketch_id": "F0003",
+      "expected_primitives": 37,
+      "minimum_exported_primitives": 37,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 37,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 37,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 19,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3493383A1",
+      "sketch_id": "F0002",
+      "expected_primitives": 62,
+      "minimum_exported_primitives": 62,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 62,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 62,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 53,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3493557A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 70,
+      "minimum_exported_primitives": 70,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 70,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 70,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 38,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3495022A2",
+      "sketch_id": "F0007",
+      "expected_primitives": 209,
+      "minimum_exported_primitives": 209,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 209,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 209,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 56,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3496065A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 51,
+      "minimum_exported_primitives": 51,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 51,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 51,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 1,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3496083A1",
+      "sketch_id": "F0004",
+      "expected_primitives": 60,
+      "minimum_exported_primitives": 60,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 60,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 60,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3496314A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 60,
+      "minimum_exported_primitives": 60,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 60,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 60,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 45,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3496476A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 120,
+      "minimum_exported_primitives": 120,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 120,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 120,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 15,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3498192A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 123,
+      "minimum_exported_primitives": 123,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 123,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 123,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 9,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3498415A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 100,
+      "minimum_exported_primitives": 100,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 100,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 100,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 17,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3498474A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 112,
+      "minimum_exported_primitives": 112,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 112,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 112,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 105,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3498480A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 236,
+      "minimum_exported_primitives": 236,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 236,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 236,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 37,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3499621A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 191,
+      "minimum_exported_primitives": 191,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 191,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 191,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 7,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3499654A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 246,
+      "minimum_exported_primitives": 246,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 246,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 246,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 16,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3501654A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 34,
+      "minimum_exported_primitives": 34,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 34,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 34,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 37,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3501674A1",
+      "sketch_id": "F0004",
+      "expected_primitives": 394,
+      "minimum_exported_primitives": 394,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 394,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 394,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 30,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3501683A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 60,
+      "minimum_exported_primitives": 60,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 60,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 60,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 17,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3501852A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 326,
+      "minimum_exported_primitives": 326,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 326,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 326,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 21,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3501900A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 106,
+      "minimum_exported_primitives": 106,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 106,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 106,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 55,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3502419A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 42,
+      "minimum_exported_primitives": 42,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 42,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 42,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 20,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3502503A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 80,
+      "minimum_exported_primitives": 80,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 80,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 80,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 14,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3502592A1",
+      "sketch_id": "F0001",
+      "expected_primitives": 262,
+      "minimum_exported_primitives": 262,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 262,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 262,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 98,
+          "annotation_errors": 0
+        }
+      }
+    },
+    {
+      "patent_id": "EP3503130A1",
+      "sketch_id": "A0001",
+      "expected_primitives": 17,
+      "minimum_exported_primitives": 17,
+      "svg_changed_pixels_at_512": 0,
+      "formats": {
+        "svg": {
+          "serialized_valid": true,
+          "primitives_written": 17,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 0,
+          "annotation_errors": 0
+        },
+        "dxf": {
+          "serialized_valid": true,
+          "primitives_written": 17,
+          "errors": [],
+          "incomplete_primitives": 0,
+          "unknown_labels": 10,
+          "annotation_errors": 0
+        }
+      }
+    }
+  ]
+}

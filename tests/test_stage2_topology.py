@@ -112,16 +112,18 @@ def test_unclaimed_rectangle_is_marked_as_simple_cycle():
     assert edges[0]["is_simple_cycle"] is True
 
 
-def test_unclaimed_branched_network_is_not_marked_as_simple_cycle():
+def test_unclaimed_branched_network_is_split_into_open_paths():
     skeleton = np.zeros((32, 32), np.uint8)
     skeleton[16, 4:28] = 255
     skeleton[4:28, 16] = 255
 
     _nodes, edges = s2._extract_topology(skeleton, [], unclaimed_mode="all")
 
-    assert len(edges) == 1
-    assert edges[0]["topology_origin"] == "unclaimed_component"
-    assert edges[0]["is_simple_cycle"] is False
+    assert len(edges) == 4
+    assert all(edge["topology_origin"] == "recovered_residual" for edge in edges)
+    assert all(not edge["is_closed"] for edge in edges)
+    assert {tuple(p) for e in edges for p in e["pixels"]} == {
+        (int(x), int(y)) for y, x in zip(*np.nonzero(skeleton))}
 
 
 def test_directional_walk_routes_unseeded_crossing_straight_through():

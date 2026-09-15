@@ -1,0 +1,1673 @@
+{
+  "date": "2026-09-14",
+  "fresh_cad": [
+    {
+      "folder": "0026_00267762",
+      "sketch_id": "0026_00267762_Right",
+      "geometry": "pass",
+      "stage2_flagged": false,
+      "stage3_flagged": false,
+      "primitive_status": {
+        "pass": 6
+      },
+      "raster": {
+        "before": {
+          "chamfer_sym": 0.5248830181319785,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 0.9939903846153846,
+          "recall_at_2px": 0.9892344497607656,
+          "f1_at_2px": 0.9916067146282973
+        },
+        "after": {
+          "chamfer_sym": 0.05124652136517883,
+          "chamfer_p95": 0.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 0.9904306220095693,
+          "f1_at_2px": 0.9951923076923077
+        }
+      },
+      "coverage": {
+        "schema": "ap3-stage2-coverage-v1",
+        "coordinate_frame": "stage2_pixels",
+        "image_shape": [
+          1024,
+          1024
+        ],
+        "stage2_scale": 1.0,
+        "original_image_shape": [
+          1024,
+          1024
+        ],
+        "original_grid_preserved": true,
+        "source_mask_sha256": "9866b300cf77aa46e8b7e693fb54c66a87e60ceb01d7f9ddb0b93c2290807e30",
+        "stages": [
+          {
+            "operation": "topology_prepasses",
+            "represented_source_pixels": 1672,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "topology_extraction",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 9,
+            "restored_pixels": 0,
+            "newly_missing_spans": [
+              [
+                258,
+                478,
+                479
+              ],
+              [
+                258,
+                545,
+                546
+              ],
+              [
+                260,
+                511,
+                512
+              ],
+              [
+                686,
+                479,
+                480
+              ],
+              [
+                687,
+                478,
+                479
+              ],
+              [
+                688,
+                479,
+                480
+              ],
+              [
+                763,
+                511,
+                512
+              ],
+              [
+                764,
+                477,
+                478
+              ],
+              [
+                764,
+                546,
+                547
+              ]
+            ]
+          },
+          {
+            "operation": "hatch_pre_simplify",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "graph_simplification",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "hatch_separation",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "post_hatch_simplification",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "hatch_deduplication",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "early_region_cleanup",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "smoothing_and_small_loop_preservation",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "floating_noise_pruning",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "dashed_grouping",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "late_region_cleanup",
+            "represented_source_pixels": 1663,
+            "missing_source_pixels": 9,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "final_source_recovery",
+            "represented_source_pixels": 1672,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 9,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "recovered_connection_integration",
+            "represented_source_pixels": 1672,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          }
+        ],
+        "recovery": {
+          "max_component_pixels": 100000,
+          "max_new_edges": 5000,
+          "before_missing_pixels": 9,
+          "recovered_pixels": 9,
+          "new_edges": 13,
+          "components": [
+            {
+              "id": 0,
+              "bbox": [
+                478,
+                258,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                8
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 1,
+              "bbox": [
+                545,
+                258,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                9
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 2,
+              "bbox": [
+                511,
+                260,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                10,
+                11,
+                12
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 3,
+              "bbox": [
+                478,
+                686,
+                2,
+                3
+              ],
+              "source_pixels": 3,
+              "edge_ids": [
+                13,
+                14,
+                15
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 4,
+              "bbox": [
+                511,
+                763,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                16,
+                17,
+                18
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 5,
+              "bbox": [
+                477,
+                764,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                19
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 6,
+              "bbox": [
+                546,
+                764,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                20
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            }
+          ],
+          "unresolved_pixels": 0,
+          "unresolved_spans": [],
+          "integration": {
+            "schema": "ap3-stage2-coverage-integration-v1",
+            "status": "pass",
+            "before_edges": 21,
+            "after_edges": 6,
+            "inserted_pixel_occurrences": 1,
+            "retired_recovery_edges": 2,
+            "recovery_splits": 0,
+            "endpoint_joins": 13,
+            "main_pixel_set_preserved": true,
+            "hatch_edges_unchanged": true,
+            "input_to_output_edge_ids": {
+              "0": [
+                0
+              ],
+              "1": [
+                1
+              ],
+              "2": [
+                1
+              ],
+              "3": [
+                3
+              ],
+              "4": [
+                1
+              ],
+              "5": [
+                5
+              ],
+              "6": [
+                1
+              ],
+              "7": [
+                7
+              ],
+              "8": [
+                1
+              ],
+              "9": [
+                1
+              ],
+              "10": [
+                1
+              ],
+              "11": [
+                0
+              ],
+              "12": [
+                1
+              ],
+              "13": [
+                13
+              ],
+              "14": [
+                7
+              ],
+              "15": [
+                7
+              ],
+              "16": [
+                1
+              ],
+              "17": [
+                0
+              ],
+              "18": [
+                5
+              ],
+              "19": [
+                1
+              ],
+              "20": [
+                5
+              ]
+            }
+          }
+        },
+        "status": "pass",
+        "source_pixels": 1672,
+        "represented_source_pixels": 1672,
+        "residual_source_pixels": 0,
+        "unaccounted_source_pixels": 0,
+        "represented_fraction": 1.0,
+        "accounted_fraction": 1.0,
+        "small_closed_shapes_preserved": 1
+      },
+      "main_edges": 6,
+      "source_skeleton_sha256": "d610c368c1112a3da9d191034143f0afd86fd23c33f9d4f5fc409eb8daf88ca3",
+      "graph_sha256": "ce7b6fc86211f78b01f88f1d1ed7bc5d6530ac323a3c867a6995e0e968c1f5f6"
+    },
+    {
+      "folder": "0078_00787655",
+      "sketch_id": "0078_00787655_FrontTopRight",
+      "geometry": "pass",
+      "stage2_flagged": false,
+      "stage3_flagged": false,
+      "primitive_status": {
+        "pass": 7
+      },
+      "raster": {
+        "before": {
+          "chamfer_sym": 0.3451363733526803,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        },
+        "after": {
+          "chamfer_sym": 0.12545766822393623,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 0.9977997799779978,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 0.998898678414097
+        }
+      },
+      "coverage": {
+        "schema": "ap3-stage2-coverage-v1",
+        "coordinate_frame": "stage2_pixels",
+        "image_shape": [
+          1024,
+          1024
+        ],
+        "stage2_scale": 1.0,
+        "original_image_shape": [
+          1024,
+          1024
+        ],
+        "original_grid_preserved": true,
+        "source_mask_sha256": "088e9398d1b2f3af40200a760756148ca2df22760ec001c1009fcad63514c9de",
+        "stages": [
+          {
+            "operation": "topology_prepasses",
+            "represented_source_pixels": 1814,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "topology_extraction",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 10,
+            "restored_pixels": 0,
+            "newly_missing_spans": [
+              [
+                367,
+                345,
+                346
+              ],
+              [
+                385,
+                317,
+                318
+              ],
+              [
+                419,
+                316,
+                317
+              ],
+              [
+                491,
+                583,
+                584
+              ],
+              [
+                496,
+                567,
+                568
+              ],
+              [
+                517,
+                601,
+                602
+              ],
+              [
+                519,
+                550,
+                551
+              ],
+              [
+                557,
+                552,
+                553
+              ],
+              [
+                613,
+                657,
+                658
+              ],
+              [
+                644,
+                671,
+                672
+              ]
+            ]
+          },
+          {
+            "operation": "hatch_pre_simplify",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "graph_simplification",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "hatch_separation",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "post_hatch_simplification",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "hatch_deduplication",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "early_region_cleanup",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "smoothing_and_small_loop_preservation",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "floating_noise_pruning",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "dashed_grouping",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "late_region_cleanup",
+            "represented_source_pixels": 1804,
+            "missing_source_pixels": 10,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "final_source_recovery",
+            "represented_source_pixels": 1814,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 10,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "recovered_connection_integration",
+            "represented_source_pixels": 1814,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          }
+        ],
+        "recovery": {
+          "max_component_pixels": 100000,
+          "max_new_edges": 5000,
+          "before_missing_pixels": 10,
+          "recovered_pixels": 10,
+          "new_edges": 22,
+          "components": [
+            {
+              "id": 0,
+              "bbox": [
+                345,
+                367,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                11
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 1,
+              "bbox": [
+                317,
+                385,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                12,
+                13,
+                14
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 2,
+              "bbox": [
+                316,
+                419,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                15
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 3,
+              "bbox": [
+                583,
+                491,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                16,
+                17,
+                18
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 4,
+              "bbox": [
+                567,
+                496,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                19,
+                20,
+                21
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 5,
+              "bbox": [
+                601,
+                517,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                22,
+                23,
+                24
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 6,
+              "bbox": [
+                550,
+                519,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                25
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 7,
+              "bbox": [
+                552,
+                557,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                26
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 8,
+              "bbox": [
+                657,
+                613,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                27,
+                28,
+                29
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 9,
+              "bbox": [
+                671,
+                644,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                30,
+                31,
+                32
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            }
+          ],
+          "unresolved_pixels": 0,
+          "unresolved_spans": [],
+          "integration": {
+            "schema": "ap3-stage2-coverage-integration-v1",
+            "status": "pass",
+            "before_edges": 33,
+            "after_edges": 7,
+            "inserted_pixel_occurrences": 3,
+            "retired_recovery_edges": 6,
+            "recovery_splits": 0,
+            "endpoint_joins": 20,
+            "main_pixel_set_preserved": true,
+            "hatch_edges_unchanged": true,
+            "input_to_output_edge_ids": {
+              "0": [
+                0
+              ],
+              "1": [
+                1
+              ],
+              "2": [
+                1
+              ],
+              "3": [
+                1
+              ],
+              "4": [
+                4
+              ],
+              "5": [
+                0
+              ],
+              "6": [
+                6
+              ],
+              "7": [
+                7
+              ],
+              "8": [
+                8
+              ],
+              "9": [
+                1
+              ],
+              "10": [
+                10
+              ],
+              "11": [
+                0
+              ],
+              "12": [
+                1
+              ],
+              "13": [
+                0
+              ],
+              "14": [
+                1
+              ],
+              "15": [
+                1
+              ],
+              "16": [
+                1
+              ],
+              "17": [
+                1
+              ],
+              "18": [
+                4
+              ],
+              "19": [
+                0
+              ],
+              "20": [
+                1
+              ],
+              "21": [
+                1
+              ],
+              "22": [
+                7
+              ],
+              "23": [
+                8
+              ],
+              "24": [
+                6
+              ],
+              "25": [
+                1
+              ],
+              "26": [
+                1
+              ],
+              "27": [
+                8
+              ],
+              "28": [
+                7
+              ],
+              "29": [
+                6
+              ],
+              "30": [
+                1
+              ],
+              "31": [
+                4
+              ],
+              "32": [
+                1
+              ]
+            }
+          }
+        },
+        "status": "pass",
+        "source_pixels": 1814,
+        "represented_source_pixels": 1814,
+        "residual_source_pixels": 0,
+        "unaccounted_source_pixels": 0,
+        "represented_fraction": 1.0,
+        "accounted_fraction": 1.0,
+        "small_closed_shapes_preserved": 1
+      },
+      "main_edges": 7,
+      "source_skeleton_sha256": "96e2e4aa8fa81d026f36341aa167af285464d6a384f40ab6570e3fded2202306",
+      "graph_sha256": "75b78e6502ee94063de1b97eb2db625b31aac469635066981b051c39fe440eb7"
+    },
+    {
+      "folder": "0079_00793147",
+      "sketch_id": "0079_00793147_Front",
+      "geometry": "pass",
+      "stage2_flagged": false,
+      "stage3_flagged": false,
+      "primitive_status": {
+        "pass": 6
+      },
+      "raster": {
+        "before": {
+          "chamfer_sym": 0.19124740450575528,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        },
+        "after": {
+          "chamfer_sym": 0.01272372156450937,
+          "chamfer_p95": 0.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        }
+      },
+      "coverage": {
+        "schema": "ap3-stage2-coverage-v1",
+        "coordinate_frame": "stage2_pixels",
+        "image_shape": [
+          1024,
+          1024
+        ],
+        "stage2_scale": 1.0,
+        "original_image_shape": [
+          1024,
+          1024
+        ],
+        "original_grid_preserved": true,
+        "source_mask_sha256": "14c570a8f752134e007ac19410e4cc30c5e27d72a7bdc9f8558387a43efb9528",
+        "stages": [
+          {
+            "operation": "topology_prepasses",
+            "represented_source_pixels": 1564,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "topology_extraction",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 11,
+            "restored_pixels": 0,
+            "newly_missing_spans": [
+              [
+                370,
+                265,
+                266
+              ],
+              [
+                370,
+                758,
+                759
+              ],
+              [
+                386,
+                720,
+                721
+              ],
+              [
+                510,
+                633,
+                634
+              ],
+              [
+                511,
+                389,
+                391
+              ],
+              [
+                511,
+                516,
+                518
+              ],
+              [
+                639,
+                720,
+                721
+              ],
+              [
+                651,
+                263,
+                264
+              ],
+              [
+                651,
+                759,
+                760
+              ]
+            ]
+          },
+          {
+            "operation": "hatch_pre_simplify",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "graph_simplification",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "hatch_separation",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "post_hatch_simplification",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "hatch_deduplication",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "early_region_cleanup",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "smoothing_and_small_loop_preservation",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "floating_noise_pruning",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "dashed_grouping",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "late_region_cleanup",
+            "represented_source_pixels": 1553,
+            "missing_source_pixels": 11,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "final_source_recovery",
+            "represented_source_pixels": 1564,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 11,
+            "newly_missing_spans": []
+          },
+          {
+            "operation": "recovered_connection_integration",
+            "represented_source_pixels": 1564,
+            "missing_source_pixels": 0,
+            "newly_missing_pixels": 0,
+            "restored_pixels": 0,
+            "newly_missing_spans": []
+          }
+        ],
+        "recovery": {
+          "max_component_pixels": 100000,
+          "max_new_edges": 5000,
+          "before_missing_pixels": 11,
+          "recovered_pixels": 11,
+          "new_edges": 9,
+          "components": [
+            {
+              "id": 0,
+              "bbox": [
+                265,
+                370,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                7
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 1,
+              "bbox": [
+                758,
+                370,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                8
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 2,
+              "bbox": [
+                720,
+                386,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                9
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 3,
+              "bbox": [
+                389,
+                511,
+                2,
+                1
+              ],
+              "source_pixels": 2,
+              "edge_ids": [
+                10
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 4,
+              "bbox": [
+                516,
+                511,
+                2,
+                1
+              ],
+              "source_pixels": 2,
+              "edge_ids": [
+                11
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 5,
+              "bbox": [
+                633,
+                510,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                12
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 6,
+              "bbox": [
+                720,
+                639,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                13
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 7,
+              "bbox": [
+                263,
+                651,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                14
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            },
+            {
+              "id": 8,
+              "bbox": [
+                759,
+                651,
+                1,
+                1
+              ],
+              "source_pixels": 1,
+              "edge_ids": [
+                15
+              ],
+              "status": "recovered",
+              "reason": "source_only_trace"
+            }
+          ],
+          "unresolved_pixels": 0,
+          "unresolved_spans": [],
+          "integration": {
+            "schema": "ap3-stage2-coverage-integration-v1",
+            "status": "pass",
+            "before_edges": 16,
+            "after_edges": 6,
+            "inserted_pixel_occurrences": 0,
+            "retired_recovery_edges": 0,
+            "recovery_splits": 0,
+            "endpoint_joins": 10,
+            "main_pixel_set_preserved": true,
+            "hatch_edges_unchanged": true,
+            "input_to_output_edge_ids": {
+              "0": [
+                0
+              ],
+              "1": [
+                1
+              ],
+              "2": [
+                2
+              ],
+              "3": [
+                3
+              ],
+              "4": [
+                3
+              ],
+              "5": [
+                3
+              ],
+              "6": [
+                3
+              ],
+              "7": [
+                3
+              ],
+              "8": [
+                3
+              ],
+              "9": [
+                0
+              ],
+              "10": [
+                10
+              ],
+              "11": [
+                11
+              ],
+              "12": [
+                1
+              ],
+              "13": [
+                2
+              ],
+              "14": [
+                3
+              ],
+              "15": [
+                3
+              ]
+            }
+          }
+        },
+        "status": "pass",
+        "source_pixels": 1564,
+        "represented_source_pixels": 1564,
+        "residual_source_pixels": 0,
+        "unaccounted_source_pixels": 0,
+        "represented_fraction": 1.0,
+        "accounted_fraction": 1.0,
+        "small_closed_shapes_preserved": 0
+      },
+      "main_edges": 6,
+      "source_skeleton_sha256": "4657b5d866dba4f1cc42d3923064845e3e9284bf6667857364b1186bfbed363e",
+      "graph_sha256": "26d5b8fbfe577dd638db6aeb0244e2eb00c2f429a2599244565ab04d2f7d3a0d"
+    }
+  ],
+  "replays": {
+    "cad250": {
+      "path": "output/Drawing2CAD250_CoverageIntegrationV2/summary.json",
+      "sha256": "b941d13e9e45fa34cde1f3bc4c90369349c55bd72d35efbd4e06c3133c196105",
+      "implementation": {
+        "/home/safe/Desktop/yassine/Vectorization/stage2_strokeextraction/stage2_stroke_extract.py": "164c52585c3bf2079ce8dddba2243842ceb45cf737fb8a4a6a6e02674b5c89c2",
+        "/home/safe/Desktop/yassine/Vectorization/stage3_primitivesfitting/stage3_primitive_fit.py": "38cf85ae44d5f7e2770e6509fe58bf2cb2473ac96fb7150978372bbb223d59b5",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/stage4_export.py": "9a8ec4c0d9fe32db536bc1309b321ac68091453256cebb44f4250a4e8c138434",
+        "/home/safe/Desktop/yassine/Vectorization/tools/geometry_validation.py": "f035daf8154ad2921136633fbfb15058750681c41a6ab5817b928bf9e1e80695",
+        "/home/safe/Desktop/yassine/Vectorization/tools/replay_fitting_repair.py": "c985c2c5e557061314d8edcf81cbf894b02f56cf4abd2ef061d2beb73e4a62cc",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/export_audit.py": "72b708d02b8e401af6831c889cf6e16fbbf13a10e8661e435e35363c56bfb9f1"
+      },
+      "before": {
+        "pass": 250
+      },
+      "after": {
+        "pass": 250
+      },
+      "raster": {
+        "chamfer_sym": {
+          "before": 0.2938081752648666,
+          "after": 0.08227009504924086,
+          "increases": 10,
+          "decreases": 228,
+          "worst_delta": 0.7302109697265831
+        },
+        "chamfer_p95": {
+          "before": 0.8962842712474619,
+          "after": 0.3708328157299975,
+          "increases": 3,
+          "decreases": 134,
+          "worst_delta": 1.2360679774997898
+        },
+        "precision_at_2px": {
+          "before": 0.9908373449706417,
+          "after": 0.9947405152525782,
+          "increases": 91,
+          "decreases": 10,
+          "worst_delta": -0.08372630744960718
+        },
+        "recall_at_2px": {
+          "before": 0.988860840012507,
+          "after": 0.9928895236629909,
+          "increases": 80,
+          "decreases": 10,
+          "worst_delta": -0.10326351680467616
+        },
+        "f1_at_2px": {
+          "before": 0.9897657422595812,
+          "after": 0.9937245197924309,
+          "increases": 116,
+          "decreases": 13,
+          "worst_delta": -0.0759132189598356
+        }
+      },
+      "before_edges": 5581,
+      "after_edges": 1166,
+      "residual_pixels": 0,
+      "before_encoding": {
+        "json_bytes": 921997,
+        "hatch_json_bytes": 500,
+        "budget_primitives": 5581,
+        "hatch_documents": 0,
+        "hatch_strokes": 0
+      },
+      "before_primitive_status": {
+        "pass": 5581
+      },
+      "after_encoding": {
+        "json_bytes": 1669000,
+        "hatch_json_bytes": 500,
+        "budget_primitives": 1166,
+        "hatch_documents": 0,
+        "hatch_strokes": 0
+      },
+      "after_primitive_status": {
+        "pass": 1166
+      },
+      "f1_regressions": [
+        {
+          "folder": "0024_00248013",
+          "sketch_id": "0024_00248013_FrontTopRight",
+          "delta": -0.0759132189598356
+        },
+        {
+          "folder": "0016_00164966",
+          "sketch_id": "0016_00164966_FrontTopRight",
+          "delta": -0.05165852644194635
+        },
+        {
+          "folder": "0051_00514818",
+          "sketch_id": "0051_00514818_FrontTopRight",
+          "delta": -0.019540307229876763
+        },
+        {
+          "folder": "0089_00896586",
+          "sketch_id": "0089_00896586_Right",
+          "delta": -0.019455252918287938
+        },
+        {
+          "folder": "0018_00189337",
+          "sketch_id": "0018_00189337_Right",
+          "delta": -0.0019958460426569014
+        },
+        {
+          "folder": "0045_00456894",
+          "sketch_id": "0045_00456894_Right",
+          "delta": -0.00186152296204245
+        },
+        {
+          "folder": "0078_00787655",
+          "sketch_id": "0078_00787655_FrontTopRight",
+          "delta": -0.0011013215859030367
+        },
+        {
+          "folder": "0000_00004282",
+          "sketch_id": "0000_00004282_FrontTopRight",
+          "delta": -0.001075780560742312
+        },
+        {
+          "folder": "0054_00547489",
+          "sketch_id": "0054_00547489_FrontTopRight",
+          "delta": -0.000849617672047609
+        },
+        {
+          "folder": "0022_00221043",
+          "sketch_id": "0022_00221043_FrontTopRight",
+          "delta": -0.00042907920856538606
+        },
+        {
+          "folder": "0089_00893540",
+          "sketch_id": "0089_00893540_Front",
+          "delta": -0.00031735081710981827
+        },
+        {
+          "folder": "0015_00159757",
+          "sketch_id": "0015_00159757_Right",
+          "delta": -1.394435787005488e-05
+        },
+        {
+          "folder": "0009_00093395",
+          "sketch_id": "0009_00093395_FrontTopRight",
+          "delta": -2.59645438593914e-07
+        }
+      ]
+    },
+    "patent2": {
+      "path": "output/PatentData2_CoverageIntegrationPilotV3/summary.json",
+      "sha256": "792c49ddca6b6cd16597c45e7636facc6576f68976fda5dcda2552cdfcdf0abf",
+      "implementation": {
+        "/home/safe/Desktop/yassine/Vectorization/stage2_strokeextraction/stage2_stroke_extract.py": "164c52585c3bf2079ce8dddba2243842ceb45cf737fb8a4a6a6e02674b5c89c2",
+        "/home/safe/Desktop/yassine/Vectorization/stage3_primitivesfitting/stage3_primitive_fit.py": "38cf85ae44d5f7e2770e6509fe58bf2cb2473ac96fb7150978372bbb223d59b5",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/stage4_export.py": "9a8ec4c0d9fe32db536bc1309b321ac68091453256cebb44f4250a4e8c138434",
+        "/home/safe/Desktop/yassine/Vectorization/tools/geometry_validation.py": "f035daf8154ad2921136633fbfb15058750681c41a6ab5817b928bf9e1e80695",
+        "/home/safe/Desktop/yassine/Vectorization/tools/replay_fitting_repair.py": "c985c2c5e557061314d8edcf81cbf894b02f56cf4abd2ef061d2beb73e4a62cc",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/export_audit.py": "72b708d02b8e401af6831c889cf6e16fbbf13a10e8661e435e35363c56bfb9f1"
+      },
+      "before": {
+        "pass": 1,
+        "fail": 1
+      },
+      "after": {
+        "pass": 1,
+        "fail": 1
+      },
+      "raster": {
+        "chamfer_sym": {
+          "before": 0.13646258516313348,
+          "after": 0.08633437608955638,
+          "increases": 0,
+          "decreases": 2,
+          "worst_delta": -0.027092335664298667
+        },
+        "chamfer_p95": {
+          "before": 1.0,
+          "after": 1.0,
+          "increases": 0,
+          "decreases": 0,
+          "worst_delta": 0.0
+        },
+        "precision_at_2px": {
+          "before": 1.0,
+          "after": 1.0,
+          "increases": 0,
+          "decreases": 0,
+          "worst_delta": 0.0
+        },
+        "recall_at_2px": {
+          "before": 0.9997617448522204,
+          "after": 0.9998265392687928,
+          "increases": 1,
+          "decreases": 0,
+          "worst_delta": 0.0
+        },
+        "f1_at_2px": {
+          "before": 0.9998808550121232,
+          "after": 0.9999132615187166,
+          "increases": 1,
+          "decreases": 0,
+          "worst_delta": 0.0
+        }
+      },
+      "before_edges": 1183,
+      "after_edges": 734,
+      "residual_pixels": 2,
+      "before_encoding": {
+        "json_bytes": 665522,
+        "hatch_json_bytes": 244353,
+        "budget_primitives": 2818,
+        "hatch_documents": 88,
+        "hatch_strokes": 1635
+      },
+      "before_primitive_status": {
+        "pass": 1271
+      },
+      "after_encoding": {
+        "json_bytes": 744412,
+        "hatch_json_bytes": 244353,
+        "budget_primitives": 2369,
+        "hatch_documents": 88,
+        "hatch_strokes": 1635
+      },
+      "after_primitive_status": {
+        "pass": 822
+      },
+      "f1_regressions": []
+    }
+  },
+  "cad_config_sha256": "fcd9e2f4c2e6b51551eda2024a2a2bfec2609c028da571db03e41bade4b6b04b",
+  "cad_weights_sha256": "def4cc4ce692550498c2b5bf2f24ded97dc196a6d6d2aa9c6281ec91d67ebcb2",
+  "implementation": {
+    "stage2_strokeextraction/stage2_stroke_extract.py": "164c52585c3bf2079ce8dddba2243842ceb45cf737fb8a4a6a6e02674b5c89c2",
+    "stage3_primitivesfitting/stage3_primitive_fit.py": "38cf85ae44d5f7e2770e6509fe58bf2cb2473ac96fb7150978372bbb223d59b5",
+    "stage4_export/stage4_export.py": "9a8ec4c0d9fe32db536bc1309b321ac68091453256cebb44f4250a4e8c138434",
+    "tools/geometry_validation.py": "f035daf8154ad2921136633fbfb15058750681c41a6ab5817b928bf9e1e80695"
+  },
+  "canonical": [
+    {
+      "patent_id": "EP2565056B1",
+      "status": "quality_gate_stage2",
+      "error": "graph fragmentation/isolation too high: edges=477, median_len=3.4, micro_ratio=0.589, short_ratio=0.636, isolation=0.000, noncycle_residuals=0, max_noncycle_residual_pixels=0",
+      "s2_n_edges": 477,
+      "s2_micro_edge_ratio": 0.588865096359743,
+      "s2_short_edge_ratio": 0.6359743040685225,
+      "s3_n_primitives": null,
+      "s3_n_budget_primitives": null,
+      "acceptance_status": "rejected",
+      "training_eligible": 0
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "status": "ok",
+      "error": null,
+      "s2_n_edges": 257,
+      "s2_micro_edge_ratio": 0.31950207468879666,
+      "s2_short_edge_ratio": 0.48132780082987553,
+      "s3_n_primitives": 285,
+      "s3_n_budget_primitives": 500,
+      "acceptance_status": "rejected",
+      "training_eligible": 0
+    }
+  ],
+  "training_manifest_kept": 0,
+  "width_diagnostics": [
+    {
+      "folder": "0024_00248013",
+      "sketch_id": "0024_00248013_FrontTopRight",
+      "delta": -0.0759132189598356,
+      "original_stroke_width": 4.33,
+      "unit_width_raster": {
+        "before": {
+          "chamfer_sym": 0.1796431300393853,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        },
+        "after": {
+          "chamfer_sym": 0.023200505238627357,
+          "chamfer_p95": 0.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        }
+      },
+      "scope": "Diagnostic width=1 only; actual exported stroke width unchanged"
+    },
+    {
+      "folder": "0016_00164966",
+      "sketch_id": "0016_00164966_FrontTopRight",
+      "delta": -0.05165852644194635,
+      "original_stroke_width": 4.43,
+      "unit_width_raster": {
+        "before": {
+          "chamfer_sym": 0.2204499298720568,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        },
+        "after": {
+          "chamfer_sym": 0.0026581809798593013,
+          "chamfer_p95": 0.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        }
+      },
+      "scope": "Diagnostic width=1 only; actual exported stroke width unchanged"
+    },
+    {
+      "folder": "0051_00514818",
+      "sketch_id": "0051_00514818_FrontTopRight",
+      "delta": -0.019540307229876763,
+      "original_stroke_width": 4.29,
+      "unit_width_raster": {
+        "before": {
+          "chamfer_sym": 0.186596896821822,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        },
+        "after": {
+          "chamfer_sym": 0.010236411039799099,
+          "chamfer_p95": 0.0,
+          "precision_at_2px": 1.0,
+          "recall_at_2px": 1.0,
+          "f1_at_2px": 1.0
+        }
+      },
+      "scope": "Diagnostic width=1 only; actual exported stroke width unchanged"
+    }
+  ]
+}

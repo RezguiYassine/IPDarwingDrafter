@@ -80,7 +80,7 @@ import stage2_stroke_extract       # noqa: E402
 import stage3_primitive_fit        # noqa: E402
 import stage4_export               # noqa: E402
 
-from tools import results_db       # noqa: E402
+from tools import acceptance, deployment, results_db       # noqa: E402
 
 
 logger = logging.getLogger("batch_run")
@@ -93,6 +93,7 @@ def _is_success_status(status: str) -> bool:
 # ─── Worker globals (one set per process, lazy-loaded at first task) ─────────
 
 _WORKER_CFG = None
+_WORKER_DEPLOYMENT_IDENTITY = None
 _WORKER_S1_MODEL = None
 _WORKER_S2_MODEL = None
 _WORKER_HATCH_MODEL = None
@@ -122,11 +123,15 @@ def _worker_init(
 ) -> None:
     """Initialise per-process state: load config, load Stage-1/2 ML models."""
     global _WORKER_CFG, _WORKER_S1_MODEL, _WORKER_S2_MODEL, _WORKER_HATCH_MODEL
+    global _WORKER_DEPLOYMENT_IDENTITY
     global _WORKER_HATCH_STROKE_MODEL
     global _WORKER_REUSE_PREPROCESSING_ROOT, _WORKER_REUSE_PREPROCESSING_DB
 
     with open(config_path) as f:
         _WORKER_CFG = yaml.safe_load(f) or {}
+    _WORKER_DEPLOYMENT_IDENTITY = None
+    if deployment.strict_models(_WORKER_CFG):
+        _WORKER_DEPLOYMENT_IDENTITY = deployment.preflight(Path(config_path))["identity"]
 
     # Resolve relative weight paths against the config file's directory so
     # the path works regardless of the worker's cwd (mirrors stage1's CLI).
@@ -163,6 +168,9 @@ def _worker_init(
     _WORKER_HATCH_STROKE_MODEL = (
         stage2_stroke_extract.load_hatch_stroke_model(_WORKER_CFG)
     )
+    if deployment.strict_models(_WORKER_CFG):
+        if _WORKER_S2_MODEL is None or _WORKER_HATCH_MODEL is None:
+            raise deployment.DeploymentError("Required Puhachov/hatch model failed to load; fallback is disabled.")
 
 
 def _resolved_artifact(path_value: str) -> Path:
@@ -281,7 +289,7 @@ def _copy_reused_preprocessing(
     return s0, s1
 
 
-def _process_one(job: tuple[str, str, str, str]) -> dict:
+def _run_stages(job: tuple[str, str, str, str]) -> dict:
     """
     Run all four stages on a single sketch. Returns a dict suitable for
     `results_db.insert_row`. Never raises: errors are captured into the dict.
@@ -463,6 +471,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         row.update({
             "s3_time":         s3.processing_time_s,
             "s3_n_primitives": s3.n_primitives,
+            "s3_n_budget_primitives": sum(stage4_export.primitive_budget_cost(p) for p in prims),
             "s3_n_hachure_primitives": int(
                 quality_metrics.get(
                     "n_hachure_primitives",
@@ -499,14 +508,14 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         )
     if gates_enabled and (
         s3.flagged
-        or (max_primitives and s3.n_primitives > max_primitives)
+        or (max_primitives and row["s3_n_budget_primitives"] > max_primitives)
         or (effective_max_low_conf_ratio
             and row.get("s3_low_conf_ratio", 0.0) > effective_max_low_conf_ratio)
     ):
         row["status"] = "quality_gate_stage3"
         row["error"] = (
             f"primitive set not suitable for accurate CAD export: "
-            f"n={s3.n_primitives}, mean_conf={s3.mean_confidence:.3f}, "
+            f"n={s3.n_primitives}, budget_n={row['s3_n_budget_primitives']}, mean_conf={s3.mean_confidence:.3f}, "
             f"low_conf_ratio={row.get('s3_low_conf_ratio', 0.0):.3f}, "
             f"max_low_conf_ratio={effective_max_low_conf_ratio:.3f}"
         )
@@ -535,6 +544,30 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         row["error"] = f"{type(exc).__name__}: {exc}"
 
     row["total_time"] = total_time()
+    return row
+
+
+def _process_one(job: tuple[str, str, str, str]) -> dict:
+    row = _run_stages(job)
+    started = time.perf_counter()
+    try:
+        report, path = acceptance.record(
+            row, Path(job[3]), _WORKER_DEPLOYMENT_IDENTITY,
+            stage0_enabled=bool((_WORKER_CFG.get("stage0", {}) or {}).get("enabled", False)),
+        )
+        row.update({
+            "acceptance_status": report["acceptance_status"],
+            "acceptance_policy_version": report["policy_version"],
+            "acceptance_reason_codes": json.dumps(report["reason_codes"]),
+            "acceptance_path": str(path.resolve()),
+            "acceptance_sha256": acceptance.file_digest(path),
+            "training_eligible": int(report["training_eligible"]),
+        })
+    except Exception as exc:
+        logger.error("Acceptance recording failed for %s/%s: %s", job[0], job[1], exc)
+        row.update(acceptance_status="error", training_eligible=0,
+                   acceptance_reason_codes=json.dumps(["acceptance_recording_failed"]))
+    row["total_time"] = (row.get("total_time") or 0.0) + time.perf_counter() - started
     return row
 
 
@@ -714,7 +747,7 @@ def main() -> int:
                         help="SQLite results DB. Default: "
                              "<output>/results.db")
     parser.add_argument("--config", type=Path,
-                        default=PROJECT_ROOT / "config.yaml",
+                        default=deployment.CANONICAL_CONFIG,
                         help="Pipeline config file.")
     parser.add_argument("--workers", type=int, default=None,
                         help="Parallel workers. Default: "
@@ -764,15 +797,17 @@ def main() -> int:
               "the first rows in stable patent/sketch order"),
     )
     args = parser.parse_args()
+    if args.workers is not None and args.workers < 1:
+        parser.error("--workers must be positive")
     if args.limit_after_filter and not args.limit:
         parser.error("--limit-after-filter requires --limit")
     if args.worklist is not None and not args.worklist.exists():
         parser.error(f"worklist does not exist: {args.worklist}")
     if args.limit_after_filter and not args.filter_manifest:
         parser.error("--limit-after-filter requires --filter-manifest")
-    if args.limit_after_filter and not args.filter_manifest.exists():
+    if args.filter_manifest is not None and not args.filter_manifest.is_file():
         parser.error(
-            f"--limit-after-filter manifest does not exist: "
+            f"filter manifest does not exist: "
             f"{args.filter_manifest}"
         )
     if args.reuse_preprocessing_from is None and (
@@ -820,12 +855,28 @@ def main() -> int:
         logger.error("Patent root does not exist: %s", args.patent_root)
         return 2
 
-    args.output.mkdir(parents=True, exist_ok=True)
     db_path: Path = args.db or (args.output / "results.db")
-    results_db.init_db(db_path)
-
     with open(args.config) as f:
         cfg = yaml.safe_load(f) or {}
+    workers = args.workers or cfg.get("pipeline", {}).get("workers") \
+              or max(1, (os.cpu_count() or 2) - 1)
+    strict_deployment = deployment.strict_models(cfg)
+    if strict_deployment:
+        try:
+            report = deployment.preflight(args.config)
+            report["initial_execution"] = {
+                "workers": workers,
+                "reuse_preprocessing_from": (
+                    str(args.reuse_preprocessing_from.resolve())
+                    if args.reuse_preprocessing_from is not None else None
+                ),
+            }
+            deployment.record_run(args.output / "deployment_run.json", report, db_path)
+        except (deployment.DeploymentError, OSError, ValueError) as exc:
+            logger.error("Deployment preflight failed: %s", exc)
+            return 2
+    args.output.mkdir(parents=True, exist_ok=True)
+    results_db.init_db(db_path)
     reuse_root = args.reuse_preprocessing_from
     reuse_db = args.reuse_preprocessing_db
     if reuse_root is not None:
@@ -846,9 +897,6 @@ def main() -> int:
             )
         if not bool((cfg.get("stage0", {}) or {}).get("enabled", False)):
             parser.error("preprocessing reuse currently requires Stage 0")
-    workers = args.workers or cfg.get("pipeline", {}).get("workers") \
-              or max(1, (os.cpu_count() or 2) - 1)
-
     discard_paths: set[str] = set()
     if args.filter_manifest and args.filter_manifest.exists():
         with open(args.filter_manifest, newline="") as fh:
@@ -928,6 +976,7 @@ def main() -> int:
             if skipped:
                 logger.info("Resume: skipping %d sketches already in DB.", skipped)
 
+    execution_errors = 0
     if not sketches:
         logger.info("Nothing to do.")
     else:
@@ -943,6 +992,9 @@ def main() -> int:
              str(args.output / patent_id))
             for (patent_id, sketch_id, tif_path) in sketches
         ]
+
+        with results_db.connect(db_path) as conn:
+            results_db.invalidate_acceptance(conn, [(patent, sketch) for patent, sketch, *_ in jobs])
 
         # ── Execute ──────────────────────────────────────────────────────
         n_ok = 0
@@ -968,12 +1020,17 @@ def main() -> int:
                     bar.write(f"Worker crashed: {exc!r}")
                     bar.write(traceback.format_exc())
                     n_err += 1
+                    execution_errors += 1
                     continue
                 results_db.insert_row(conn, row)
+                if row.get("acceptance_status") == "error" and _is_success_status(str(row["status"])):
+                    execution_errors += 1
                 if _is_success_status(str(row["status"])):
                     n_ok += 1
                 else:
                     n_err += 1
+                    if not str(row["status"]).startswith("quality_gate_"):
+                        execution_errors += 1
                 bar.set_postfix(ok=n_ok, err=n_err)
 
         logger.info("Done. ok=%d err=%d", n_ok, n_err)
@@ -986,6 +1043,12 @@ def main() -> int:
     print(f"  Pipeline 'ok'      : {s['ok']}  "
           f"({100.0 * s['ok'] / s['total']:.1f}%)" if s["total"] else "")
     print(f"  Status breakdown   : {s['by_status']}")
+    with results_db.connect(db_path) as conn:
+        acceptance_counts = dict(conn.execute(
+            "SELECT COALESCE(acceptance_status, 'unassessed'), COUNT(*) "
+            "FROM results GROUP BY acceptance_status"
+        ))
+    print(f"  Acceptance         : {acceptance_counts}")
     if s["mean_total_s"]:
         print(f"  Mean total time/ok : {s['mean_total_s']:.2f} s")
         if s.get("mean_s0_s") is not None:
@@ -1024,7 +1087,7 @@ def main() -> int:
         if v is not None:
             print(f"  {k:18s}: {100.0 * v:.1f}%")
     print()
-    return 0
+    return 1 if strict_deployment and execution_errors else 0
 
 
 if __name__ == "__main__":

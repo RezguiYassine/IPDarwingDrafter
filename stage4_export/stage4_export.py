@@ -56,12 +56,23 @@ import json
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import ezdxf
 import svgwrite
+
+if __package__:
+    from .export_audit import (
+        capture_entities, file_digest, finish_annotation, start_item,
+        validate_primitive, verify_serialized, primitive_budget_cost, stroke_digest,
+    )
+else:
+    from export_audit import (
+        capture_entities, file_digest, finish_annotation, start_item,
+        validate_primitive, verify_serialized, primitive_budget_cost, stroke_digest,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +90,8 @@ class Stage4Result:
     n_annotations:    int     = 0
     processing_time_s: float  = 0.0
     flagged: bool             = False       # any primitive failed to export
+    format_reports: dict      = field(default_factory=dict)
+    export_report_path: Optional[Path] = None
 
 
 # ─── ISO 128 layer specification (used by patent mode) ───────────────────────
@@ -360,7 +373,7 @@ def _svg_add_hatch(dwg, target, prim: dict, sw: float, uid: int) -> None:
 
 
 def _export_svg(data: dict, out_path: Path,
-                default_sw: Optional[float] = None) -> int:
+                default_sw: Optional[float] = None, audit: Optional[dict] = None) -> int:
     """
     Write SVG file. Returns the count of primitives successfully written.
 
@@ -392,8 +405,11 @@ def _export_svg(data: dict, out_path: Path,
 
     n_written = 0
 
-    for prim in data["primitives"]:
+    for index, prim in enumerate(data["primitives"]):
+        item = start_item(audit, "primitives", index)
+        before = len(geometry.elements)
         try:
+            validate_primitive(prim)
             style    = _primitive_style(prim)
             if default_sw is not None:
                 sw = max(1.0, min(float(default_sw), 30.0))
@@ -481,27 +497,46 @@ def _export_svg(data: dict, out_path: Path,
             elif ptype == "hatch":
                 _svg_add_hatch(dwg, geometry, prim, sw, n_written)
 
+            elif ptype == "hatch_strokes":
+                d = " ".join("M " + " L ".join(f"{x:.6f} {y:.6f}" for x, y in stroke)
+                             for stroke in prim["strokes"])
+                geometry.add(dwg.path(d=d, **stroke_kw))
+                import hashlib
+                item["stroke_count"] = len(prim["strokes"])
+                item["stroke_geometry_sha256"] = hashlib.sha256(d.encode()).hexdigest()
+
             else:
                 logger.warning(f"SVG: skipping unknown primitive type '{ptype}'")
                 continue
 
+            entities = geometry.elements[before:]
+            if not entities:
+                raise ValueError("Primitive emitted no SVG geometry")
+            capture_entities(item, entities, svg=True, prefix="primitive")
+            item["complete"] = True
             n_written += 1
         except Exception as exc:
+            capture_entities(item, geometry.elements[before:], svg=True, prefix="primitive")
+            item["errors"].append(f"{type(exc).__name__}: {exc}")
             logger.warning(f"SVG: failed to export primitive {prim}: {exc}")
 
     # Annotations (Bezugszeichen) — also in patent SVG previews
-    for ann in data.get("annotations", []):
+    for index, ann in enumerate(data.get("annotations", [])):
+        item = start_item(audit, "annotations", index)
+        item.update(label="missing", leaders_written=0)
+        before = len(geometry.elements)
         try:
             leader_lines = ann.get("leader_lines") or []
             for leader in leader_lines:
                 p1, p2 = leader.get("p1"), leader.get("p2")
                 if not p1 or not p2:
-                    continue
+                    raise ValueError("Missing reference leader endpoints")
                 geometry.add(dwg.line(
                     start=(float(p1[0]), float(p1[1])),
                     end=(float(p2[0]), float(p2[1])),
                     stroke="black", stroke_width=0.7,
                 ))
+                item["leaders_written"] += 1
             if not leader_lines and "leader_to" in ann:
                 x, y = ann["position"]
                 lx, ly = ann["leader_to"]
@@ -509,10 +544,16 @@ def _export_svg(data: dict, out_path: Path,
                     start=(x, y), end=(lx, ly),
                     stroke="black", stroke_width=0.7,
                 ))
+                item["leaders_written"] += 1
 
             image_path = ann.get("image_path")
             crop_bbox = ann.get("crop_bbox") or ann.get("bbox")
-            if image_path and crop_bbox:
+            text = str(ann.get("text", "") or "")
+            render_mode = ann.get("svg_render_mode", "crop")
+            if render_mode not in {"crop", "text"}:
+                raise ValueError(f"Unknown SVG annotation mode: {render_mode}")
+            crop_rendered = False
+            if image_path and crop_bbox and (render_mode == "crop" or not text):
                 href = _svg_data_uri(str(image_path))
                 if href:
                     x, y, bw, bh = crop_bbox
@@ -522,19 +563,30 @@ def _export_svg(data: dict, out_path: Path,
                         size=(float(bw), float(bh)),
                     )
                     geometry.add(img)
+                    crop_rendered = True
+                    item["label"] = "crop"
 
-            text = str(ann.get("text", "") or "")
-            if text:
+            if text and not crop_rendered:
                 x, y = ann["position"]
+                text_attributes = {}
+                font_size = ann.get("char_height", 14)
+                if ann.get("source") == "stage0_references" and ann.get("bbox"):
+                    font_size = ann.get("char_height", 0.8 * float(ann["bbox"][3]))
+                    text_attributes = {"text_anchor": "middle", "dominant_baseline": "central"}
                 geometry.add(dwg.text(
                     text,
                     insert=(x, y),
-                    font_size=14,
+                    font_size=font_size,
                     font_family="Arial",
                     fill="black",
+                    **text_attributes,
                 ))
+                item["label"] = "text"
         except Exception as exc:
+            item["errors"].append(f"{type(exc).__name__}: {exc}")
             logger.warning(f"SVG: failed to render annotation {ann}: {exc}")
+        capture_entities(item, geometry.elements[before:], svg=True, prefix="annotation")
+        finish_annotation(item, ann)
 
     dwg.save()
     return n_written
@@ -581,7 +633,10 @@ def _dxf_add_segment(msp, seg: dict, H: float, dxfattribs: Optional[dict] = None
 
 def _dxf_add_path(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None) -> None:
     for seg in prim.get("segments", []):
+        before = len(msp)
         _dxf_add_segment(msp, seg, H, dxfattribs)
+        if len(msp) == before:
+            raise ValueError("Path segment emitted no DXF geometry")
 
 
 def _dxf_add_hatch(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None) -> None:
@@ -617,7 +672,7 @@ def _dxf_add_hatch(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None)
                                angle=-float(angles[0]))
 
 
-def _export_dxf_basic(data: dict, out_path: Path) -> int:
+def _export_dxf_basic(data: dict, out_path: Path, audit: Optional[dict] = None) -> int:
     """
     Single-layer DXF for AutoCAD/SolidWorks/KiCad import.
     All primitives go on layer 0 with default linetype.
@@ -628,8 +683,11 @@ def _export_dxf_basic(data: dict, out_path: Path) -> int:
 
     n_written = 0
 
-    for prim in data["primitives"]:
+    for index, prim in enumerate(data["primitives"]):
+        item = start_item(audit, "primitives", index)
+        before = len(msp)
         try:
+            validate_primitive(prim)
             ptype = prim["type"]
             if ptype == "line":
                 p1 = _flip_y_point(prim["p1"], H)
@@ -694,12 +752,26 @@ def _export_dxf_basic(data: dict, out_path: Path) -> int:
             elif ptype == "hatch":
                 _dxf_add_hatch(msp, prim, H)
 
+            elif ptype == "hatch_strokes":
+                strokes = [[_flip_y_point(p, H) for p in stroke] for stroke in prim["strokes"]]
+                for stroke in strokes:
+                    msp.add_lwpolyline(stroke)
+                item["stroke_count"] = len(strokes)
+                item["stroke_geometry_sha256"] = stroke_digest(strokes)
+
             else:
                 logger.warning(f"DXF basic: skipping unknown type '{ptype}'")
                 continue
 
+            entities = [entity for entity in msp[before:] if entity.is_alive]
+            if not entities:
+                raise ValueError("Primitive emitted no DXF geometry")
+            capture_entities(item, entities, svg=False, prefix="primitive")
+            item["complete"] = True
             n_written += 1
         except Exception as exc:
+            capture_entities(item, [entity for entity in msp[before:] if entity.is_alive], svg=False, prefix="primitive")
+            item["errors"].append(f"{type(exc).__name__}: {exc}")
             logger.warning(f"DXF basic: failed to export primitive {prim}: {exc}")
 
     doc.saveas(str(out_path))
@@ -745,7 +817,7 @@ def _add_bezugszeichen(msp, ann: dict, image_h: float) -> None:
     for leader in leader_lines:
         p1, p2 = leader.get("p1"), leader.get("p2")
         if not p1 or not p2:
-            continue
+            raise ValueError("Missing reference leader endpoints")
         msp.add_line(
             _flip_y_point(p1, image_h),
             _flip_y_point(p2, image_h),
@@ -759,13 +831,17 @@ def _add_bezugszeichen(msp, ann: dict, image_h: float) -> None:
     text = str(ann.get("text", "") or "")
     if text:
         char_h = ann.get("char_height", 12)
+        attributes = {"layer": "TEXT", "char_height": char_h}
+        if ann.get("source") == "stage0_references" and ann.get("bbox"):
+            attributes["char_height"] = ann.get("char_height", 0.8 * float(ann["bbox"][3]))
+            attributes["attachment_point"] = 5  # reference positions are box centres
         msp.add_mtext(
             text,
-            dxfattribs={"layer": "TEXT", "char_height": char_h},
+            dxfattribs=attributes,
         ).set_location(insert=pos)
 
 
-def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
+def _export_dxf_patent(data: dict, out_path: Path, audit: Optional[dict] = None) -> tuple:
     """
     ISO 128-compliant layered DXF.
 
@@ -778,8 +854,11 @@ def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
 
     n_written = 0
 
-    for prim in data["primitives"]:
+    for index, prim in enumerate(data["primitives"]):
+        item = start_item(audit, "primitives", index)
+        before = len(msp)
         try:
+            validate_primitive(prim)
             style = _primitive_style(prim)
             layer = style.upper()
             attribs = {"layer": layer}
@@ -855,21 +934,45 @@ def _export_dxf_patent(data: dict, out_path: Path) -> tuple:
             elif ptype == "hatch":
                 _dxf_add_hatch(msp, prim, H, {"layer": "HACHURE"})
 
+            elif ptype == "hatch_strokes":
+                strokes = [[_flip_y_point(p, H) for p in stroke] for stroke in prim["strokes"]]
+                for stroke in strokes:
+                    msp.add_lwpolyline(stroke, dxfattribs=attribs)
+                item["stroke_count"] = len(strokes)
+                item["stroke_geometry_sha256"] = stroke_digest(strokes)
+
             else:
                 logger.warning(f"DXF patent: skipping unknown type '{ptype}'")
                 continue
 
+            entities = [entity for entity in msp[before:] if entity.is_alive]
+            if not entities:
+                raise ValueError("Primitive emitted no DXF geometry")
+            capture_entities(item, entities, svg=False, prefix="primitive")
+            item["complete"] = True
             n_written += 1
         except Exception as exc:
+            capture_entities(item, [entity for entity in msp[before:] if entity.is_alive], svg=False, prefix="primitive")
+            item["errors"].append(f"{type(exc).__name__}: {exc}")
             logger.warning(f"DXF patent: failed to export primitive {prim}: {exc}")
 
     n_ann = 0
-    for ann in data.get("annotations", []):
+    for index, ann in enumerate(data.get("annotations", [])):
+        item = start_item(audit, "annotations", index)
+        item.update(label="unknown" if not ann.get("text") else "missing", leaders_written=0)
+        before = len(msp)
         try:
             _add_bezugszeichen(msp, ann, H)
-            n_ann += 1
         except Exception as exc:
+            item["errors"].append(f"{type(exc).__name__}: {exc}")
             logger.warning(f"DXF patent: failed annotation {ann}: {exc}")
+        entities = [entity for entity in msp[before:] if entity.is_alive]
+        capture_entities(item, entities, svg=False, prefix="annotation")
+        item["leaders_written"] = sum(e.dxftype() == "LINE" for e in entities)
+        if any(e.dxftype() == "MTEXT" for e in entities):
+            item["label"] = "text"
+        finish_annotation(item, ann)
+        n_ann += int(item["complete"])
 
     doc.saveas(str(out_path))
     return n_written, n_ann
@@ -932,36 +1035,54 @@ def run(
         dxf_mode         = dxf_mode if "dxf" in formats else None,
     )
 
-    n_out_max = 0   # track the best primitive count across formats
-
-    if "svg" in formats:
-        svg_path = vec_dir / f"{sid}.svg"
-        n_svg = _export_svg(data, svg_path, default_sw=data.get("stroke_width"))
-        result.svg_path = svg_path
-        n_out_max = max(n_out_max, n_svg)
-        logger.info(f"[{sid}] SVG  → {svg_path}  ({n_svg}/{n_in} primitives)")
-
-    if "dxf" in formats:
-        dxf_path = vec_dir / f"{sid}.dxf"
-        if dxf_mode == "basic":
-            n_dxf = _export_dxf_basic(data, dxf_path)
-            n_ann = 0
-        else:
-            n_dxf, n_ann = _export_dxf_patent(data, dxf_path)
-        result.dxf_path = dxf_path
-        n_out_max = max(n_out_max, n_dxf)
-        logger.info(
-            f"[{sid}] DXF  → {dxf_path}  "
-            f"({n_dxf}/{n_in} primitives, {n_ann} Bezugszeichen, mode={dxf_mode})"
+    if not formats or len(set(formats)) != len(formats) or set(formats) - {"svg", "dxf"}:
+        raise ValueError("Export requires unique supported formats: svg, dxf")
+    for format_name in formats:
+        path = vec_dir / f"{sid}.{format_name}"
+        report = {"path": str(path.resolve()), "primitives": [], "annotations": [],
+                  "errors": [], "serialized_valid": False, "complete": False}
+        result.format_reports[format_name] = report
+        try:
+            if format_name == "svg":
+                _export_svg(data, path, default_sw=data.get("stroke_width"), audit=report)
+                result.svg_path = path
+            else:
+                if dxf_mode == "basic":
+                    _export_dxf_basic(data, path, audit=report)
+                else:
+                    _export_dxf_patent(data, path, audit=report)
+                result.dxf_path = path
+            verify_serialized(format_name, path, report)
+        except Exception as exc:
+            report["errors"].append(f"{type(exc).__name__}: {exc}")
+            logger.warning("%s export failed: %s", format_name, exc)
+        report["primitives_created"] = sum(item["complete"] for item in report["primitives"])
+        report["primitives_written"] = report["primitives_created"] if report["serialized_valid"] else 0
+        report["complete"] = (
+            report["serialized_valid"] and not report["errors"]
+            and len(report["primitives"]) == n_in
+            and report["primitives_written"] == n_in
+            and len(report["annotations"]) == len(data["annotations"])
+            and all(item["complete"] for item in report["annotations"])
         )
 
-    result.n_primitives_out  = n_out_max
+    result.n_primitives_out = min(r["primitives_written"] for r in result.format_reports.values())
     result.processing_time_s = time.perf_counter() - t_start
-    result.flagged           = (n_out_max < n_in)
+    result.flagged = not all(r["complete"] for r in result.format_reports.values())
+    result.export_report_path = vec_dir / f"{sid}_export_report.json"
+    export_report = {
+        "schema": "ap3-export-report-v1", "sketch_id": sid,
+        "input_json": str(input_json.resolve()), "input_sha256": file_digest(input_json),
+        "expected_primitives": n_in, "expected_annotations": len(data["annotations"]),
+        "formats": result.format_reports,
+    }
+    temporary = result.export_report_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(export_report, indent=2, allow_nan=False) + "\n")
+    temporary.replace(result.export_report_path)
 
     if result.flagged:
         logger.warning(
-            f"[{sid}] FLAGGED — only {n_out_max}/{n_in} primitives exported"
+            f"[{sid}] FLAGGED — an export or annotation is incomplete; see export report"
         )
     else:
         logger.info(f"[{sid}] Stage 4 done in {result.processing_time_s:.2f}s")

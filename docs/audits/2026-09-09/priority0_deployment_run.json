@@ -1,0 +1,235 @@
+{
+  "checked_at": "2026-09-09T14:09:01+00:00",
+  "config_path": "/home/safe/Desktop/yassine/Vectorization/config_deploy.yaml",
+  "database_path": "/home/safe/Desktop/yassine/Vectorization/output/PatentData2_Priority0DeploySmokeFinal/results.db",
+  "effective_config": {
+    "data": {
+      "abc_step_dir": "stage3_primitivesfitting/research/data/abc_dataset/step_files",
+      "deepcad_dir": "stage3_primitivesfitting/research/data/deepcad",
+      "training_dir": "stage3_primitivesfitting/research/data/free2cad_training",
+      "weights_dir": "models"
+    },
+    "free2cad": {
+      "device": "cuda",
+      "repo_path": "stage3_primitivesfitting/research/repos/Free2CAD/networkTraining",
+      "weights": "models/free2cad_v3_best.pth"
+    },
+    "pipeline": {
+      "deployment": {
+        "strict_models": true
+      },
+      "log_level": "INFO",
+      "quality_gates": {
+        "enabled": true,
+        "max_low_conf_ratio": 0.25,
+        "max_low_conf_ratio_after_hachure": 0.65,
+        "max_primitives": 900,
+        "min_hachure_edges_for_low_conf_relax": 20,
+        "stop_on_stage1": true,
+        "stop_on_stage2": true
+      },
+      "resume": true,
+      "workers": 6
+    },
+    "puhachov": {
+      "device": "cpu",
+      "fusion": false,
+      "keypoint_threshold": 0.3,
+      "nms_radius": 5,
+      "tile_size": 512,
+      "tile_stride": 256,
+      "tiled": true,
+      "weights": "/home/safe/Desktop/yassine/Vectorization/models/puhachov_patentvec_complexityA.pth"
+    },
+    "sketchcleannet": {
+      "device": "cpu",
+      "weights": "/home/safe/Desktop/yassine/Vectorization/models/sketchcleannet.pth"
+    },
+    "stage0": {
+      "bridge_leader_crossings": true,
+      "crop_pad": 2,
+      "enabled": true,
+      "figure_cluster_max_bbox_area": 32000,
+      "figure_cluster_max_components": 12,
+      "figure_cluster_max_ink_area": 18000,
+      "figure_margin_ratio": 0.22,
+      "figure_require_margin": false,
+      "hough_max_line_gap": 6,
+      "hough_min_line_length": 35,
+      "hough_threshold": 24,
+      "leader_endpoint_margin": 18,
+      "leader_mask_thickness": 5,
+      "leader_max_length": 450,
+      "leader_max_length_ratio": 0.28,
+      "leader_min_support_ratio": 0.5,
+      "leader_segment_margin": 12,
+      "leader_support_radius": 1,
+      "leader_tip_trim": 5,
+      "max_guard_text_only_labels": 240,
+      "max_guard_text_only_removed_ink_ratio": 0.2,
+      "max_iterations": 10,
+      "max_leaders_per_label": 2,
+      "max_reference_labels": 220,
+      "max_removed_ink_ratio": 0.7,
+      "max_total_removed_ink_ratio": 0.82,
+      "ocr_acronym_require_leader": true,
+      "ocr_alphanumeric": true,
+      "ocr_canvas_size": 3000,
+      "ocr_cc_fill_hi": 0.85,
+      "ocr_cc_fill_lo": 0.12,
+      "ocr_cc_max_h_frac": 0.05,
+      "ocr_cc_min_h_frac": 0.012,
+      "ocr_cc_recovery": true,
+      "ocr_cc_ring_max": 0.08,
+      "ocr_conf": 0.3,
+      "ocr_gpu": false,
+      "ocr_leaders": true,
+      "ocr_multiscale": false,
+      "remove_figure_labels": true,
+      "remove_unleadered_labels": true,
+      "repair_after_removal": true,
+      "repair_close_kernel": 7,
+      "require_leader": true,
+      "text_bbox_pad": 3,
+      "text_only_on_guard": true,
+      "unleadered_allow_single_component": true,
+      "unleadered_max_bbox_area": 6500,
+      "unleadered_max_components": 6,
+      "unleadered_max_ink_area": 2200,
+      "unleadered_min_components": 1,
+      "unleadered_single_margin_ratio": 0.24,
+      "unleadered_single_max_bbox_area": 3000,
+      "unleadered_single_max_ink_area": 1400,
+      "unleadered_single_min_density": 0.18,
+      "use_ocr": true
+    },
+    "stage1": {
+      "classical": {
+        "adaptive_C": 10,
+        "adaptive_block": 35,
+        "blend_alpha": 0.6,
+        "blur_kernel": 3,
+        "min_cc_size": 30,
+        "morph_kernel": 2
+      },
+      "quality_threshold": 0.7
+    },
+    "stage2": {
+      "dashed_grouping": false,
+      "fragmentation": {
+        "max_edges": 2500,
+        "max_micro_edge_ratio": 0.5,
+        "max_short_edge_ratio": 0.8,
+        "max_unclaimed_noncycle_pixels": 100000
+      },
+      "hachure_angle_tolerance": 12.0,
+      "hachure_cluster_radius": 95.0,
+      "hachure_cnn_device": "cpu",
+      "hachure_cnn_model": "/home/safe/Desktop/yassine/Vectorization/models/hatch_unet.pth",
+      "hachure_cnn_threshold": 0.7,
+      "hachure_max_length": 80.0,
+      "hachure_max_removed_edge_ratio": 0.75,
+      "hachure_max_residual_rms": 2.2,
+      "hachure_min_cluster_edges": 4,
+      "hachure_min_cluster_total_length": 35.0,
+      "hachure_min_graph_edges": 20,
+      "hachure_min_length": 5.0,
+      "hachure_min_straightness": 0.7,
+      "hachure_mode": "region",
+      "hachure_pre_pass": false,
+      "hachure_region_cleanup_before_metrics": true,
+      "hachure_residual_prune_max_length": 6.0,
+      "hachure_residual_prune_min_removed": 4,
+      "hachure_second_pass": true,
+      "hachure_trigger_micro_edge_ratio": 0.2,
+      "hachure_trigger_min_open_edges": 40,
+      "hachure_trigger_short_edge_ratio": 0.8,
+      "hachure_use_cnn": true,
+      "isolation_threshold": 0.3,
+      "junction_merge_radius": 0.0,
+      "max_input_resolution": 1000,
+      "merge_collinear_max_angle": 28.0,
+      "min_closed_loop_pixels": 80,
+      "nms_reference_resolution": 512,
+      "remove_hachures": true,
+      "simplify_graph": true,
+      "spline_overshoot_limit": 5.0,
+      "spur_min_length": 6.0
+    },
+    "stage3": {
+      "closed_trace_compete_below_confidence": 0.6,
+      "closed_trace_min_gain": 0.05,
+      "closed_trace_target_confidence": 0.65,
+      "closed_trace_target_p95": 2.0,
+      "closed_trace_vertex_caps": [
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "confidence_threshold": 0.6,
+      "confidence_threshold_after_hachure": 0.5,
+      "min_hachure_edges_for_relaxed_confidence": 20,
+      "prefer_compound_over_weak": true,
+      "simplify_closed_fallback": true,
+      "weak_compound_confidence_threshold": 0.6,
+      "weak_compound_max_endpoint_error": 3.0,
+      "weak_compound_max_path_atoms": 64,
+      "weak_compound_max_points": 20000,
+      "weak_compound_max_segment_p95": 2.0,
+      "weak_compound_min_gain": 0.05
+    },
+    "training": {
+      "batch_size": 32,
+      "epochs": 100,
+      "lr": 0.0001,
+      "max_pts": 32,
+      "max_strokes": 20,
+      "n_samples": 30000,
+      "noise_std": 0.005,
+      "splits": "0.85,0.10,0.05"
+    }
+  },
+  "identity": {
+    "effective_config_sha256": "64dc6c6c1499fd4050ab7485ca462f1173e09ee834ad046fad7789205838fa87",
+    "implementation_sha256": "3e06bf6b34093681a57ac38ed712e507b05f1172d8e43a92feebb868365ce0ef",
+    "weight_manifest_sha256": "e7fdb035a6e222dbc7b135be8754a4bd7c0c2b051143e947ef039c9c5bf09af5",
+    "weights": {
+      "puhachov.weights": {
+        "available": true,
+        "path": "/home/safe/Desktop/yassine/Vectorization/models/puhachov_patentvec_complexityA.pth",
+        "required": true,
+        "sha256": "3fd035c9848cf51fdb9b8dafe5065d69d6e053a81e7782763753741b8870ef8c"
+      },
+      "sketchcleannet.weights": {
+        "available": true,
+        "path": "/home/safe/Desktop/yassine/Vectorization/models/sketchcleannet.pth",
+        "required": false,
+        "sha256": "daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b"
+      },
+      "stage2.hachure_cnn_model": {
+        "available": true,
+        "path": "/home/safe/Desktop/yassine/Vectorization/models/hatch_unet.pth",
+        "required": true,
+        "sha256": "6c69c76e491810f70b2750262a7ecc9d2a300160a1ab442c02317e48de105280"
+      }
+    }
+  },
+  "implementation_files": {
+    "stage0_handling_references/stage0_handle_references.py": "a9bf4da0a9c8438907c7e4e1958824a8384cc84dcbdca5d94eee42b1ef594d05",
+    "stage1_preprocessing/stage1_preprocess.py": "422a8d9af10886a0e44ccb97f6c01a5f6e6f66aa8d4c8f05f2944770b693e095",
+    "stage2_strokeextraction/stage2_stroke_extract.py": "cdf9c0d835751269f775003b2e1305d6691dcab1ac8ec464bc7696997eabd3b6",
+    "stage3_primitivesfitting/stage3_primitive_fit.py": "796b344ff0732d7dd1a592f2599b19d964190d7b4bc139ee53f1b02150513224",
+    "stage4_export/stage4_export.py": "2b05a8451d29d3195cb8bebd96dee67281029cc757de10410223cd68b2399f6e",
+    "tools/batch_run.py": "14edd356f6178625aafff4eaff2c68284032a8871f07122ade5d51eff8f681d1",
+    "tools/deployment.py": "e93e1ec96470e1c55574df9e9e95535c503ffbecfb71e08e11127ed65c05d5c6"
+  },
+  "initial_execution": {
+    "reuse_preprocessing_from": null,
+    "workers": 2
+  },
+  "note": "Preflight checks artifacts and configuration, not reconstruction accuracy.",
+  "schema": "ap3-deployment-run-v1"
+}

@@ -455,6 +455,8 @@ def run(
     """
     t_start = time.perf_counter()
 
+    strict_models = bool(config.get("pipeline", {}).get("deployment", {}).get("strict_models", False))
+
     cleaned_dir = output_dir / "cleaned"
     cleaned_dir.mkdir(parents=True, exist_ok=True)
 
@@ -501,6 +503,8 @@ def run(
             model_used  = "sketchcleannet"
             logger.info(f"[{sketch_id}] SketchCleanNet inference complete")
         except Exception as exc:
+            if strict_models:
+                raise RuntimeError("Deployment SketchCleanNet inference failed; fallback is disabled") from exc
             logger.warning(
                 f"[{sketch_id}] SketchCleanNet failed ({exc}), "
                 f"falling back to classical cleaning"
@@ -508,6 +512,8 @@ def run(
             cleaned_img = _classical_clean(image, config)
             model_used  = "classical_fallback"
     else:
+        if strict_models:
+            raise RuntimeError("Deployment requires SketchCleanNet for non-binary inputs")
         cleaned_img = _classical_clean(image, config)
         model_used  = "classical"
         logger.info(f"[{sketch_id}] Classical cleaning applied (no model loaded)")

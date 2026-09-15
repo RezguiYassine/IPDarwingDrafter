@@ -9,24 +9,38 @@ Pre-trained model weights consumed by the AP3 vectorization pipeline at runtime.
 | `puhachov_keypoints.pth`   | 22 MB | Stage 2 (stroke graph)   | shipped in repo            |
 | `free2cad_v3_best.pth`     | 3 MB  | Stage 3 (research only)  | shipped in repo            |
 
-These two weights are small enough to ship inline. The pipeline runs out of the box for Stages 2–4 once the repo is cloned.
+These two research weights are small enough to ship inline. The canonical
+deployment additionally requires the ignored checkpoints listed below; cloning
+the repository alone does not provide them.
 
 ## Production checkpoints (`config_deploy.yaml`)
 
 These are the exact weights the canonical deployment configuration references.
-Verify with `sha256sum <file>` before any release or environment rebuild; three
-of the four are Git-ignored, so the hash is the only integrity check available.
+The canonical batch preflight now verifies the registered runtime hashes in
+[`deployment_manifest.json`](deployment_manifest.json). Three of the four
+files below are Git-ignored and must be provisioned separately.
 
-| File | SHA-256 | Stage | Loaded at runtime | In Git |
+| File | SHA-256 | Stage | Inference on patent benchmark | In Git |
 |---|---|---|---|---|
 | `puhachov_patentvec_complexityA.pth` | `3fd035c9848cf51fdb9b8dafe5065d69d6e053a81e7782763753741b8870ef8c` | 2 — keypoints | yes (`tiled`, `fusion: false`) | ignored |
 | `hatch_unet.pth` | `6c69c76e491810f70b2750262a7ecc9d2a300160a1ab442c02317e48de105280` | 2 — hachure regions | yes | ignored |
 | `sketchcleannet.pth` | `daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b` | 1 — cleanup | **no** — Stage 1 selected `passthrough_binary` on all 100 benchmark figures | ignored |
 | `free2cad_v3_best.pth` | `c438ecd9d34dd4173b18e39e92eb1213473cf36f3764d2fed53b88bc29e91ba9` | 3 — research fitter | **no** — the production fitter imports no Free2CAD; RANSAC is production | tracked |
 
-The last two are configured but inert on the patent path. They are kept so the
-research fitters and non-patent inputs remain runnable from the same file; do
-not treat them as deployment dependencies.
+SketchCleanNet is not used by the binary-patent inference path. Its registered
+hash is checked when present; a missing cleaner is allowed only when Stage 1
+selects binary passthrough. Grayscale inference cannot silently fall back in
+strict mode. Free2CAD is not a required runtime artifact for production RANSAC.
+
+```bash
+.venv/bin/python -m tools.deployment --config config_deploy.yaml
+```
+
+The batch driver records resolved configuration, selected checkpoint hashes,
+hashes of the stage entry points and batch/preflight code, and initial worker
+settings in `deployment_run.json`. Incompatible resume requires a new output
+directory and database. This is an artifact/execution check, not proof of model
+accuracy or a complete environment/package lock.
 
 Superseded Stage 2 checkpoint, retained for provenance:
 `puhachov_sketchgraphs_full_phaseA.pth`, SHA-256
@@ -42,9 +56,12 @@ confidence `0.843326`): PatentVec A weights, `fusion: false`, `tiled: true`,
 `hachure_region_cleanup_before_metrics`. Snapshot of that exact config:
 `output/PatentData100_Stage3GuardedP2FixedFrozen/stage34_replay_config.yaml`
 (replay digest `da6084f614eada71eb2cc2138bf5b88247bfd3799af17ab308162afac6650951`).
-The deploy file differs from that snapshot only in `puhachov.device` and
-`stage2.hachure_cnn_device`, which stay `cpu` so the configuration is portable;
-device does not change the selected geometry, only throughput.
+The selected geometry policy is unchanged. Since 2026-09-09 the deployment file
+also explicitly records `hachure_mode: region`, `dashed_grouping: false`, and
+strict model enforcement. `puhachov.device` and `stage2.hachure_cnn_device` stay
+`cpu`; GPU numerical parity still needs its own check. The new preservation
+implementation is documented in the
+[Priority 0 validation record](../docs/PRIORITY0_IMPLEMENTATION_2026-09-09.md).
 
 **Open item.** This reconciliation makes the deployment reproduce what was
 measured. It does not by itself establish that `complexityA` beats the

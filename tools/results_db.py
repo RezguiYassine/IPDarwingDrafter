@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS results (
     -- Stage 3
     s3_time          REAL,
     s3_n_primitives  INTEGER,
+    s3_n_budget_primitives INTEGER,
     s3_n_hachure_primitives INTEGER,
     s3_mean_conf     REAL,
     s3_low_conf_ratio REAL,
@@ -72,6 +73,13 @@ CREATE TABLE IF NOT EXISTS results (
     s4_n_in          INTEGER,
     s4_n_out         INTEGER,
     s4_flagged       INTEGER,
+
+    acceptance_status TEXT,
+    acceptance_policy_version TEXT,
+    acceptance_reason_codes TEXT,
+    acceptance_path TEXT,
+    acceptance_sha256 TEXT,
+    training_eligible INTEGER,
 
     PRIMARY KEY (patent_id, sketch_id)
 );
@@ -94,18 +102,27 @@ COLUMNS = [
     "s2_n_closed_edges", "s2_n_hachure_edges_removed", "s2_median_edge_len",
     "s2_micro_edge_ratio", "s2_short_edge_ratio",
     "s2_isolation", "s2_flagged",
-    "s3_time", "s3_n_primitives", "s3_n_hachure_primitives", "s3_mean_conf",
+    "s3_time", "s3_n_primitives", "s3_n_budget_primitives", "s3_n_hachure_primitives", "s3_mean_conf",
     "s3_low_conf_ratio", "s3_flagged",
     "s4_time", "s4_n_in", "s4_n_out", "s4_flagged",
+    "acceptance_status", "acceptance_policy_version", "acceptance_reason_codes",
+    "acceptance_path", "acceptance_sha256", "training_eligible",
 ]
 
 EXTRA_COLUMN_TYPES = {
+    "acceptance_status": "TEXT",
+    "acceptance_policy_version": "TEXT",
+    "acceptance_reason_codes": "TEXT",
+    "acceptance_path": "TEXT",
+    "acceptance_sha256": "TEXT",
+    "training_eligible": "INTEGER",
     "s2_n_closed_edges": "INTEGER",
     "s2_n_hachure_edges_removed": "INTEGER",
     "s2_median_edge_len": "REAL",
     "s2_micro_edge_ratio": "REAL",
     "s2_short_edge_ratio": "REAL",
     "s3_n_hachure_primitives": "INTEGER",
+    "s3_n_budget_primitives": "INTEGER",
     "s3_low_conf_ratio": "REAL",
     "s0_time": "REAL",
     "s0_n_labels": "INTEGER",
@@ -156,6 +173,16 @@ def insert_row(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     conn.execute(
         f"INSERT OR REPLACE INTO results ({cols}) VALUES ({placeholders})",
         values,
+    )
+    conn.commit()
+
+
+def invalidate_acceptance(conn: sqlite3.Connection, keys: list[tuple[str, str]]) -> None:
+    """A failed reprocessing attempt must not retain an earlier acceptance seal."""
+    conn.executemany(
+        "UPDATE results SET acceptance_status='review', training_eligible=0, "
+        "acceptance_sha256=NULL, acceptance_reason_codes='[\"reprocessing\"]' "
+        "WHERE patent_id=? AND sketch_id=?", keys,
     )
     conn.commit()
 

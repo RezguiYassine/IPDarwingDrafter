@@ -26,6 +26,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from tools import acceptance, deployment
+
 
 DEFAULT_DB = Path("output/PatentData_clean12_gated/results.db")
 DEFAULT_RUN_OUTPUT = Path("output/PatentData_clean12_gated")
@@ -59,6 +61,11 @@ MANIFEST_FIELDS = (
     "dxf_path",
     "filter_reason",
     "curation_reason",
+    "acceptance_status",
+    "acceptance_policy_version",
+    "acceptance_reason_codes",
+    "acceptance_sha256",
+    "training_eligible",
     "total_time",
     "s1_quality",
     "s2_n_edges",
@@ -655,6 +662,15 @@ def _format_row(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
 
 def build(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Counter]:
     filter_rows = _load_filter_manifest(args.filter_manifest)
+    selected_identity = deployment.preflight(args.config)["identity"]
+    run_manifest = args.run_output / "deployment_run.json"
+    try:
+        recorded = json.loads(run_manifest.read_text())
+        if (recorded.get("identity") != selected_identity
+                or recorded.get("database_path") != str(args.db.resolve())):
+            selected_identity = None
+    except (OSError, ValueError, TypeError):
+        selected_identity = None
     con = sqlite3.connect(args.db)
     con.row_factory = sqlite3.Row
     keep: list[dict[str, Any]] = []
@@ -671,7 +687,9 @@ def build(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str
             row[col] = frow.get(col)
         row.update(_artifact_paths(args.run_output, row["patent_id"], row["sketch_id"]))
 
-        reason = _curation_reason(row, args)
+        reason = acceptance.eligibility_reason(row, args.run_output, selected_identity)
+        if reason is None:
+            reason = _curation_reason(row, args)
         row["curation_reason"] = reason
         reasons[reason] += 1
         if reason == "keep":
@@ -704,6 +722,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Build a strict PatentData SVG/DXF training manifest from batch results."
     )
     p.add_argument("--db", type=Path, default=DEFAULT_DB)
+    p.add_argument("--config", type=Path, default=deployment.CANONICAL_CONFIG,
+                   help="Selected canonical deployment; identity must match the run and acceptance records.")
     p.add_argument("--run-output", type=Path, default=DEFAULT_RUN_OUTPUT)
     p.add_argument("--filter-manifest", type=Path, default=DEFAULT_FILTER_MANIFEST)
     p.add_argument("--output-csv", type=Path, default=DEFAULT_OUTPUT_CSV)

@@ -8,6 +8,8 @@ free2cad:
   repo_path: stage3_primitivesfitting/research/repos/Free2CAD/networkTraining
   weights: models/free2cad_v3_best.pth
 pipeline:
+  deployment:
+    strict_models: true
   log_level: INFO
   quality_gates:
     enabled: true
@@ -98,6 +100,8 @@ stage1:
     morph_kernel: 2
   quality_threshold: 0.7
 stage2:
+  hachure_mode: region
+  dashed_grouping: false
   fragmentation:
     max_edges: 2500
     max_micro_edge_ratio: 0.5

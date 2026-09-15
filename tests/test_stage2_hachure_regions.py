@@ -49,6 +49,8 @@ def test_single_angle_region():
     regs = s2._aggregate_hachure_regions(rh, (256, 256), _CFG)
     assert regs, "no region detected"
     r = max(regs, key=lambda x: x["n_lines"])
+    assert len(r["source_hachure_indices"]) == r["n_lines"]
+    assert all(0 <= i < len(rh) for i in r["source_hachure_indices"])
     assert not r["double"], f"single hatch flagged as cross-hatch: {r['angles']}"
     assert s2._angle_delta_deg(r["angles"][0], 45.0) < 10.0, r["angles"]
     assert abs(r["spacing"] - 10.0) < 3.0, r["spacing"]

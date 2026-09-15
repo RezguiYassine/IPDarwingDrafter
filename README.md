@@ -8,6 +8,77 @@ the IP DrawingDrafter project. It takes a raster image of a hand-drawn or patent
 engineering sketch as input and produces clean, ISO 128–styled vector files
 (SVG and DXF) that can be opened in any CAD application.
 
+**Recovered connection integration (2026-09-14):** Stage 2 now inserts local
+recovered links into existing traces and splices unambiguous endpoint contacts,
+with exact source-pixel and hatch preservation. All 411 tests pass. CAD250
+primitives fall 5,581 -> 1,166 while retaining 250 geometry passes; mean rendered
+F1 improves 0.989766 -> 0.993725, with 13 recorded regressions. Patent pilot
+main edges fall 656 -> 477 and 527 -> 257; one now exports canonically, but
+neither is accepted for training. Stroke-width/overlap regressions, hatch-heavy
+fragmentation, unresolved source marks, and content/reference validation remain.
+See [integration results, outliers, and next priorities](docs/STAGE2_CONNECTION_INTEGRATION.md).
+
+**Stage 2 coverage (2026-09-14, before integration):** graphs now account for missing source pixels
+per operation, preserve small components, and recover source-only residual
+paths. All 391 tests pass. The fixed CAD250 recovery replay improves geometry
+passes from 247 to 250; the three failing CAD views also pass fresh Stage 2
+checks. Patent source coverage improves, but recovery creates many short
+traces: both canonical pilot rows now hit the unchanged Stage 2 fragmentation
+gate. Two singleton pixels remain unresolved, and rendered CAD regressions
+are recorded despite better mean fidelity. No training targets are admitted.
+See [coverage evidence, previews, and limitations](docs/STAGE2_SOURCE_COVERAGE.md).
+
+**Compact hatches and fitting repair (2026-09-14):** explicit hatch bundles
+preserve disconnected strokes and per-stroke ownership; hatch JSON shrinks
+71% in the two-patent canonical pilot. Ordinary fits, legacy hatch fits, and
+compound-path connectors now receive raw-source guards. All 370 tests pass.
+Paired Patent91 failing primitive checks fall from 513 to zero; CAD250 geometry
+passes rise from 212 to 247. Patent raster F1 improves from 0.915722 to 0.920001,
+with 15 small regressions. Whole-image omissions, 20 unverified native hatch
+patterns, and true stroke complexity still block acceptance: packaging does not
+bypass the 900-stroke budget, and the canonical smoke admits zero training rows.
+See [results, previews, and remaining work](docs/COMPACT_HATCH_FIT_REPAIR.md).
+
+**Residual/curve repair (2026-09-12):** Stage 2 now traces bounded non-cycle
+residuals as ordered paths; RANSAC circle/ellipse promotion requires measured
+source support. Recovered strokes and hatch regions have preservation guards.
+All 347 tests pass. Paired Patent91 raster F1 improves from 0.881590 to 0.915722,
+with eight regressions; CAD250 improves from 0.984643 to 0.985261. All emitted
+circles/ellipses pass source checks, but no patent has a full geometry pass.
+Dense residuals still produce excessive primitives; the final canonical smoke
+blocks one drawing at the unchanged 900-primitive cap and admits neither to
+training. See [repairs, regressions, and evidence](docs/RESIDUAL_CURVE_REPAIR.md).
+
+**Source-supported geometry (2026-09-10):** canonical acceptance now measures
+each primitive against its own raw stroke pixels and the Stage 1 skeleton,
+including bidirectional distance, angular coverage, endpoints, and ownership.
+The confirmed phantom circles are rejected. Frozen checks find geometry issues
+in all 91 exported patents; a 250-view Drawing2CAD sample has 211 passes, 14
+reviews, and 25 failures. These are checks of unchanged reconstructions, not
+newly improved outputs. See [geometry validation](docs/SOURCE_SUPPORTED_GEOMETRY.md).
+
+**Acceptance contract (2026-09-10):** canonical batches now save independent
+`accepted / review / rejected / error` decisions and per-format export evidence.
+Training manifests require a current acceptance record bound to the selected
+deployment and unchanged artifacts. Successful execution alone is insufficient.
+Content routing remains pending; hatch-pattern and full DXF geometry parity
+also need validation. Current automatic runs remain non-training-eligible.
+Initial contract verification: 268 passing tests, 91/91 frozen
+drawings with intact SVG/DXF geometry and unchanged SVG thumbnails, and a fresh
+two-drawing run correctly excluded from training pending review. See
+[the contract and validation record](docs/ACCEPTANCE_CONTRACT.md).
+
+**Current deployment status (2026-09-09):** `config_deploy.yaml` is the
+canonical batch configuration: Stage 0 OCR, binary-aware Stage 1, PatentVec A
+tiled Puhachov, hatch regions, guarded RANSAC, and SVG/DXF export. Reference
+text and hatch export preservation fixes are implemented. The paired frozen
+100-patent replay retains 91 successful exports, improves raster F1 from
+0.878608 to 0.881590, and changes no main primitives. See the
+[implementation and validation record](docs/PRIORITY0_IMPLEMENTATION_2026-09-09.md)
+and the [preceding project audit](docs/PROJECT_STATUS_2026-09-09.md).
+Content filtering and remaining accuracy checks still gate LLM training targets;
+this is not a claim of unrestricted deployment readiness.
+
 ```
    raster PNG/TIF          no-reference raster       cleaned + skeleton
        │                          │                          │
@@ -76,7 +147,34 @@ the one large model weight (`sketchcleannet.pth`, 124 MB) that doesn't ship
 in the repository — see [Model weights](#model-weights) below. It is
 idempotent: safe to re-run.
 
-### 2. Run the pipeline on a sample
+### 2. Run the canonical patent pipeline
+
+```bash
+.venv/bin/python -m tools.deployment --config config_deploy.yaml
+.venv/bin/python -m tools.batch_run --config config_deploy.yaml \
+    --worklist docs/audits/2026-09-09/priority0_smoke.csv \
+    --output output/MyCanonicalPatentRun --workers 2
+```
+
+The worklist selects two existing PatentData figures. Canonical batches verify
+the checkpoint hashes in `models/deployment_manifest.json`, record a
+`deployment_run.json`, and reject missing required models or unexpected
+inference fallback. Binary patent images still legitimately bypass
+SketchCleanNet. Use a new output directory/database after changing the recorded
+configuration, checkpoint bytes, or hashed pipeline implementation; legacy
+result databases are not silently adopted as validated runs.
+
+Each processed figure also receives `acceptance/<sketch>_acceptance.json`;
+Stage 4 writes `vectors/<sketch>_export_report.json`. Read `acceptance_status`
+and `reason_codes` before selecting training targets. The SQLite `status` still
+describes execution, not training suitability. Unknown reference text retains
+its SVG crop but requires review because editable DXF text is unavailable.
+
+The batch driver defaults to `config_deploy.yaml`. Experimental configurations
+remain available through an explicit `--config config.yaml` or another research
+config; those runs do not receive strict deployment guarantees.
+
+### 3. Run individual research stages
 
 ```bash
 # Optional Stage 0 — remove patent reference numerals/leaders before Stage 1
@@ -113,7 +211,7 @@ output/
 └── vectors/      ← Stage 4 (final .svg / .dxf)
 ```
 
-### 3. Review the synthetic M5/M6 curriculum
+### 4. Review the synthetic M5/M6 curriculum
 
 The Track-A synthetic-data generator composes split-safe SketchGraphs and
 Drawing2CAD/CAD-VGDrawing geometry into medium/hard interaction graphs, then
@@ -152,7 +250,8 @@ gate `/media/safe/secondary disk/IPdrawings`.
 Vectorization/
 ├── README.md                        ← this file
 ├── LICENSE                          ← Apache 2.0
-├── config.yaml                      ← single source of truth for all stages
+├── config_deploy.yaml               ← canonical deployment chain
+├── config.yaml                      ← research / individual-stage defaults
 ├── requirements.txt
 ├── setup.sh                         ← one-shot install + weight download
 │
@@ -249,19 +348,24 @@ See [`models/README.md`](models/README.md) for details.
 
 ## Configuration
 
-All production stages read from the single [`config.yaml`](config.yaml) at the
-project root. All paths in it are relative to the project root, so the
-config works on any clone without editing.
+The production batch driver defaults to [`config_deploy.yaml`](config_deploy.yaml).
+Individual-stage CLIs retain [`config.yaml`](config.yaml) as their research
+default. Relative batch checkpoint paths resolve against the configuration's
+directory. Use the canonical batch entry point for deployment preflight and
+run identity checks.
 
 The most common knobs:
 
 | Key                                | Default | Effect |
 |------------------------------------|--------:|--------|
-| `sketchcleannet.weights`           | `models/sketchcleannet.pth` | empty `""` ⇒ force classical cleaning mode |
+| `sketchcleannet.weights`           | `models/sketchcleannet.pth` | Optional for binary passthrough; required for grayscale inference in strict deployment |
 | `sketchcleannet.device`            | `cpu`   | `cuda` for GPU |
-| `puhachov.weights`                 | `models/puhachov_d2c.pth` | Default fusion seeding (CN topology + CNN corners). `""` ⇒ pure-CN path (recommended for large PatentData batches, where fusion is neutral) |
-| `puhachov.fusion`                  | `true`  | Fuse CN endpoints/junctions with CNN corners. `false` ⇒ raw CNN keypoints (worse than both) |
-| `puhachov.device`                  | `cpu`   | `cuda` for GPU if a compatible detector is supplied later |
+| `puhachov.weights`                 | `models/puhachov_patentvec_complexityA.pth` | Hash-verified canonical Stage 2 checkpoint |
+| `puhachov.fusion`                  | `false` | Canonical CNN tiled seeding; comparison against historical Phase A fusion remains pending |
+| `puhachov.device`                  | `cpu`   | Requested keypoint inference device; GPU parity remains a separate validation check |
+| `pipeline.deployment.strict_models` | `true` | Reject noncanonical behavior, incompatible resume, missing required models, and inference fallback |
+| `stage2.hachure_mode`              | `region` | Explicit region ownership with per-edge fallback for unmatched hatch geometry |
+| `stage2.dashed_grouping`           | `false` | Historical default made explicit; experimental hidden-line grouping is not promoted |
 | `stage0.enabled`                   | `true`  | PatentData batch mode removes reference numerals/help lines before Stage 1 and reinjects them during Stage 4 |
 | `stage0.max_iterations`            | `10`    | Bounded repeated Stage 0 pass; catches labels that become detectable only after earlier removals |
 | `stage0.require_leader`            | `true`  | Prefer text-like clusters attached to nearby leader/help lines; unleadered and caption text use stricter shape filters |

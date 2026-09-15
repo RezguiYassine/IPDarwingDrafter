@@ -34,6 +34,7 @@ Author : Yassine Rezgui — HAW Landshut / IP DrawingDrafter
 from __future__ import annotations
 
 import json
+import hashlib
 import heapq
 import logging
 import os
@@ -1118,6 +1119,488 @@ def _materialize_keypoint_clusters(
     return kp_info, kp_map, kp_pixels
 
 
+def _residual_chains(pixels):
+    """Partition digital adjacencies into maximal degree-2 chains, without chords."""
+    points = {tuple(map(int, point)) for point in pixels}
+    adjacency = {}
+    for x, y in points:
+        neighbours = []
+        for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0),
+                       (1, 0), (-1, 1), (0, 1), (1, 1)):
+            neighbour = (x + dx, y + dy)
+            if neighbour not in points:
+                continue
+            if dx and dy and ((x + dx, y) in points or (x, y + dy) in points):
+                continue
+            neighbours.append(neighbour)
+        adjacency[(x, y)] = sorted(neighbours)
+    visited = set()
+    chains = []
+
+    def link(a, b):
+        return (a, b) if a < b else (b, a)
+
+    def walk(start, following):
+        chain = [start, following]
+        visited.add(link(start, following))
+        previous, current = start, following
+        while len(adjacency[current]) == 2 and current != start:
+            following = next(point for point in adjacency[current] if point != previous)
+            if link(current, following) in visited:
+                break
+            visited.add(link(current, following))
+            chain.append(following)
+            previous, current = current, following
+        chains.append(chain)
+
+    for point in sorted(points):
+        neighbours = adjacency[point]
+        if not neighbours:
+            chains.append([point])
+        if len(neighbours) == 2:
+            continue
+        for neighbour in neighbours:
+            if link(point, neighbour) not in visited:
+                walk(point, neighbour)
+    # Components containing only degree-2 pixels are actual cycles.
+    for point in sorted(points):
+        for neighbour in adjacency[point]:
+            if link(point, neighbour) not in visited:
+                walk(point, neighbour)
+    return adjacency, chains
+
+
+def repair_noncycle_residuals(nodes, edges):
+    """Replace unclaimed pseudo-loops with ordered traces; retain all source pixels.
+
+    This also supports frozen graph replay. Untouched edges keep their IDs;
+    additional chains receive new IDs and retain their parent's provenance.
+    """
+    output_nodes = list(nodes)
+    output_edges = []
+    repaired = False
+    next_node = max((node["id"] for node in nodes), default=-1) + 1
+    next_edge = max((edge["id"] for edge in edges), default=-1) + 1
+    for edge in edges:
+        if (edge.get("topology_origin") != "unclaimed_component"
+                or edge.get("is_simple_cycle") is not False
+                or len(edge.get("pixels", [])) > 100_000):
+            output_edges.append(edge)
+            continue
+        adjacency, chains = _residual_chains(edge["pixels"])
+        repaired = True
+        anchors = {}
+
+        def anchor(point, closed):
+            nonlocal next_node
+            if point not in anchors:
+                anchors[point] = next_node
+                degree = len(adjacency[point])
+                kind = KP_JUNCTION if degree > 2 else KP_LOOP_ANCHOR if closed else KP_ENDPOINT
+                output_nodes.append({"id": next_node, "x": point[0], "y": point[1],
+                                     "type": kind, "confidence": 1.0})
+                next_node += 1
+            return anchors[point]
+
+        for index, chain in enumerate(chains):
+            closed = len(chain) > 2 and chain[0] == chain[-1]
+            source, target = anchor(chain[0], closed), anchor(chain[-1], closed)
+            output_edges.append({
+                "id": edge["id"] if index == 0 else next_edge,
+                "source": source, "target": target,
+                "pixels": [list(point) for point in chain], "smooth_pts": [],
+                "is_closed": closed, "is_simple_cycle": closed,
+                "topology_origin": "recovered_residual",
+                "residual_parent_edge_ids": [edge["id"]],
+            })
+            if index:
+                next_edge += 1
+        recovered = {point for chain in chains for point in chain}
+        if recovered != set(adjacency):
+            raise RuntimeError("Residual repair lost source pixels")
+    if not repaired:
+        return nodes, edges
+    used_nodes = {edge[key] for edge in output_edges for key in ("source", "target")}
+    return [node for node in output_nodes if node["id"] in used_nodes], output_edges
+
+
+def _coverage_spans(mask):
+    """Lossless row runs [y, first_x, exclusive_end_x] for source accounting."""
+    spans = []
+    for y in np.flatnonzero(np.any(mask, axis=1)):
+        changes = np.diff(np.r_[False, mask[y], False].astype(np.int8))
+        spans.extend([int(y), int(a), int(b)] for a, b in
+                     zip(np.flatnonzero(changes == 1), np.flatnonzero(changes == -1)))
+    return spans
+
+
+class _CoverageLedger:
+    """Track actual source pixels, never node proximity or inferred hatch fill."""
+
+    def __init__(self, skeleton):
+        self.source = np.asarray(skeleton, dtype=bool).copy()
+        self.previous = self.source.copy()
+        self.stages = []
+
+    def record(self, operation, edges, hatches=(), *, active_skeleton=None):
+        represented = _edge_support_mask(edges, self.source.shape).astype(bool)
+        represented |= _edge_support_mask(hatches, self.source.shape).astype(bool)
+        if active_skeleton is not None:
+            represented |= np.asarray(active_skeleton) > 0
+        represented &= self.source
+        lost = self.previous & ~represented
+        self.stages.append({
+            "operation": operation,
+            "represented_source_pixels": int(represented.sum()),
+            "missing_source_pixels": int((self.source & ~represented).sum()),
+            "newly_missing_pixels": int(lost.sum()),
+            "restored_pixels": int((represented & ~self.previous).sum()),
+            "newly_missing_spans": _coverage_spans(lost),
+        })
+        self.previous = represented
+
+    def report(self, recovery, *, scale=1.0, original_shape=None):
+        total = int(self.source.sum())
+        missing = self.source & ~self.previous
+        residual = np.zeros_like(missing)
+        for y, start, end in recovery["unresolved_spans"]:
+            residual[y, start:end] = True
+        if not np.array_equal(residual, missing):
+            raise RuntimeError("Coverage residuals do not match the final graph")
+        return {
+            "schema": "ap3-stage2-coverage-v1", "coordinate_frame": "stage2_pixels",
+            "image_shape": list(self.source.shape), "stage2_scale": scale,
+            "original_image_shape": list(original_shape or self.source.shape),
+            "original_grid_preserved": scale == 1.0,
+            "source_mask_sha256": hashlib.sha256(np.packbits(self.source).tobytes()).hexdigest(),
+            "stages": self.stages, "recovery": recovery,
+            "status": "review" if missing.any() else "pass",
+            "source_pixels": total,
+            "represented_source_pixels": int(self.previous.sum()),
+            "residual_source_pixels": int(missing.sum()),
+            "unaccounted_source_pixels": 0,
+            "represented_fraction": float(self.previous.sum()/total) if total else 1.0,
+            "accounted_fraction": 1.0,
+        }
+
+
+def recover_source_coverage(skeleton, nodes, edges, hatches=(), *,
+                            max_component_pixels=100_000, max_new_edges=5_000):
+    """Recover only unrepresented source ink; retain ambiguous singletons for review.
+
+    A one-pixel source halo supplies real contacts at existing strokes. No gap
+    is dilated into invented ink, and already owned hatch strokes stay separate.
+    This is geometric recovery, not semantic merging of existing graph edges.
+    """
+    if max_component_pixels < 1 or max_new_edges < 1:
+        raise ValueError("Coverage recovery limits must be positive")
+    source = np.asarray(skeleton) > 0
+    support = (_edge_support_mask(edges, source.shape) |
+               _edge_support_mask(hatches, source.shape)).astype(bool)
+    missing = source & ~support
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(missing.astype(np.uint8), connectivity=8)
+    output_nodes, output_edges = list(nodes), list(edges)
+    next_node = max((n["id"] for n in nodes), default=-1)+1
+    next_edge = max((e["id"] for e in edges), default=-1)+1
+    anchors = {}
+    for edge in edges:
+        if edge.get("pixels"):
+            for point, key in ((edge["pixels"][0], "source"), (edge["pixels"][-1], "target")):
+                anchors.setdefault(tuple(point), edge[key])
+    components, new_edges = [], 0
+    for label in range(1, count):
+        x, y, w, h, size = map(int, stats[label])
+        entry = {"id": label-1, "bbox": [x, y, w, h], "source_pixels": size, "edge_ids": []}
+        components.append(entry)
+        if size > max_component_pixels:
+            entry.update(status="review", reason="component_budget")
+            continue
+        if new_edges >= max_new_edges:
+            entry.update(status="review", reason="edge_budget")
+            continue
+        left, top, right, bottom = max(0, x-1), max(0, y-1), min(source.shape[1], x+w+1), min(source.shape[0], y+h+1)
+        component = labels[top:bottom, left:right] == label
+        context = cv2.dilate(component.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+        context &= source[top:bottom, left:right]
+        context &= component | support[top:bottom, left:right]
+        cy, cx = np.nonzero(context)
+        points = list(zip((cx+left).tolist(), (cy+top).tolist()))
+        my, mx = np.nonzero(component)
+        owned = set(zip((mx+left).tolist(), (my+top).tolist()))
+        adjacency, chains = _residual_chains(points)
+        chains = [chain for chain in chains if len(chain) >= 2 and any(p in owned for p in chain)]
+        if not chains:
+            entry.update(status="review", reason="isolated_source_pixel")
+            continue
+        if new_edges + len(chains) > max_new_edges:
+            entry.update(status="review", reason="edge_budget")
+            continue
+
+        def anchor(point):
+            nonlocal next_node
+            if point not in anchors:
+                anchors[point] = next_node
+                output_nodes.append({"id": next_node, "x": point[0], "y": point[1],
+                                     "type": KP_JUNCTION if len(adjacency[point]) > 2 else KP_ENDPOINT,
+                                     "confidence": 0.3, "topology_origin": "coverage_recovery"})
+                next_node += 1
+            return anchors[point]
+
+        for chain in chains:
+            closed = len(chain) > 2 and chain[0] == chain[-1]
+            edge = {"id": next_edge, "source": anchor(chain[0]), "target": anchor(chain[-1]),
+                    "pixels": [list(p) for p in chain], "smooth_pts": [],
+                    "is_closed": closed, "is_simple_cycle": closed,
+                    "topology_origin": "coverage_recovery", "coverage_component_id": label-1}
+            output_edges.append(edge)
+            entry["edge_ids"].append(next_edge)
+            next_edge += 1
+            new_edges += 1
+        entry.update(status="recovered", reason="source_only_trace")
+    after = (_edge_support_mask(output_edges, source.shape) |
+             _edge_support_mask(hatches, source.shape)).astype(bool)
+    remaining = source & ~after
+    return output_nodes, output_edges, {
+        "max_component_pixels": max_component_pixels, "max_new_edges": max_new_edges,
+        "before_missing_pixels": int(missing.sum()), "recovered_pixels": int((missing & after).sum()),
+        "new_edges": new_edges, "components": components,
+        "unresolved_pixels": int(remaining.sum()), "unresolved_spans": _coverage_spans(remaining),
+    }
+
+
+def integrate_recovered_connections(skeleton, nodes, edges, hatches=()):
+    """Splice measured recovery into strokes, without pruning or guessing branches.
+
+    Preserve every input pixel and record input-to-output ownership. Short local
+    insertions keep the original stroke's point order; endpoint joins require a
+    degree-two source contact, including the hatch layer in that decision.
+    """
+    source = np.asarray(skeleton) > 0
+    originals = {e["id"]: e for e in edges}
+    work = {i: dict(e) for i, e in originals.items()}
+    if len(work) != len(edges):
+        raise ValueError("Coverage integration requires unique main edge IDs")
+    points = {i: [tuple(p) for p in e["pixels"]] for i, e in work.items()}
+    parents = {i: {i} for i in work}
+    recovery_ids = {i for i, e in work.items() if e.get("topology_origin") == "coverage_recovery"}
+    hatch_points = {tuple(p) for e in hatches for p in e.get("pixels", [])}
+    original_points = {p for i, chain in points.items() if i not in recovery_ids for p in chain}
+    before_points = {p for chain in points.values() for p in chain}
+    free = before_points - original_points - hatch_points
+    next_edge = max(work, default=-1) + 1
+    inserted = retired = splits = joins = 0
+
+    def link(a, b):
+        return (a, b) if a < b else (b, a)
+
+    recovery_links = {}
+    adjacency = {}
+    for i in sorted(recovery_ids):
+        for a, b in zip(points[i], points[i][1:]):
+            if a == b or max(abs(a[0]-b[0]), abs(a[1]-b[1])) > 1:
+                continue
+            if not all(0 <= p[0] < source.shape[1] and 0 <= p[1] < source.shape[0]
+                       and source[p[1], p[0]] for p in (a, b)):
+                continue
+            recovery_links.setdefault(link(a, b), set()).add(i)
+            adjacency.setdefault(a, set()).add(b)
+            adjacency.setdefault(b, set()).add(a)
+
+    def insertion(a, b):
+        # Bounded local repair, not a search for a shortcut across the drawing.
+        distance = float(np.hypot(b[0]-a[0], b[1]-a[1]))
+        if a == b or distance > 3 or a not in adjacency or b not in adjacency:
+            return None
+        candidates = []
+        stack = [(a, [a], 0.0)]
+        while stack:
+            current, chain, length = stack.pop()
+            for following in sorted(adjacency[current]):
+                if following in chain:
+                    continue
+                new_length = length + float(np.hypot(following[0]-current[0], following[1]-current[1]))
+                if new_length > distance + 1.0 or len(chain) >= 5:
+                    continue
+                if following == b:
+                    if len(chain) > 1:
+                        candidates.append(chain + [b])
+                        if len(candidates) > 1:
+                            return None
+                elif following in free:
+                    stack.append((following, chain + [following], new_length))
+        return candidates[0] if candidates else None
+
+    changed = set()
+    for i in sorted(set(work) - recovery_ids):
+        if work[i].get("is_dashed"):
+            continue
+        chain = points[i]
+        if not chain:
+            continue
+        result = [chain[0]]
+        for a, b in zip(chain, chain[1:]):
+            patch = insertion(a, b)
+            if patch is None:
+                result.append(b)
+                continue
+            result.extend(patch[1:])
+            inserted += len(patch)-2
+            for x, y in zip(patch, patch[1:]):
+                parents[i].update(recovery_links[link(x, y)])
+            changed.add(i)
+        points[i] = result
+
+    # Only retire recovery links actually traversed by an existing stroke.
+    # Pixel proximity, bounding boxes and fitted curves are not ownership.
+    owners = {}
+    for i in sorted(set(work) - recovery_ids):
+        for a, b in zip(points[i], points[i][1:]):
+            key = link(a, b)
+            if key in recovery_links:
+                owners.setdefault(key, set()).add(i)
+    for i in sorted(recovery_ids):
+        runs, run = [], []
+        for a, b in zip(points[i], points[i][1:]):
+            covered = owners.get(link(a, b), set())
+            if covered:
+                for owner in covered:
+                    parents[owner].add(i)
+                    changed.add(owner)
+                if run:
+                    runs.append(run)
+                    run = []
+            else:
+                if not run:
+                    run = [a]
+                run.append(b)
+        if run:
+            runs.append(run)
+        if runs == [points[i]] or len(points[i]) < 2:
+            continue
+        template = work.pop(i)
+        points.pop(i)
+        parents.pop(i)
+        changed.discard(i)
+        retired += not runs
+        splits += max(0, len(runs)-1)
+        for index, run in enumerate(runs):
+            ident = i if index == 0 else next_edge
+            next_edge += index > 0
+            work[ident] = dict(template, id=ident, is_closed=run[0] == run[-1],
+                               is_simple_cycle=run[0] == run[-1])
+            points[ident], parents[ident] = run, {i}
+            changed.add(ident)
+
+    # Coordinate contacts, not keypoint IDs: a keypoint cluster can contain
+    # distinct endpoints. Interior contacts and hatch junctions remain branches.
+    endpoints, interior = {}, set()
+    for i, chain in points.items():
+        interior.update(chain[1:-1])
+        if len(chain) < 2 or work[i].get("is_closed") or work[i].get("is_dashed"):
+            interior.update(chain)
+            continue
+        for p in (chain[0], chain[-1]):
+            endpoints.setdefault(p, set()).add(i)
+
+    def degree_two(p):
+        x, y = p
+        if not (0 <= x < source.shape[1] and 0 <= y < source.shape[0] and source[y, x]):
+            return False
+        local = [(xx, yy) for yy in range(max(0, y-1), min(source.shape[0], y+2))
+                 for xx in range(max(0, x-1), min(source.shape[1], x+2)) if source[yy, xx]]
+        neighbours, _ = _residual_chains(local)
+        return len(neighbours[p]) == 2
+
+    for p in sorted(endpoints):
+        ids = endpoints[p]
+        if len(ids) != 2 or p in interior or p in hatch_points or not degree_two(p):
+            continue
+        a, b = sorted(ids)
+        if not ((parents[a] | parents[b]) & recovery_ids):
+            continue
+        if work[a].get("style") != work[b].get("style"):
+            continue
+        first = points[a] if points[a][-1] == p else points[a][::-1]
+        second = points[b] if points[b][0] == p else points[b][::-1]
+        overlap = set(first) & set(second)
+        closed = first[0] == second[-1]
+        if overlap != ({p, first[0]} if closed else {p}):
+            continue
+        combined = first + second[1:]
+        if closed and (len(set(combined[:-1])) != len(combined)-1 or
+                       any(max(abs(x[0]-y[0]), abs(x[1]-y[1])) > 1
+                           for x, y in zip(combined, combined[1:]))):
+            continue
+        # A shared endpoint must also be an actual consecutive source step.
+        if any(max(abs(x[0]-y[0]), abs(x[1]-y[1])) > 1
+               for x, y in ((first[-2], p), (p, second[1]))):
+            continue
+        for ident in (a, b):
+            for endpoint in (points[ident][0], points[ident][-1]):
+                endpoints[endpoint].discard(ident)
+        points[a] = combined
+        parents[a].update(parents.pop(b))
+        work[a].update(is_closed=closed, is_simple_cycle=closed)
+        work.pop(b)
+        points.pop(b)
+        changed.discard(b)
+        changed.add(a)
+        if not closed:
+            for endpoint in (combined[0], combined[-1]):
+                endpoints[endpoint].add(a)
+        interior.update(combined[1:-1])
+        joins += 1
+
+    output_nodes = list(nodes)
+    node_at = {(n["x"], n["y"]): n["id"] for n in nodes}
+    next_node = max((n["id"] for n in nodes), default=-1)+1
+
+    def anchor(p):
+        nonlocal next_node
+        if p not in node_at:
+            node_at[p] = next_node
+            output_nodes.append({"id": next_node, "x": p[0], "y": p[1],
+                                 "type": KP_ENDPOINT, "confidence": 0.3,
+                                 "topology_origin": "coverage_integration"})
+            next_node += 1
+        return node_at[p]
+
+    mapping = {i: [] for i in sorted(e["id"] for e in edges)}
+    output_edges = []
+    for i in sorted(work):
+        e = work[i]
+        if i in changed:
+            ancestry = set(parents[i])
+            for parent in parents[i]:
+                ancestry.update(originals[parent].get("coverage_parent_edge_ids", []))
+            raw = [list(p) for p in points[i]]
+            e.update(pixels=raw,
+                     smooth_pts=[] if raw != originals.get(i, {}).get("pixels") else e.get("smooth_pts", []),
+                     source=anchor(points[i][0]), target=anchor(points[i][-1]),
+                     coverage_parent_edge_ids=sorted(ancestry))
+            if i not in recovery_ids or len(parents[i]) > 1:
+                e["topology_origin"] = "coverage_integration"
+        output_edges.append(e)
+        for parent in parents[i]:
+            mapping[parent].append(i)
+    after_points = {p for chain in points.values() for p in chain}
+    if after_points != before_points:
+        raise RuntimeError("Coverage integration changed the represented main pixel set")
+    # Per-input ownership includes fully absorbed and partially split recovery.
+    for e in edges:
+        owned = {p for i in mapping[e["id"]] for p in points[i]}
+        if not set(map(tuple, e["pixels"])) <= owned:
+            raise RuntimeError("Coverage integration lost an input stroke's source ownership")
+    return output_nodes, output_edges, {
+        "schema": "ap3-stage2-coverage-integration-v1", "status": "pass",
+        "before_edges": len(edges), "after_edges": len(output_edges),
+        "inserted_pixel_occurrences": inserted, "retired_recovery_edges": int(retired),
+        "recovery_splits": splits, "endpoint_joins": joins,
+        "main_pixel_set_preserved": True, "hatch_edges_unchanged": True,
+        "input_to_output_edge_ids": {str(i): ids for i, ids in mapping.items()},
+    }
+
+
 def _extract_topology(
     skeleton: np.ndarray,
     kp_clusters: list[dict] | None = None,   # keypoint seeds; None → classical CN
@@ -1138,7 +1621,8 @@ def _extract_topology(
          even when approaching from a diagonal pixel.
       4. Walk outward from each keypoint cluster; one edge per unique
          (src, dst) pair.
-      5. Unclaimed CCs >= min_loop_pixels -> closed loops.  ``closed_only``
+      5. Unclaimed CCs >= min_loop_pixels -> ordered paths or genuine cycles.
+         ``closed_only``
          retains only components whose induced pixel graph contains no open
          endpoint; ``none`` omits all unclaimed components.
 
@@ -1276,11 +1760,9 @@ def _extract_topology(
         edge_id += 1
 
     # ── Step 5: closed loops ─────────────────────────────────────────────
-    # Keep this low (8) so tiny genuine circles (≥4 px radius) are captured
-    # as closed-loop edges.  The noise filter in run() then discards non-circular
-    # small loops using _is_circular_loop, so patent-TIF ink blobs are still
-    # suppressed.
-    min_loop_pixels = 8
+    # Even a two-pixel component may be a real mark. Singletons and pixels
+    # swallowed by keypoint halos are accounted for by final coverage recovery.
+    min_loop_pixels = 2
 
     # Label unclaimed non-kp pixels in image space. The previous implementation
     # materialised every pixel and 8-neighbour link as Python NetworkX objects;
@@ -1390,7 +1872,7 @@ def _extract_topology(
             })
             edge_id += 1
 
-    return nodes, edges
+    return repair_noncycle_residuals(nodes, edges)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1569,8 +2051,8 @@ def _aggregate_hachure_regions(
     n_lab, lab = cv2.connectedComponents(cv2.dilate(mask, k), connectivity=8)
     regions: list[dict] = []
     for rid in range(1, n_lab):
-        members, allpix = [], []
-        for e, a in zip(removed_hachures, arrs):
+        members, allpix, member_indices = [], [], []
+        for edge_index, (e, a) in enumerate(zip(removed_hachures, arrs)):
             if a is None or len(a) == 0:
                 continue
             cx = int(np.clip(a[:, 0].mean(), 0, W - 1))
@@ -1578,6 +2060,7 @@ def _aggregate_hachure_regions(
             if lab[cy, cx] == rid:
                 members.append(e)
                 allpix.append(a)
+                member_indices.append(edge_index)
         if len(members) < min_lines:
             continue
         pix_all = np.vstack(allpix).astype(np.int32)
@@ -1597,6 +2080,7 @@ def _aggregate_hachure_regions(
             "spacing": spacing,
             "double": len(angles) > 1,
             "n_lines": len(members),
+            "source_hachure_indices": member_indices,
         })
     return regions
 
@@ -2264,8 +2748,8 @@ def _deduplicate_hachure_edges(
 
     The non-destructive C3 prepass and the main-graph cleanup can describe the
     same hatch with different edge IDs or slightly different endpoint halos.
-    Pixel containment, normalized by the shorter edge, identifies that case
-    without collapsing distinct hatch lines that merely cross once.
+    Overlap proposes duplicates, but deletion also requires complete source
+    containment. A partly overlapping stroke can carry unique endpoints or ink.
     """
     if not 0.0 <= overlap_threshold <= 1.0:
         raise ValueError("hachure dedup overlap threshold must be in [0, 1]")
@@ -2283,6 +2767,7 @@ def _deduplicate_hachure_edges(
                 if (
                     denominator
                     and len(pixels & existing) / denominator >= overlap_threshold
+                    and pixels <= existing
                 ):
                     duplicate = True
                     break
@@ -2628,6 +3113,8 @@ def _merge_close_junctions(
     for e in E:
         if e is None or e["a"] == e["b"]:
             continue
+        if e.get("residual_parents"):
+            continue
         na, nb = node_by_id.get(e["a"]), node_by_id.get(e["b"])
         if na is None or nb is None:
             continue
@@ -2663,7 +3150,7 @@ def _merge_close_junctions(
             continue
         a = find(e["a"]) if e["a"] in parent else e["a"]
         b = find(e["b"]) if e["b"] in parent else e["b"]
-        if a == b and _chain_length(e["pix"]) < max(radius * 2.0, 6.0):
+        if a == b and not e.get("residual_parents") and _chain_length(e["pix"]) < max(radius * 2.0, 6.0):
             E[i] = None
             continue
         e["a"], e["b"] = a, b
@@ -2714,7 +3201,8 @@ def _simplify_graph(
         if e.get("is_closed"):
             continue
         pix = [(int(p[0]), int(p[1])) for p in e["pixels"]]
-        E.append({"a": e["source"], "b": e["target"], "pix": pix})
+        E.append({"a": e["source"], "b": e["target"], "pix": pix,
+                  "residual_parents": set(e.get("residual_parent_edge_ids", []))})
 
     cos_thresh = np.cos(np.radians(collinear_max_angle))
 
@@ -2745,7 +3233,8 @@ def _simplify_graph(
             pj, b_node = ej["pix"][::-1], ej["a"]
         if pi and pj and pi[-1] == pj[0]:
             pj = pj[1:]
-        E[i] = {"a": a_node, "b": b_node, "pix": pi + pj}
+        E[i] = {"a": a_node, "b": b_node, "pix": pi + pj,
+                "residual_parents": ei.get("residual_parents", set()) | ej.get("residual_parents", set())}
         E[j] = None
 
     for _ in range(max_iter):
@@ -2764,6 +3253,8 @@ def _simplify_graph(
             if e is None:
                 continue
             a, b = e["a"], e["b"]
+            if e.get("residual_parents"):
+                continue
             da, db = deg.get(a, 0), deg.get(b, 0)
             # dead-end = degree-1 end; keep it only if it is a free stroke
             # (both ends degree 1) or long enough to be real.
@@ -2901,6 +3392,9 @@ def _simplify_graph(
             "pixels": [[int(p[0]), int(p[1])] for p in e["pix"]],
             "smooth_pts": [], "is_closed": is_closed,
         })
+        if e.get("residual_parents"):
+            out_edges[-1].update(topology_origin="recovered_residual",
+                                 residual_parent_edge_ids=sorted(e["residual_parents"]))
         eid += 1
     for e in closed_edges:
         ce = dict(e)
@@ -4118,6 +4612,14 @@ def run(
     Stage2Result
     """
     t_start = time.perf_counter()
+    strict_models = bool(config.get("pipeline", {}).get("deployment", {}).get("strict_models", False))
+    if strict_models:
+        if model is None:
+            raise RuntimeError("Deployment Puhachov model is required; fallback is disabled")
+        if config.get("stage2", {}).get("hachure_use_cnn", False) and (
+            hatch_model is None or source_image_path is None
+        ):
+            raise RuntimeError("Deployment hatch CNN requires its model and source image")
 
     graphs_dir = output_dir / "graphs"
     graphs_dir.mkdir(parents=True, exist_ok=True)
@@ -4164,6 +4666,7 @@ def run(
 
     logger.info(f"[{sketch_id}] Stage 2 — skeleton {W}×{H}px, "
                 f"{int((skeleton > 0).sum())} foreground px")
+    coverage_ledger = _CoverageLedger(skeleton)
 
     max_radius = cfg_kp.get("max_search_radius", 60)
     hatch_mask = None
@@ -4390,6 +4893,8 @@ def run(
                         f"→ {len(kp_clusters)} clusters ({kp_source}"
                         f"{f', {tile_size}px tiles' if tiled else ''})")
         except Exception as exc:
+            if strict_models:
+                raise RuntimeError("Deployment Puhachov inference failed; fallback is disabled") from exc
             logger.warning(f"[{sketch_id}] CNN keypoint detection failed "
                            f"({exc}), using classical fallback")
             kp_clusters = _cn_keypoint_clusters(skeleton)
@@ -4559,6 +5064,7 @@ def run(
         )
 
     # ── Layer 2: Topology extraction ──────────────────────────────────────
+    coverage_ledger.record("topology_prepasses", [], removed_hachures, active_skeleton=skeleton)
     nodes, edges = _extract_topology(
         skeleton,
         kp_clusters,
@@ -4572,6 +5078,7 @@ def run(
         ),
     )
     logger.info(f"[{sketch_id}] Graph: {len(nodes)} nodes, {len(edges)} edges")
+    coverage_ledger.record("topology_extraction", edges, removed_hachures)
 
     # ── Learned hatch-region mask (Phase 2 CNN) ───────────────────────────
     # Run the detector on the same image Stage 1 consumed (identical coordinate
@@ -4587,6 +5094,8 @@ def run(
                 f"({hatch_mask.mean()*100:.1f}%) @ thr={threshold}"
             )
         except Exception as exc:
+            if strict_models:
+                raise RuntimeError("Deployment hatch CNN inference failed; fallback is disabled") from exc
             logger.warning(
                 f"[{sketch_id}] Hatch CNN inference failed ({exc}); "
                 "using geometric hachure removal."
@@ -4678,6 +5187,7 @@ def run(
             )
 
     # ── Layer 2b: Graph simplification (de-fragmentation) ─────────────────
+    coverage_ledger.record("hatch_pre_simplify", edges, removed_hachures)
     # Prune skeleton spurs, dissolve phantom degree-2 junctions, and merge
     # collinear edges that pass straight through real junctions. Without this
     # a single logical stroke fragments into many primitives: dense patent
@@ -4699,6 +5209,7 @@ def run(
                     f"{e0}→{len(edges)} edges")
 
     # ── Hachure removal: learned mask (primary) or geometric (fallback) ────
+    coverage_ledger.record("graph_simplification", edges, removed_hachures)
     # The CNN mask is the primary signal when the Phase 2 detector is loaded;
     # the geometric clustering heuristic runs only when no mask is available.
     if use_cnn_hatch:
@@ -4829,6 +5340,7 @@ def run(
 
     # Shared post-removal cleanup (residual crumbs + re-simplify) — identical
     # for both the learned and geometric paths.
+    coverage_ledger.record("hatch_separation", edges, removed_hachures)
     if did_remove_hachures:
         min_removed_for_prune = int(
             cfg_kp.get("hachure_residual_prune_min_removed", 1)
@@ -4848,6 +5360,7 @@ def run(
                     f"{n2}→{len(nodes)} nodes, {e2}→{len(edges)} edges "
                     f"({len(residuals)} removed)"
                 )
+        coverage_ledger.record("hatch_residual_pruning", edges, removed_hachures)
         if cfg_kp.get("simplify_graph", True):
             n1, e1 = len(nodes), len(edges)
             nodes, edges = _simplify_graph(
@@ -4861,6 +5374,7 @@ def run(
                 f"{n1}→{len(nodes)} nodes, {e1}→{len(edges)} edges"
             )
 
+    coverage_ledger.record("post_hatch_simplification", edges, removed_hachures)
     if removed_hachures:
         before_dedup = len(removed_hachures)
         removed_hachures = _deduplicate_hachure_edges(
@@ -4875,6 +5389,7 @@ def run(
                 f"{before_dedup}→{len(removed_hachures)} edges"
             )
 
+    coverage_ledger.record("hatch_deduplication", edges, removed_hachures)
     # Aggregate hatch lines before final metrics, then classify any matching
     # residue and re-simplify. The old late cleanup silently deleted residue
     # after metrics and left its structural neighbours fragmented.
@@ -4924,6 +5439,7 @@ def run(
             hachure_regions = []
 
     # ── Layer 3: Curve smoothing ──────────────────────────────────────────
+    coverage_ledger.record("early_region_cleanup", edges, removed_hachures)
     rdp_eps        = cfg_kp.get("rdp_epsilon",          1.5)
     spline_s       = cfg_kp.get("spline_smoothing",     2.0)
     overshoot_lim  = cfg_kp.get("spline_overshoot_limit", 5.0)
@@ -4931,21 +5447,14 @@ def run(
                           spline_overshoot_limit=overshoot_lim)
 
     # ── Filter noise closed loops ─────────────────────────────────────────
-    # Tiny closed loops that are NOT geometrically circular are skeleton noise
-    # (ink blobs, dust from scanned patent TIFs).  Genuine small circles
-    # (e.g. construction points in clean CAD rasterizations) have uniform
-    # radial distance from their centroid and are preserved via the
-    # _is_circular_loop circularity guard.
+    # Size/non-circularity alone cannot establish noise. Retain these source
+    # shapes; the count remains useful for auditing the former deletion rule.
     min_loop_px = cfg_kp.get("min_closed_loop_pixels", 80)
     noise_loops = [e for e in edges
                    if e.get("is_closed") and len(e["pixels"]) < min_loop_px
+                   and not e.get("residual_parent_edge_ids")
                    and not _is_circular_loop(e["pixels"])]
-    if noise_loops:
-        noise_ids = {e["id"] for e in noise_loops}
-        edges = [e for e in edges if e["id"] not in noise_ids]
-        nodes, edges = _drop_unused_nodes(nodes, edges)
-        logger.debug(f"[{sketch_id}] Removed {len(noise_loops)} noise closed loop(s) "
-                     f"(< {min_loop_px} px, non-circular): edge ids {sorted(noise_ids)}")
+    coverage_ledger.record("smoothing_and_small_loop_preservation", edges, removed_hachures)
 
     # ── Prune free-floating skeleton speckle (opt-in) ─────────────────────
     # Removes lone tiny disconnected fragments (scan noise) that dominate the
@@ -4962,6 +5471,7 @@ def run(
                 f"fragment(s), {n_before}→{len(edges)} edges"
             )
 
+    coverage_ledger.record("floating_noise_pruning", edges, removed_hachures)
     # ── Group dashed centre-lines / bolt-circles (opt-in) ─────────────────
     # Runs BEFORE the fragmentation metrics so grouped dashes stop inflating
     # micro_edge_ratio / isolation on valid dashed drawings.
@@ -4974,17 +5484,47 @@ def run(
                 f"{n_before}→{len(edges)} edges"
             )
 
+    coverage_ledger.record("dashed_grouping", edges, removed_hachures)
+
+    # Finish legacy ordering before final recovery and metrics. Preserve the
+    # residue side channel here too; no cleanup may delete ink after accounting.
+    if (not early_region_cleanup and cfg_kp.get("hachure_mode", "region") == "region"
+            and removed_hachures):
+        try:
+            hachure_regions = _aggregate_hachure_regions(removed_hachures, (H, W), cfg_kp)
+            if hachure_regions:
+                nodes, edges, late_residuals = _cleanup_hatch_residue(
+                    nodes, edges, hachure_regions, (H, W), cfg_kp)
+                removed_hachures.extend(late_residuals)
+        except Exception as exc:
+            logger.warning(f"[{sketch_id}] Hachure region aggregation failed: {exc}")
+            hachure_regions = []
+    coverage_ledger.record("late_region_cleanup", edges, removed_hachures)
+    nodes, edges, coverage_recovery = recover_source_coverage(
+        coverage_ledger.source, nodes, edges, removed_hachures)
+    coverage_ledger.record("final_source_recovery", edges, removed_hachures)
+    nodes, edges, integration = integrate_recovered_connections(
+        coverage_ledger.source, nodes, edges, removed_hachures)
+    coverage_recovery["integration"] = integration
+    coverage_ledger.record("recovered_connection_integration", edges, removed_hachures)
+    coverage_report = coverage_ledger.report(
+        coverage_recovery, scale=stage2_scale, original_shape=(orig_H, orig_W))
+    coverage_report["small_closed_shapes_preserved"] = len(noise_loops)
+    logger.info(f"[{sketch_id}] Source coverage: {coverage_recovery['recovered_pixels']} pixels "
+                f"recovered as {coverage_recovery['new_edges']} traces; "
+                f"{coverage_recovery['unresolved_pixels']} pixels remain explicit review items")
+
     # ── Confidence signal ─────────────────────────────────────────────────
     ignored_hachure_pixels = {
         (int(px[0]), int(px[1]))
         for edge in removed_hachures
         for px in edge.get("pixels", [])
     }
-    # Pruned speckle is noise, not structure: exclude it from the coverage
-    # metric too, else removing a noise fragment paradoxically RAISES isolation.
-    ignored_pixels = ignored_hachure_pixels | pruned_noise_pixels
+    # Only actual preserved hatch geometry leaves the structural denominator.
+    # Unresolved source marks are not silently declared noise.
+    ignored_pixels = ignored_hachure_pixels
     iso_ratio = _compute_isolation_ratio(
-        skeleton,
+        coverage_ledger.source,
         edges,
         ignored_pixels=ignored_pixels,
     )
@@ -5014,6 +5554,8 @@ def run(
     )
     flagged = (
         iso_ratio > threshold
+        or any(c["reason"] in {"component_budget", "edge_budget"}
+               for c in coverage_recovery["components"])
         or len(edges) > max_edges
         or (
             max_allowed_noncycle_unclaimed_pixels
@@ -5037,38 +5579,15 @@ def run(
             return float(obj)
         return obj
 
-    # Compatibility control for paired evaluation. Production keeps the
-    # historical late cleanup until the preservation-first ordering passes the
-    # full PatentData gate.
-    if (
-        not early_region_cleanup
-        and cfg_kp.get("hachure_mode", "region") == "region"
-        and removed_hachures
-    ):
-        try:
-            hachure_regions = _aggregate_hachure_regions(
-                removed_hachures, (H, W), cfg_kp
-            )
-            if hachure_regions:
-                n_before = len(edges)
-                nodes, edges, _late_residuals = _cleanup_hatch_residue(
-                    nodes, edges, hachure_regions, (H, W), cfg_kp
-                )
-                logger.info(
-                    f"[{sketch_id}] Hachure regions: {len(hachure_regions)} "
-                    f"from {len(removed_hachures)} lines "
-                    f"({sum(r['n_lines'] for r in hachure_regions)} grouped); "
-                    f"legacy residue cleanup {n_before}→{len(edges)} edges"
-                )
-        except Exception as exc:
-            logger.warning(f"[{sketch_id}] Hachure region aggregation failed: {exc}")
-            hachure_regions = []
-
     graph_doc = _to_python({
         "sketch_id":   sketch_id,
         "image_shape": [H, W],
         "original_image_shape": [orig_H, orig_W],
         "stage2_scale": stage2_scale,
+        "keypoint_source": kp_source,
+        "coverage": coverage_report,
+        "hachure_source": ("cnn" if hatch_mask is not None else
+                           "geometric" if cfg_kp.get("remove_hachures", False) else "disabled"),
         "metrics": {
             "n_closed_edges": n_closed,
             "n_hachure_edges_removed": len(removed_hachures),

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Patent Pipeline Review</title>
+<style>
+* { box-sizing: border-box; letter-spacing: 0; }
+body { margin: 0; font: 13px Arial, sans-serif; color: #22272a; background: #f3f4f4; }
+header { padding: 12px 16px 10px; border-bottom: 1px solid #d5d9da; background: #fff; }
+.topline, .toolbar, .navigation, .zoom-tools, .feedback { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.topline { justify-content: space-between; margin-bottom: 10px; }
+h1 { margin: 0; font-size: 18px; font-weight: 600; }
+#summary { color: #505b60; font-size: 12px; }
+button, input, select, .icon-link { min-height: 34px; font: inherit; border: 1px solid #bcc5c8; border-radius: 4px; background: #fff; color: #22272a; }
+button, .icon-link { cursor: pointer; }
+button:hover:not(:disabled), .icon-link:hover { background: #e6eeeb; border-color: #7c9690; }
+button:disabled { opacity: .35; cursor: default; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #167566; outline-offset: 2px; }
+.icon-button, .icon-link { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 7px; flex: 0 0 34px; }
+.icon-button img, .icon-link img { width: 18px; height: 18px; }
+input, select { padding: 6px 8px; min-width: 0; }
+#search { width: 170px; }
+#sample { width: 265px; max-width: 100%; }
+#filter { width: 175px; }
+#counter { min-width: 60px; text-align: center; font-variant-numeric: tabular-nums; }
+#zoom-value { display: inline-block; min-width: 45px; text-align: center; font-variant-numeric: tabular-nums; }
+.zoom-tools { margin-left: auto; }
+#grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pane { min-width: 0; border-right: 1px solid #c7ced0; }
+.pane:last-child { border-right: none; }
+.pane-head { min-height: 144px; padding: 12px 14px; background: #f6f7f7; border-bottom: 1px solid #c7ced0; }
+.pane-title { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-height: 34px; }
+h2 { font-size: 15px; margin: 0; font-weight: 600; }
+.pane-title select { max-width: 165px; font-size: 12px; }
+.status { margin: 8px 0 5px; font-size: 12px; color: #576368; overflow-wrap: anywhere; }
+.status.blocked { color: #a2383e; }
+.status.exported { color: #146456; }
+.status.diagnostic { color: #865c10; }
+.metrics, .provenance { color: #59656a; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.provenance { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.links { display: flex; gap: 10px; margin-top: 6px; align-items: center; flex-wrap: wrap; min-height: 18px; }
+.links a, details a { color: #146456; font-size: 11px; text-decoration: underline; }
+.viewport { height: max(390px, calc(100dvh - 325px)); min-width: 0; position: relative; overflow: hidden; background: #fff; cursor: grab; touch-action: none; }
+.viewport.dragging { cursor: grabbing; }
+.drawing { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; user-select: none; max-width: none; }
+.empty { padding: 26px; max-width: 100%; color: #963b40; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.view-kind { position: absolute; bottom: 9px; left: 10px; background: #fff; padding: 4px 6px; color: #59656a; font-size: 11px; pointer-events: none; border: 1px solid #ddd; }
+.view-kind.warning { color: #865c10; }
+footer { background: #fff; border-top: 1px solid #c7ced0; padding: 10px 16px; }
+.feedback label { font-size: 12px; }
+#rating { width: 150px; }
+#notes { flex: 1; min-width: 180px; }
+#feedback-state { font-size: 11px; color: #59656a; min-width: 72px; }
+details { margin-top: 9px; color: #59656a; font-size: 12px; }
+summary { cursor: pointer; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 11px; }
+#no-results { padding: 32px; }
+@media (max-width: 950px) {
+  #grid { grid-template-columns: 1fr; }
+  .pane { border-right: none; border-bottom: 1px solid #c7ced0; }
+  .pane-head { min-height: 0; }
+  .viewport { height: 62dvh; min-height: 320px; }
+  .zoom-tools { margin-left: 0; }
+  #sample { width: 220px; }
+}
+@media (max-width: 480px) {
+  header { padding: 10px; }
+  .toolbar { gap: 7px; }
+  .navigation { width: 100%; }
+  #sample { flex: 1; width: 130px; }
+  #search { flex: 1; width: 125px; }
+  #filter { width: 155px; }
+  .pane-title { align-items: flex-start; }
+  h2 { font-size: 14px; }
+  .pane-title select { width: 155px; }
+  footer { padding: 10px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="topline"><h1>Patent Pipeline Review</h1><div id="summary"></div></div>
+  <div class="toolbar">
+    <div class="navigation">
+      <button id="prev" class="icon-button" title="Previous sample" aria-label="Previous sample"><img src="icons/arrow-left.svg" alt=""></button>
+      <span id="counter" aria-live="polite"></span>
+      <button id="next" class="icon-button" title="Next sample" aria-label="Next sample"><img src="icons/arrow-right.svg" alt=""></button>
+      <select id="sample" aria-label="Sample"></select>
+    </div>
+    <input id="search" type="search" placeholder="Patent or figure ID" aria-label="Search samples">
+    <select id="filter" aria-label="Sample status">
+      <option value="all">All samples</option><option value="exported">Current exports</option>
+      <option value="blocked">No canonical export</option><option value="missing">Previous output missing</option>
+      <option value="reviewed">Reviewed samples</option>
+    </select>
+    <div class="zoom-tools">
+      <button id="zoom-out" class="icon-button" title="Zoom out" aria-label="Zoom out"><img src="icons/zoom-out.svg" alt=""></button>
+      <span id="zoom-value">100%</span>
+      <button id="zoom-in" class="icon-button" title="Zoom in" aria-label="Zoom in"><img src="icons/zoom-in.svg" alt=""></button>
+      <button id="fit" class="icon-button" title="Fit drawings" aria-label="Fit drawings"><img src="icons/scan.svg" alt=""></button>
+    </div>
+  </div>
+</header>
+<main><div id="grid"></div><div id="no-results" hidden>No matching samples.</div></main>
+<footer>
+  <div class="feedback">
+    <label for="rating">Assessment</label>
+    <select id="rating"><option value="">Unreviewed</option><option value="better">Current is better</option><option value="similar">Similar</option><option value="worse">Current is worse</option><option value="needs_review">Needs review</option></select>
+    <input id="notes" placeholder="Observation" aria-label="Sample observation">
+    <span id="feedback-state"></span>
+    <button id="download-feedback" class="icon-button" title="Download feedback CSV" aria-label="Download feedback CSV"><img src="icons/download.svg" alt=""></button>
+  </div>
+  <details><summary>Run and sample audit</summary><pre id="audit"></pre><a href="review.json">Review manifest</a> | <a href="samples.csv">100-sample worklist</a></details>
+</footer>
+<script>
+const REVIEW=__REVIEW_DATA__;
+const figures=REVIEW.figures, summary=REVIEW.summary;
+const $=id=>document.getElementById(id);
+const storeKey='patent-review:v1:'+summary.current_root;
+let feedback={};
+try {feedback=JSON.parse(localStorage.getItem(storeKey)||'{}');} catch {}
+let index=0, filtered=figures.map((_,i)=>i), zoom=1, panX=0, panY=0;
+const savedSample=Number(new URLSearchParams(location.hash.slice(1)).get('sample'));
+if(Number.isInteger(savedSample)&&savedSample>0&&savedSample<=figures.length) index=savedSample-1;
+const key=f=>f.patent+'/'+f.sketch;
+function element(tag,className,text) {const e=document.createElement(tag); if(className)e.className=className; if(text!==undefined)e.textContent=text; return e;}
+function link(parent,label,url) {if(!url)return;const a=element('a','',label);a.href=url;a.target='_blank';a.rel='noopener';parent.append(a);}
+function fitScale(vp) {const size=figures[index].original.size;return Math.min(vp.clientWidth/size[0],vp.clientHeight/size[1]);}
+function transforms() {
+  const size=figures[index].original.size;
+  document.querySelectorAll('.viewport').forEach(vp=>{
+    const img=vp.querySelector('.drawing');if(!img)return;
+    const s=fitScale(vp)*zoom;
+    img.style.width=size[0]+'px';
+    img.style.transform=`translate(${vp.clientWidth/2-size[0]*s/2+panX*s}px,${vp.clientHeight/2-size[1]*s/2+panY*s}px) scale(${s})`;
+  });
+  $('zoom-value').textContent=Math.round(zoom*100)+'%';
+}
+function reset() {zoom=1;panX=0;panY=0;transforms();}
+function zoomBy(factor,vp=null,x=0,y=0) {
+  const next=Math.max(.25,Math.min(30,zoom*factor));
+  if(vp){const base=fitScale(vp);panX+=x/base*(1/next-1/zoom);panY+=y/base*(1/next-1/zoom);}
+  zoom=next;transforms();
+}
+function viewport(view,kind,reason) {
+  const vp=element('div','viewport');
+  if(!view) {vp.append(element('div','empty',reason||'No saved output.'));return vp;}
+  const img=element('img','drawing');img.alt=view.label;img.src=view.src;img.draggable=false;
+  img.onerror=()=>{img.remove();vp.append(element('div','empty','Preview could not be loaded.'));};
+  vp.append(img);
+  vp.append(element('div','view-kind'+(['diagnostic','graph'].includes(kind)?' warning':''),view.label));
+  vp.addEventListener('wheel',e=>{e.preventDefault();const r=vp.getBoundingClientRect();zoomBy(e.deltaY<0?1.15:1/1.15,vp,e.clientX-r.left-r.width/2,e.clientY-r.top-r.height/2);},{passive:false});
+  let drag=null;
+  vp.onpointerdown=e=>{if(e.button!==0)return;drag={x:e.clientX,y:e.clientY,panX,panY};vp.setPointerCapture(e.pointerId);vp.classList.add('dragging');};
+  vp.onpointermove=e=>{if(!drag)return;const s=fitScale(vp)*zoom;panX=drag.panX+(e.clientX-drag.x)/s;panY=drag.panY+(e.clientY-drag.y)/s;transforms();};
+  vp.onpointerup=vp.onpointercancel=()=>{drag=null;vp.classList.remove('dragging');};
+  return vp;
+}
+function pane(title,run,isCurrent) {
+  const section=element('section','pane'), head=element('div','pane-head'), top=element('div','pane-title');
+  top.append(element('h2','',title));
+  const choices=element('select');choices.setAttribute('aria-label',title+' view');
+  for(const [id,view] of Object.entries(run.views)) {const o=element('option','',view.label);o.value=id;choices.append(o);}
+  if(!choices.length)choices.append(element('option','','No output'));
+  choices.disabled=Object.keys(run.views).length<2;top.append(choices);head.append(top);
+  const mode=run.canonical_export?'exported':isCurrent&&run.diagnostic?.status==='rendered'?'diagnostic':'blocked';
+  const status=run.status==='saved_diagnostic'?'Saved diagnostic export':run.status.replaceAll('_',' ');
+  head.append(element('div','status '+mode,status+' | '+(isCurrent?'acceptance: '+run.acceptance:(run.geometry?'geometry: '+run.geometry:'historical output'))));
+  head.append(element('div','metrics',run.metrics.join(' | ')||'No Stage 2 metrics'));
+  const provenance=element('div','provenance',(isCurrent?summary.current_root:summary.previous_root).split('/').pop());
+  provenance.title=isCurrent?summary.current_root:summary.previous_root;head.append(provenance);
+  const links=element('div','links');for(const [name,url] of Object.entries(run.links))link(links,name==='diagnostic_svg'?'Diagnostic SVG':name.toUpperCase(),url);head.append(links);
+  section.append(head);
+  const reason=run.reason||(isCurrent?'The current pipeline has no canonical vector export for this sample.':'No output was saved in the selected previous run.');
+  section.append(viewport(run.views[run.initial_view],run.initial_view,reason));
+  choices.onchange=()=>{section.querySelector('.viewport').replaceWith(viewport(run.views[choices.value],choices.value,reason));transforms();};
+  return section;
+}
+function render() {
+  const f=figures[index], position=filtered.indexOf(index);
+  $('prev').disabled=position<=0;$('next').disabled=position<0||position===filtered.length-1;
+  $('counter').textContent=filtered.length?`${position+1} / ${filtered.length}`:'0 / 0';
+  $('sample').value=String(index);$('grid').replaceChildren();$('no-results').hidden=filtered.length>0;
+  $('rating').disabled=$('notes').disabled=!filtered.length;
+  if(!filtered.length)return;
+  const original=element('section','pane'),head=element('div','pane-head');
+  const title=element('div','pane-title');title.append(element('h2','','Original TIF'));head.append(title);
+  head.append(element('div','status',`${f.patent} / ${f.sketch}`));
+  head.append(element('div','metrics',f.original.size.join(' x ')+' px | original scan'));
+  const links=element('div','links');link(links,'TIF',f.tif);link(links,'PNG',f.original.src);head.append(links);original.append(head,viewport(f.original,'original'));
+  $('grid').append(original,pane('Current pipeline',f.current,true),pane('Previous output',f.previous,false));
+  const note=feedback[key(f)]||{};$('rating').value=note.rating||'';$('notes').value=note.notes||'';$('feedback-state').textContent='';
+  $('audit').textContent=JSON.stringify({sample:key(f),current_status:f.current.status,current_acceptance:f.current.acceptance,current_reason:f.current.reason,
+    current_acceptance_reasons:f.current.acceptance_reasons,
+    current_diagnostic:f.current.diagnostic||null,source_coverage:f.current.coverage||null,current_preview_error:f.current.preview_error||null,
+    previous_status:f.previous.status,previous_reason:f.previous.reason,previous_preview_error:f.previous.preview_error||null,
+    previous_embedded_reference_images:f.previous.embedded_images,run_summary:summary},null,2);
+  try{history.replaceState(null,'','#sample='+f.number);}catch{}
+  transforms();
+}
+function filterSamples() {
+  const q=$('search').value.trim().toLowerCase(), mode=$('filter').value;
+  filtered=figures.map((_,i)=>i).filter(i=>{const f=figures[i];return key(f).toLowerCase().includes(q)&&(
+    mode==='all'||mode==='exported'&&f.current.canonical_export||mode==='blocked'&&!f.current.canonical_export||
+    mode==='missing'&&!f.previous.views.vector||mode==='reviewed'&&feedback[key(f)]?.rating);});
+  if(!filtered.includes(index)&&filtered.length)index=filtered[0];
+  $('sample').replaceChildren();for(const i of filtered){const f=figures[i],o=element('option','',`${f.number}. ${f.patent} / ${f.sketch}`);o.value=i;$('sample').append(o);}
+  $('sample').disabled=!filtered.length;reset();render();
+}
+function move(step) {const pos=filtered.indexOf(index),next=pos+step;if(next<0||next>=filtered.length)return;index=filtered[next];zoom=1;panX=0;panY=0;render();}
+function saveFeedback() {
+  if(!filtered.length)return;
+  feedback[key(figures[index])]={rating:$('rating').value,notes:$('notes').value};
+  try{localStorage.setItem(storeKey,JSON.stringify(feedback));$('feedback-state').textContent='Saved locally';}
+  catch{$('feedback-state').textContent='Session only';}
+}
+function downloadFeedback() {
+  const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+  const rows=[['sample','patent_id','sketch_id','assessment','notes','current_status','acceptance']];
+  for(const f of figures){const r=feedback[key(f)]||{};rows.push([f.number,f.patent,f.sketch,r.rating,r.notes,f.current.status,f.current.acceptance]);}
+  const url=URL.createObjectURL(new Blob([rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download='patent-review-feedback.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('summary').textContent=`${summary.completed}/${summary.samples} processed | ${summary.current_exports} current exports | ${summary.current_diagnostics} diagnostic previews | ${summary.previous_outputs} previous outputs`;
+$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);
+$('sample').onchange=()=>{index=Number($('sample').value);zoom=1;panX=0;panY=0;render();};
+$('search').oninput=filterSamples;$('filter').onchange=filterSamples;
+$('zoom-in').onclick=()=>zoomBy(1.3);$('zoom-out').onclick=()=>zoomBy(1/1.3);$('fit').onclick=reset;
+$('rating').onchange=$('notes').oninput=saveFeedback;$('download-feedback').onclick=downloadFeedback;
+window.addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key==='ArrowLeft')move(-1);if(e.key==='ArrowRight')move(1);});
+window.addEventListener('resize',transforms);
+filterSamples();
+</script>
+</body>
+</html>

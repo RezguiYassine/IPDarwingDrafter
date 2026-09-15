@@ -1,0 +1,59 @@
+{
+  "gallery": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_CurrentPipelineReviewGPU1_2026-09-14/viewer",
+  "summary": {
+    "samples": 100,
+    "completed": 100,
+    "current_exports": 23,
+    "current_diagnostics": 73,
+    "previous_outputs": 91,
+    "current_statuses": {
+      "quality_gate_stage2": 28,
+      "ok": 23,
+      "quality_gate_stage3": 46,
+      "quality_gate_stage1": 3
+    },
+    "acceptance": {
+      "rejected": 94,
+      "review": 6
+    },
+    "preview_errors": 0,
+    "graph_preview_errors": 0,
+    "current_root": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_CurrentPipelineReviewGPU1_2026-09-14",
+    "previous_root": "/home/safe/Desktop/yassine/Vectorization/output/PatentData91_CompactHatchFitV2",
+    "worklist_sha256": "8c44338a997d2d35d57fdc35f689538757f47ceee15cfe790adbc55b514d8d3a",
+    "pipeline_modified_for_review": false,
+    "deployment_identity": {
+      "effective_config_sha256": "5b71a6bc63543c56721961b6ff3d20a129f13fe7e9dcf0163942e5393a0ab770",
+      "implementation_sha256": "e930c1e7c91222475da9daa48b22d0cfc8716e5212f704e1be083c9021cbebb0",
+      "weight_manifest_sha256": "e7fdb035a6e222dbc7b135be8754a4bd7c0c2b051143e947ef039c9c5bf09af5",
+      "weights": {
+        "puhachov.weights": {
+          "available": true,
+          "path": "/home/safe/Desktop/yassine/Vectorization/models/puhachov_patentvec_complexityA.pth",
+          "required": true,
+          "sha256": "3fd035c9848cf51fdb9b8dafe5065d69d6e053a81e7782763753741b8870ef8c"
+        },
+        "sketchcleannet.weights": {
+          "available": true,
+          "path": "/home/safe/Desktop/yassine/Vectorization/models/sketchcleannet.pth",
+          "required": false,
+          "sha256": "daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b"
+        },
+        "stage2.hachure_cnn_model": {
+          "available": true,
+          "path": "/home/safe/Desktop/yassine/Vectorization/models/hatch_unet.pth",
+          "required": true,
+          "sha256": "6c69c76e491810f70b2750262a7ecc9d2a300160a1ab442c02317e48de105280"
+        }
+      }
+    },
+    "devices": {
+      "puhachov": "cuda:1",
+      "hatch": "cuda:1",
+      "ocr_gpu": false
+    }
+  },
+  "page_errors": [],
+  "cases_checked": 100,
+  "status": "pass"
+}

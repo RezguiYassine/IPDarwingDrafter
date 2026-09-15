@@ -1,0 +1,619 @@
+{
+  "completed_date": "2026-09-12",
+  "scope": "Frozen residual/curve repair plus separately guarded fresh smoke; not deployment acceptance or CAD ground-truth accuracy.",
+  "final_implementation_sha256": {
+    "/home/safe/Desktop/yassine/Vectorization/stage2_strokeextraction/stage2_stroke_extract.py": "cac944a14eb14294a290efe06a5f388da0d6fefb9a8374655aa7f651456b70e4",
+    "/home/safe/Desktop/yassine/Vectorization/stage3_primitivesfitting/stage3_primitive_fit.py": "a3fb92d8f77426820367d836e6c89e1d1139d5ef2c7992cacfd6bdd29aa1ab1c",
+    "/home/safe/Desktop/yassine/Vectorization/stage4_export/stage4_export.py": "73ec063507ce55ddd08c2230468a3d74777aa9b1954f2ba2826cf937168b2c13",
+    "/home/safe/Desktop/yassine/Vectorization/tools/geometry_validation.py": "43bf8bfeabf8c26ea6e5cad8d04202dd057413ec84a9e53e76e7752a2cb7dcaf"
+  },
+  "cohorts": {
+    "PatentData100_ResidualRepair": {
+      "summary_path": "output/PatentData100_ResidualRepair/summary.json",
+      "summary_sha256": "1957fd0329caf11175e37ec01b71de7fc04fe4e11a70a9b11d5b4f5cd4e4d6ba",
+      "config_sha256": "c4b918fb43de370742279ca90dda9db39c0f045ebb6a864a026d3810eb7d2146",
+      "replay_implementation_sha256": {
+        "/home/safe/Desktop/yassine/Vectorization/stage2_strokeextraction/stage2_stroke_extract.py": "cac944a14eb14294a290efe06a5f388da0d6fefb9a8374655aa7f651456b70e4",
+        "/home/safe/Desktop/yassine/Vectorization/stage3_primitivesfitting/stage3_primitive_fit.py": "b167a37c2437ec76a27bf883fee61e5c6bdaf6d9d58fdc0b8154b7c48e9df7cd",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/stage4_export.py": "73ec063507ce55ddd08c2230468a3d74777aa9b1954f2ba2826cf937168b2c13",
+        "/home/safe/Desktop/yassine/Vectorization/tools/geometry_validation.py": "43bf8bfeabf8c26ea6e5cad8d04202dd057413ec84a9e53e76e7752a2cb7dcaf"
+      },
+      "execution_counts": {
+        "ok": 91
+      },
+      "before_geometry": {
+        "fail": 91
+      },
+      "after_geometry": {
+        "fail": 91
+      },
+      "source_pixels_preserved": true,
+      "source_pixel_occurrences_across_drawings": 3799372,
+      "historical_hatches_unchanged": true,
+      "unrepaired_noncycles": 0,
+      "after_drawings_over_900_primitives": 51,
+      "metrics": {
+        "f1_at_2px": {
+          "before_mean": 0.8815900681519827,
+          "after_mean": 0.9136880060832994,
+          "mean_delta": 0.03209793793131659,
+          "increased": 83,
+          "decreased": 8,
+          "tied": 0,
+          "worst_delta": -0.010475245477198247
+        },
+        "precision_at_2px": {
+          "before_mean": 0.9132888209560365,
+          "after_mean": 0.9768428478008542,
+          "mean_delta": 0.06355402684481759,
+          "increased": 90,
+          "decreased": 0,
+          "tied": 1,
+          "worst_delta": 0.0
+        },
+        "recall_at_2px": {
+          "before_mean": 0.8633377701085735,
+          "after_mean": 0.8648329856221452,
+          "mean_delta": 0.0014952155135716642,
+          "increased": 59,
+          "decreased": 32,
+          "tied": 0,
+          "worst_delta": -0.03429149063010284
+        },
+        "chamfer_sym": {
+          "before_mean": 3.569533977314086,
+          "after_mean": 1.7810715073440375,
+          "mean_delta": -1.7884624699700489,
+          "increased": 12,
+          "decreased": 79,
+          "tied": 0,
+          "worst_delta": 0.1327863010208694
+        },
+        "chamfer_p95": {
+          "before_mean": 15.15828568258452,
+          "after_mean": 7.459132043649266,
+          "mean_delta": -7.699153638935253,
+          "increased": 16,
+          "decreased": 56,
+          "tied": 19,
+          "worst_delta": 0.9584054212077042
+        }
+      },
+      "before_curves": {
+        "fail": 998,
+        "review": 202,
+        "pass": 18
+      },
+      "after_curves": {
+        "pass": 3491
+      },
+      "before_primitives": {
+        "total": 15970,
+        "by_status": {
+          "pass": 8885,
+          "review": 4939,
+          "fail": 2146
+        },
+        "by_type": {
+          "path": 7112,
+          "line": 2836,
+          "polygon": 3842,
+          "polyline": 492,
+          "circle": 1190,
+          "hatch": 20,
+          "arc": 450,
+          "ellipse": 28
+        }
+      },
+      "after_primitives": {
+        "total": 611969,
+        "by_status": {
+          "pass": 607551,
+          "fail": 1074,
+          "review": 3344
+        },
+        "by_type": {
+          "path": 17597,
+          "line": 587630,
+          "ellipse": 1209,
+          "arc": 2685,
+          "hatch": 20,
+          "polyline": 315,
+          "polygon": 231,
+          "circle": 2282
+        }
+      },
+      "f1_regressions": [
+        {
+          "patent_or_model": "EP2623349B1",
+          "sketch": "F0001",
+          "before": 0.8354629628904646,
+          "after": 0.8323667987269686
+        },
+        {
+          "patent_or_model": "EP2693964B1",
+          "sketch": "F0002",
+          "before": 0.8601332806781998,
+          "after": 0.856701338119426
+        },
+        {
+          "patent_or_model": "EP3078734B1",
+          "sketch": "F0001",
+          "before": 0.6350022539444641,
+          "after": 0.6258567903127866
+        },
+        {
+          "patent_or_model": "EP3129274B1",
+          "sketch": "F0001",
+          "before": 0.8807778633205002,
+          "after": 0.870302617843302
+        },
+        {
+          "patent_or_model": "EP3205737B1",
+          "sketch": "F0006",
+          "before": 0.8217335761358152,
+          "after": 0.8168434525246524
+        },
+        {
+          "patent_or_model": "EP3491995A1",
+          "sketch": "F0001",
+          "before": 0.9105795967431105,
+          "after": 0.9083289257285095
+        },
+        {
+          "patent_or_model": "EP3496476A1",
+          "sketch": "F0001",
+          "before": 0.8714569008693713,
+          "after": 0.8693767702834302
+        },
+        {
+          "patent_or_model": "EP3502419A1",
+          "sketch": "A0001",
+          "before": 0.8998408506257695,
+          "after": 0.8976518445603998
+        }
+      ]
+    },
+    "PatentData100_ResidualRepairV2": {
+      "summary_path": "output/PatentData100_ResidualRepairV2/summary.json",
+      "summary_sha256": "173cecb4d7004cf8547ddc8b254b906259175161a398254f4d6e3d1b27e61dc0",
+      "config_sha256": "c4b918fb43de370742279ca90dda9db39c0f045ebb6a864a026d3810eb7d2146",
+      "replay_implementation_sha256": {
+        "/home/safe/Desktop/yassine/Vectorization/stage2_strokeextraction/stage2_stroke_extract.py": "cac944a14eb14294a290efe06a5f388da0d6fefb9a8374655aa7f651456b70e4",
+        "/home/safe/Desktop/yassine/Vectorization/stage3_primitivesfitting/stage3_primitive_fit.py": "092074dc5f793a990bf470b6fa1cf257facc67dcfd1eeb94791463f926767748",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/stage4_export.py": "73ec063507ce55ddd08c2230468a3d74777aa9b1954f2ba2826cf937168b2c13",
+        "/home/safe/Desktop/yassine/Vectorization/tools/geometry_validation.py": "43bf8bfeabf8c26ea6e5cad8d04202dd057413ec84a9e53e76e7752a2cb7dcaf"
+      },
+      "execution_counts": {
+        "ok": 91
+      },
+      "before_geometry": {
+        "fail": 91
+      },
+      "after_geometry": {
+        "review": 1,
+        "fail": 90
+      },
+      "source_pixels_preserved": true,
+      "source_pixel_occurrences_across_drawings": 3799372,
+      "historical_hatches_unchanged": true,
+      "unrepaired_noncycles": 0,
+      "after_drawings_over_900_primitives": 51,
+      "metrics": {
+        "f1_at_2px": {
+          "before_mean": 0.8815900681519827,
+          "after_mean": 0.9157218990796648,
+          "mean_delta": 0.034131830927682086,
+          "increased": 83,
+          "decreased": 8,
+          "tied": 0,
+          "worst_delta": -0.010095725516998888
+        },
+        "precision_at_2px": {
+          "before_mean": 0.9132888209560365,
+          "after_mean": 0.9789756244916294,
+          "mean_delta": 0.06568680353559288,
+          "increased": 90,
+          "decreased": 0,
+          "tied": 1,
+          "worst_delta": 0.0
+        },
+        "recall_at_2px": {
+          "before_mean": 0.8633377701085735,
+          "after_mean": 0.8668283528771406,
+          "mean_delta": 0.003490582768567257,
+          "increased": 67,
+          "decreased": 24,
+          "tied": 0,
+          "worst_delta": -0.01988587084636151
+        },
+        "chamfer_sym": {
+          "before_mean": 3.569533977314086,
+          "after_mean": 1.7641490576329666,
+          "mean_delta": -1.80538491968112,
+          "increased": 11,
+          "decreased": 80,
+          "tied": 0,
+          "worst_delta": 0.1253305828583809
+        },
+        "chamfer_p95": {
+          "before_mean": 15.15828568258452,
+          "after_mean": 7.367148679683571,
+          "mean_delta": -7.791137002900949,
+          "increased": 16,
+          "decreased": 57,
+          "tied": 18,
+          "worst_delta": 0.9968102316130025
+        }
+      },
+      "before_curves": {
+        "fail": 998,
+        "review": 202,
+        "pass": 18
+      },
+      "after_curves": {
+        "pass": 3491
+      },
+      "before_primitives": {
+        "total": 15970,
+        "by_status": {
+          "pass": 8885,
+          "review": 4939,
+          "fail": 2146
+        },
+        "by_type": {
+          "path": 7112,
+          "line": 2836,
+          "polygon": 3842,
+          "polyline": 492,
+          "circle": 1190,
+          "hatch": 20,
+          "arc": 450,
+          "ellipse": 28
+        }
+      },
+      "after_primitives": {
+        "total": 611969,
+        "by_status": {
+          "pass": 609937,
+          "review": 1519,
+          "fail": 513
+        },
+        "by_type": {
+          "path": 17427,
+          "line": 587305,
+          "ellipse": 1209,
+          "arc": 2471,
+          "polyline": 1024,
+          "hatch": 20,
+          "polygon": 231,
+          "circle": 2282
+        }
+      },
+      "f1_regressions": [
+        {
+          "patent_or_model": "EP2623349B1",
+          "sketch": "F0001",
+          "before": 0.8354629628904646,
+          "after": 0.8321618603818223
+        },
+        {
+          "patent_or_model": "EP2693964B1",
+          "sketch": "F0002",
+          "before": 0.8601332806781998,
+          "after": 0.856281281628239
+        },
+        {
+          "patent_or_model": "EP3078734B1",
+          "sketch": "F0001",
+          "before": 0.6350022539444641,
+          "after": 0.6262446328410716
+        },
+        {
+          "patent_or_model": "EP3129274B1",
+          "sketch": "F0001",
+          "before": 0.8807778633205002,
+          "after": 0.8706821378035013
+        },
+        {
+          "patent_or_model": "EP3205737B1",
+          "sketch": "F0006",
+          "before": 0.8217335761358152,
+          "after": 0.8171206454816853
+        },
+        {
+          "patent_or_model": "EP3491995A1",
+          "sketch": "F0001",
+          "before": 0.9105795967431105,
+          "after": 0.9083131057061129
+        },
+        {
+          "patent_or_model": "EP3496476A1",
+          "sketch": "F0001",
+          "before": 0.8714569008693713,
+          "after": 0.8692359067168924
+        },
+        {
+          "patent_or_model": "EP3502419A1",
+          "sketch": "A0001",
+          "before": 0.8998408506257695,
+          "after": 0.8983212287177044
+        }
+      ],
+      "final_hatch_guard_exact_parity_drawings": 91
+    },
+    "Drawing2CAD250_ResidualRepairV2": {
+      "summary_path": "output/Drawing2CAD250_ResidualRepairV2/summary.json",
+      "summary_sha256": "35e40fd7a6d33a7d79a519aad4e7c0218a37bd5a5b48109761cd62c3b9d2bc38",
+      "config_sha256": "fcd9e2f4c2e6b51551eda2024a2a2bfec2609c028da571db03e41bade4b6b04b",
+      "replay_implementation_sha256": {
+        "/home/safe/Desktop/yassine/Vectorization/stage2_strokeextraction/stage2_stroke_extract.py": "cac944a14eb14294a290efe06a5f388da0d6fefb9a8374655aa7f651456b70e4",
+        "/home/safe/Desktop/yassine/Vectorization/stage3_primitivesfitting/stage3_primitive_fit.py": "092074dc5f793a990bf470b6fa1cf257facc67dcfd1eeb94791463f926767748",
+        "/home/safe/Desktop/yassine/Vectorization/stage4_export/stage4_export.py": "73ec063507ce55ddd08c2230468a3d74777aa9b1954f2ba2826cf937168b2c13",
+        "/home/safe/Desktop/yassine/Vectorization/tools/geometry_validation.py": "43bf8bfeabf8c26ea6e5cad8d04202dd057413ec84a9e53e76e7752a2cb7dcaf"
+      },
+      "execution_counts": {
+        "ok": 250
+      },
+      "before_geometry": {
+        "pass": 211,
+        "fail": 25,
+        "review": 14
+      },
+      "after_geometry": {
+        "pass": 212,
+        "fail": 24,
+        "review": 14
+      },
+      "source_pixels_preserved": true,
+      "source_pixel_occurrences_across_drawings": 425335,
+      "historical_hatches_unchanged": true,
+      "unrepaired_noncycles": 0,
+      "after_drawings_over_900_primitives": 0,
+      "metrics": {
+        "f1_at_2px": {
+          "before_mean": 0.9846433146570515,
+          "after_mean": 0.9852610792518369,
+          "mean_delta": 0.0006177645947855606,
+          "increased": 11,
+          "decreased": 1,
+          "tied": 238,
+          "worst_delta": -0.0007252970381997903
+        },
+        "precision_at_2px": {
+          "before_mean": 0.9876883689477028,
+          "after_mean": 0.9882941007082222,
+          "mean_delta": 0.0006057317605194075,
+          "increased": 11,
+          "decreased": 1,
+          "tied": 238,
+          "worst_delta": -0.0007241129616220032
+        },
+        "recall_at_2px": {
+          "before_mean": 0.9817906834349419,
+          "after_mean": 0.982419332546446,
+          "mean_delta": 0.000628649111504163,
+          "increased": 7,
+          "decreased": 2,
+          "tied": 241,
+          "worst_delta": -0.003414264036418868
+        },
+        "chamfer_sym": {
+          "before_mean": 0.3322853129301452,
+          "after_mean": 0.32944980493967263,
+          "mean_delta": -0.0028355079904725427,
+          "increased": 4,
+          "decreased": 10,
+          "tied": 236,
+          "worst_delta": 0.11393398361426832
+        },
+        "chamfer_p95": {
+          "before_mean": 1.01775438614092,
+          "after_mean": 1.01063454664048,
+          "mean_delta": -0.007119839500440164,
+          "increased": 1,
+          "decreased": 3,
+          "tied": 246,
+          "worst_delta": 0.5857864376269049
+        }
+      },
+      "before_curves": {
+        "pass": 52
+      },
+      "after_curves": {
+        "pass": 66
+      },
+      "before_primitives": {
+        "total": 1743,
+        "by_status": {
+          "pass": 1684,
+          "fail": 37,
+          "review": 22
+        },
+        "by_type": {
+          "line": 1443,
+          "path": 170,
+          "arc": 61,
+          "polygon": 17,
+          "circle": 52
+        }
+      },
+      "after_primitives": {
+        "total": 1743,
+        "by_status": {
+          "pass": 1691,
+          "fail": 31,
+          "review": 21
+        },
+        "by_type": {
+          "line": 1442,
+          "path": 166,
+          "arc": 63,
+          "ellipse": 14,
+          "circle": 52,
+          "polygon": 6
+        }
+      },
+      "f1_regressions": [
+        {
+          "patent_or_model": "0002_00028951",
+          "sketch": "0002_00028951_FrontTopRight",
+          "before": 0.9998183469573115,
+          "after": 0.9990930499191117
+        }
+      ],
+      "final_hatch_guard_exact_parity_drawings": 250
+    }
+  },
+  "guarded_smoke": {
+    "run": "output/PatentData2_ResidualRepairGuardedSmoke",
+    "rows": [
+      {
+        "patent_id": "EP2565056B1",
+        "sketch_id": "F0001",
+        "status": "quality_gate_stage3",
+        "error": "primitive set not suitable for accurate CAD export: n=1557, mean_conf=0.841, low_conf_ratio=0.038, max_low_conf_ratio=0.650",
+        "s2_n_edges": 209,
+        "s2_n_hachure_edges_removed": 1348,
+        "s3_n_primitives": 1557,
+        "acceptance_status": "rejected",
+        "acceptance_reason_codes": "[\"content_validation_pending\", \"exports_validation_missing\", \"geometry_validation_missing\", \"hachures_validation_missing\", \"quality_gate_stage3\", \"references_validation_missing\", \"s4_flagged_missing\"]"
+      },
+      {
+        "patent_id": "EP3082506B1",
+        "sketch_id": "F0001",
+        "status": "ok",
+        "error": null,
+        "s2_n_edges": 192,
+        "s2_n_hachure_edges_removed": 196,
+        "s3_n_primitives": 388,
+        "acceptance_status": "rejected",
+        "acceptance_reason_codes": "[\"content_validation_pending\", \"geometry_endpoint_mismatch\", \"geometry_path_discontinuity\", \"geometry_skeleton_coverage_lost\", \"geometry_source_trace_lost\", \"geometry_unsupported_primitive\", \"geometry_unsupported_run\", \"s4_flagged\", \"unknown_reference_text\"]"
+      }
+    ],
+    "training_manifest": "output/PatentData2_ResidualRepairGuardedSmoke/training_manifest.csv",
+    "training_eligible": 0,
+    "same_graphs_and_skeletons_as_diagnostic": true,
+    "exact_diagnostic_primitive_parity": true
+  },
+  "hatch_guard": {
+    "scope": "Diagnostic Stage 3/4 hatch guard replay on fresh Stage 2 evidence. Does not bypass canonical gates or provide training eligibility.",
+    "stage3_sha256": "a3fb92d8f77426820367d836e6c89e1d1139d5ef2c7992cacfd6bdd29aa1ab1c",
+    "rows": [
+      {
+        "patent_id": "EP2565056B1",
+        "sketch_id": "F0001",
+        "graph": "output/PatentData2_ResidualRepairSmoke/EP2565056B1/graphs/F0001_graph.json",
+        "graph_sha256": "252445be4a049b0cd3f1c4b041c3ba5f5289233db173e60a8c0abed125cc024f",
+        "skeleton_sha256": "30e9aff4f49a5dc28318b06a0c22dd4e4d8c549d4edaea234ee15ec4aec46890",
+        "raster": {
+          "chamfer_sym": 0.1641019349180633,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 0.9982811257343698,
+          "recall_at_2px": 0.9931876029345711,
+          "f1_at_2px": 0.9957278505554341
+        },
+        "geometry": {
+          "primitives": 1557,
+          "by_status": {
+            "pass": 1548,
+            "review": 6,
+            "fail": 3
+          },
+          "by_type": {
+            "line": 691,
+            "path": 107,
+            "arc": 24,
+            "polyline": 728,
+            "polygon": 4,
+            "circle": 3
+          }
+        },
+        "geometry_status": "fail",
+        "geometry_reasons": [
+          "geometry_path_discontinuity",
+          "geometry_skeleton_coverage_lost",
+          "geometry_source_trace_lost",
+          "geometry_unsupported_primitive",
+          "geometry_unsupported_run"
+        ],
+        "hatch_coverage": {
+          "source_edges": 1348,
+          "region_edges": 0,
+          "fallback_edges": 1348,
+          "represented_edges": 1348,
+          "unrepresented_indices": [],
+          "legacy_regions_inferred": 0,
+          "recovered_regions_traced": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "primitives_in": 1557,
+        "primitives_out": 1557
+      },
+      {
+        "patent_id": "EP3082506B1",
+        "sketch_id": "F0001",
+        "graph": "output/PatentData2_ResidualRepairSmoke/EP3082506B1/graphs/F0001_graph.json",
+        "graph_sha256": "0d9b8b2a4b08aa11244fabefe25610650d55ec5186bb981148d84b26b6d1fe01",
+        "skeleton_sha256": "497a8516a27b74ce9bbd56b8775124706735038b6bb92bdc7896cb89f83c4e3d",
+        "raster": {
+          "chamfer_sym": 0.1929395177041094,
+          "chamfer_p95": 1.0,
+          "precision_at_2px": 0.9987759867429948,
+          "recall_at_2px": 0.990225299442768,
+          "f1_at_2px": 0.9944822634533573
+        },
+        "geometry": {
+          "primitives": 388,
+          "by_status": {
+            "pass": 360,
+            "review": 20,
+            "fail": 8
+          },
+          "by_type": {
+            "path": 99,
+            "line": 256,
+            "arc": 9,
+            "polygon": 4,
+            "ellipse": 1,
+            "circle": 3,
+            "polyline": 16
+          }
+        },
+        "geometry_status": "fail",
+        "geometry_reasons": [
+          "geometry_endpoint_mismatch",
+          "geometry_path_discontinuity",
+          "geometry_skeleton_coverage_lost",
+          "geometry_source_trace_lost",
+          "geometry_unsupported_primitive",
+          "geometry_unsupported_run"
+        ],
+        "hatch_coverage": {
+          "source_edges": 196,
+          "region_edges": 0,
+          "fallback_edges": 196,
+          "represented_edges": 196,
+          "unrepresented_indices": [],
+          "legacy_regions_inferred": 0,
+          "recovered_regions_traced": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "primitives_in": 388,
+        "primitives_out": 388
+      }
+    ]
+  }
+}

@@ -1,0 +1,241 @@
+{
+  "run": "output/PatentData2_AcceptanceContractSmoke",
+  "policy_version": "2026-09-10.1",
+  "deployment_identity_matches_current": true,
+  "execution_counts": {
+    "ok": 2
+  },
+  "acceptance_counts": {
+    "review": 2
+  },
+  "training_eligible": 0,
+  "records": [
+    {
+      "patent_id": "EP2565056B1",
+      "sketch_id": "F0001",
+      "execution_status": "ok",
+      "acceptance_status": "review",
+      "reason_codes": [
+        "content_validation_pending",
+        "geometry_validation_pending",
+        "s4_flagged",
+        "unknown_reference_text"
+      ],
+      "checks": {
+        "hachures": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "stage_flags": {
+          "status": "review",
+          "reason_codes": [
+            "s4_flagged"
+          ]
+        },
+        "content": {
+          "status": "pending",
+          "reason_codes": [
+            "content_validation_pending"
+          ]
+        },
+        "exports": {
+          "status": "review",
+          "reason_codes": [
+            "unknown_reference_text"
+          ]
+        },
+        "deployment": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "execution": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "references": {
+          "status": "review",
+          "reason_codes": [
+            "unknown_reference_text"
+          ]
+        },
+        "artifacts": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "geometry": {
+          "status": "pending",
+          "reason_codes": [
+            "geometry_validation_pending"
+          ]
+        }
+      },
+      "total_time_s": 316.93043786427006,
+      "stage4_time_s": 0.9696683888323605,
+      "manifest_eligibility_reason": "acceptance_review",
+      "acceptance_file": "/home/safe/Desktop/yassine/Vectorization/output/PatentData2_AcceptanceContractSmoke/EP2565056B1/acceptance/F0001_acceptance.json",
+      "acceptance_sha256": "7a86d7ab8f11ea990ea05002a82913c0ebeb6a316bd091cc4e94987abc0ddeeb"
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "sketch_id": "F0001",
+      "execution_status": "ok",
+      "acceptance_status": "review",
+      "reason_codes": [
+        "content_validation_pending",
+        "geometry_validation_pending",
+        "s4_flagged",
+        "unknown_reference_text"
+      ],
+      "checks": {
+        "hachures": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "stage_flags": {
+          "status": "review",
+          "reason_codes": [
+            "s4_flagged"
+          ]
+        },
+        "content": {
+          "status": "pending",
+          "reason_codes": [
+            "content_validation_pending"
+          ]
+        },
+        "exports": {
+          "status": "review",
+          "reason_codes": [
+            "unknown_reference_text"
+          ]
+        },
+        "deployment": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "execution": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "references": {
+          "status": "review",
+          "reason_codes": [
+            "unknown_reference_text"
+          ]
+        },
+        "artifacts": {
+          "status": "pass",
+          "reason_codes": []
+        },
+        "geometry": {
+          "status": "pending",
+          "reason_codes": [
+            "geometry_validation_pending"
+          ]
+        }
+      },
+      "total_time_s": 264.7125311130658,
+      "stage4_time_s": 0.5181005019694567,
+      "manifest_eligibility_reason": "acceptance_review",
+      "acceptance_file": "/home/safe/Desktop/yassine/Vectorization/output/PatentData2_AcceptanceContractSmoke/EP3082506B1/acceptance/F0001_acceptance.json",
+      "acceptance_sha256": "8c4358840eeeb77ced0edff52d1e011f9339ea38ce8bb60d71f92ee4fba4ffd8"
+    }
+  ],
+  "regression_against_previous_smoke": [
+    {
+      "patent_id": "EP2565056B1",
+      "all_primitives_unchanged": true,
+      "rasters_unchanged": {
+        "references/F0001_norefs.png": true,
+        "references/F0001_references_mask.png": true,
+        "cleaned/F0001_skeleton.png": true
+      }
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "all_primitives_unchanged": true,
+      "rasters_unchanged": {
+        "references/F0001_norefs.png": true,
+        "references/F0001_references_mask.png": true,
+        "cleaned/F0001_skeleton.png": true
+      }
+    }
+  ],
+  "manifest_included_rows": 0,
+  "manifest_excluded_rows": [
+    {
+      "patent_id": "EP2565056B1",
+      "sketch_id": "F0001",
+      "input_path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2565056B1/EP2565056B1_F0001.tif",
+      "cleaned_skeleton_path": "output/PatentData2_AcceptanceContractSmoke/EP2565056B1/cleaned/F0001_skeleton.png",
+      "graph_path": "output/PatentData2_AcceptanceContractSmoke/EP2565056B1/graphs/F0001_graph.json",
+      "primitives_json_path": "output/PatentData2_AcceptanceContractSmoke/EP2565056B1/primitives/F0001_primitives.json",
+      "svg_path": "output/PatentData2_AcceptanceContractSmoke/EP2565056B1/vectors/F0001.svg",
+      "dxf_path": "output/PatentData2_AcceptanceContractSmoke/EP2565056B1/vectors/F0001.dxf",
+      "filter_reason": "long_engineering_lines",
+      "curation_reason": "acceptance_review",
+      "acceptance_status": "review",
+      "acceptance_policy_version": "2026-09-10.1",
+      "acceptance_reason_codes": "[\"content_validation_pending\", \"geometry_validation_pending\", \"s4_flagged\", \"unknown_reference_text\"]",
+      "acceptance_sha256": "7a86d7ab8f11ea990ea05002a82913c0ebeb6a316bd091cc4e94987abc0ddeeb",
+      "training_eligible": "0",
+      "total_time": "316.93043786427006",
+      "s1_quality": "0.9992264311024605",
+      "s2_n_edges": "162",
+      "s2_median_edge_len": "76.87615433949867",
+      "s2_micro_edge_ratio": "0.0",
+      "s2_short_edge_ratio": "0.014285714285714285",
+      "s3_n_primitives": "242",
+      "s3_mean_conf": "0.8280103041804563",
+      "s3_low_conf_ratio": "0.024691358024691357",
+      "text_density": "0.09280894886363636",
+      "n_cc": "39.0",
+      "large_cc_frac": "0.9672999661520801",
+      "long_lines": "65.0",
+      "line_hv_ratio": "0.3076923076923077",
+      "line_diag_ratio": "0.6307692307692307",
+      "skel_n_cc": "39.0",
+      "skel_tiny_cc_frac": "0.02564102564102564",
+      "skel_median_cc_area": "32.0",
+      "status": "ok",
+      "error": ""
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "sketch_id": "F0001",
+      "input_path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP3082506B1/EP3082506B1_F0001.tif",
+      "cleaned_skeleton_path": "output/PatentData2_AcceptanceContractSmoke/EP3082506B1/cleaned/F0001_skeleton.png",
+      "graph_path": "output/PatentData2_AcceptanceContractSmoke/EP3082506B1/graphs/F0001_graph.json",
+      "primitives_json_path": "output/PatentData2_AcceptanceContractSmoke/EP3082506B1/primitives/F0001_primitives.json",
+      "svg_path": "output/PatentData2_AcceptanceContractSmoke/EP3082506B1/vectors/F0001.svg",
+      "dxf_path": "output/PatentData2_AcceptanceContractSmoke/EP3082506B1/vectors/F0001.dxf",
+      "filter_reason": "long_engineering_lines",
+      "curation_reason": "acceptance_review",
+      "acceptance_status": "review",
+      "acceptance_policy_version": "2026-09-10.1",
+      "acceptance_reason_codes": "[\"content_validation_pending\", \"geometry_validation_pending\", \"s4_flagged\", \"unknown_reference_text\"]",
+      "acceptance_sha256": "8c4358840eeeb77ced0edff52d1e011f9339ea38ce8bb60d71f92ee4fba4ffd8",
+      "training_eligible": "0",
+      "total_time": "264.7125311130658",
+      "s1_quality": "0.9982598070977655",
+      "s2_n_edges": "132",
+      "s2_median_edge_len": "380.19700551341987",
+      "s2_micro_edge_ratio": "0.06896551724137931",
+      "s2_short_edge_ratio": "0.10344827586206896",
+      "s3_n_primitives": "132",
+      "s3_mean_conf": "0.9031978623008203",
+      "s3_low_conf_ratio": "0.022727272727272728",
+      "text_density": "0.07746314368770764",
+      "n_cc": "83.0",
+      "large_cc_frac": "0.957300217791925",
+      "long_lines": "82.0",
+      "line_hv_ratio": "0.6829268292682927",
+      "line_diag_ratio": "0.3170731707317073",
+      "skel_n_cc": "83.0",
+      "skel_tiny_cc_frac": "0.6144578313253012",
+      "skel_median_cc_area": "4.0",
+      "status": "ok",
+      "error": ""
+    }
+  ]
+}

@@ -1,0 +1,3025 @@
+{
+  "run": "output/PatentData100_Priority0Preservation",
+  "baseline": "output/PatentData100_Stage3GuardedP2FixedFrozen",
+  "status_counts": {
+    "ok": 91,
+    "quality_gate_stage2": 6,
+    "quality_gate_stage1": 3
+  },
+  "rows": [
+    {
+      "patent_id": "EP1467415B1",
+      "sketch_id": "F0003",
+      "coverage": {
+        "source_edges": 35,
+        "region_edges": 12,
+        "fallback_edges": 23,
+        "represented_edges": 35,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 1
+      },
+      "main_primitives": 113,
+      "hatch_primitives": 24,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 23,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 12,
+        "known_text": 0,
+        "unknown_text": 12,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 12,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP1833535B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 298,
+        "region_edges": 245,
+        "fallback_edges": 53,
+        "represented_edges": 298,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 5
+      },
+      "main_primitives": 439,
+      "hatch_primitives": 58,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 53,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 55,
+        "known_text": 0,
+        "unknown_text": 55,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 55,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP1838040B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 124,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 59,
+        "known_text": 0,
+        "unknown_text": 59,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 59,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP1839350B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 3,
+        "region_edges": 0,
+        "fallback_edges": 3,
+        "represented_edges": 3,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 217,
+      "hatch_primitives": 3,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 13,
+        "known_text": 0,
+        "unknown_text": 13,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 13,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP1923025B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 6,
+        "region_edges": 0,
+        "fallback_edges": 6,
+        "represented_edges": 6,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 136,
+      "hatch_primitives": 6,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 29,
+        "known_text": 0,
+        "unknown_text": 29,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 29,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP1974619B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 150,
+        "region_edges": 78,
+        "fallback_edges": 72,
+        "represented_edges": 150,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 3
+      },
+      "main_primitives": 320,
+      "hatch_primitives": 75,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 72,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 28,
+        "known_text": 0,
+        "unknown_text": 28,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 28,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2143139B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 2,
+        "region_edges": 0,
+        "fallback_edges": 2,
+        "represented_edges": 2,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 87,
+      "hatch_primitives": 2,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 22,
+        "known_text": 0,
+        "unknown_text": 22,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 22,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2162724B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 374,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 12,
+        "known_text": 0,
+        "unknown_text": 12,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 12,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2214148B1",
+      "sketch_id": "F0008",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 209,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 67,
+        "known_text": 0,
+        "unknown_text": 67,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 67,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2326827B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 372,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 12,
+        "known_text": 0,
+        "unknown_text": 12,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 12,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2430983B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 34,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 12,
+        "known_text": 0,
+        "unknown_text": 12,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 12,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2433378B1",
+      "sketch_id": "F0003",
+      "coverage": {
+        "source_edges": 7,
+        "region_edges": 0,
+        "fallback_edges": 7,
+        "represented_edges": 7,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 106,
+      "hatch_primitives": 7,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 48,
+        "known_text": 0,
+        "unknown_text": 48,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 48,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2472954B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 105,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 31,
+        "known_text": 0,
+        "unknown_text": 31,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 31,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2565056B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 88,
+        "region_edges": 11,
+        "fallback_edges": 77,
+        "represented_edges": 88,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 1
+      },
+      "main_primitives": 162,
+      "hatch_primitives": 78,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 77,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 20,
+        "known_text": 0,
+        "unknown_text": 20,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 20,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2623349B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 155,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 14,
+        "known_text": 0,
+        "unknown_text": 14,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2664947B1",
+      "sketch_id": "F0014",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 40,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 19,
+        "known_text": 0,
+        "unknown_text": 19,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 19,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2693964B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 34,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 9,
+        "known_text": 0,
+        "unknown_text": 9,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 9,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2734148B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 73,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 26,
+        "known_text": 0,
+        "unknown_text": 26,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 26,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2734860B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 11,
+        "region_edges": 0,
+        "fallback_edges": 11,
+        "represented_edges": 11,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 105,
+      "hatch_primitives": 11,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 33,
+        "known_text": 0,
+        "unknown_text": 33,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 33,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2793370B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 84,
+        "region_edges": 64,
+        "fallback_edges": 20,
+        "represented_edges": 84,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 1
+      },
+      "main_primitives": 143,
+      "hatch_primitives": 21,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 20,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 26,
+        "known_text": 0,
+        "unknown_text": 26,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 26,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2795159B1",
+      "sketch_id": "F0005",
+      "coverage": {
+        "source_edges": 9,
+        "region_edges": 0,
+        "fallback_edges": 9,
+        "represented_edges": 9,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 393,
+      "hatch_primitives": 9,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 21,
+        "known_text": 0,
+        "unknown_text": 21,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 21,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2832512B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 3,
+        "region_edges": 0,
+        "fallback_edges": 3,
+        "represented_edges": 3,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 158,
+      "hatch_primitives": 3,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 42,
+        "known_text": 0,
+        "unknown_text": 42,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 42,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2861732B1",
+      "sketch_id": "F0012",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 103,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 100,
+        "known_text": 0,
+        "unknown_text": 100,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 100,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2881873B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 338,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 14,
+        "known_text": 0,
+        "unknown_text": 14,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP2976579B1",
+      "sketch_id": "F0003",
+      "coverage": {
+        "source_edges": 55,
+        "region_edges": 40,
+        "fallback_edges": 15,
+        "represented_edges": 55,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 2
+      },
+      "main_primitives": 612,
+      "hatch_primitives": 17,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 15,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 9,
+        "known_text": 0,
+        "unknown_text": 9,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 9,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3011884B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 5,
+        "region_edges": 0,
+        "fallback_edges": 5,
+        "represented_edges": 5,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 350,
+      "hatch_primitives": 5,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 35,
+        "known_text": 0,
+        "unknown_text": 35,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 35,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3016904B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 66,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 15,
+        "known_text": 0,
+        "unknown_text": 15,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 15,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3025084B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 110,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 31,
+        "known_text": 0,
+        "unknown_text": 31,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 31,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3029408B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 4,
+        "region_edges": 0,
+        "fallback_edges": 4,
+        "represented_edges": 4,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 63,
+      "hatch_primitives": 4,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 12,
+        "known_text": 0,
+        "unknown_text": 12,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 12,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3033586B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 405,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 30,
+        "known_text": 0,
+        "unknown_text": 30,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 30,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3046835B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 126,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 62,
+        "known_text": 0,
+        "unknown_text": 62,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 62,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3049766B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 11,
+        "region_edges": 0,
+        "fallback_edges": 11,
+        "represented_edges": 11,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 150,
+      "hatch_primitives": 11,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 14,
+        "known_text": 0,
+        "unknown_text": 14,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3064097B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 3,
+        "region_edges": 0,
+        "fallback_edges": 3,
+        "represented_edges": 3,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 79,
+      "hatch_primitives": 3,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 37,
+        "known_text": 0,
+        "unknown_text": 37,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 37,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3078734B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 199,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 14,
+        "known_text": 0,
+        "unknown_text": 14,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3082005B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 58,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 22,
+        "known_text": 0,
+        "unknown_text": 22,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 22,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 132,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 14,
+        "known_text": 0,
+        "unknown_text": 14,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3088045B1",
+      "sketch_id": "F0007",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 25,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 13,
+        "known_text": 0,
+        "unknown_text": 13,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 13,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3088963B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 267,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 38,
+        "known_text": 0,
+        "unknown_text": 38,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 38,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3091721B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 19,
+        "region_edges": 0,
+        "fallback_edges": 19,
+        "represented_edges": 19,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 99,
+      "hatch_primitives": 19,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 84,
+        "known_text": 0,
+        "unknown_text": 84,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 84,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3101366B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 79,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 29,
+        "known_text": 0,
+        "unknown_text": 29,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 29,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3104691B1",
+      "sketch_id": "F0003",
+      "coverage": {
+        "source_edges": 7,
+        "region_edges": 0,
+        "fallback_edges": 7,
+        "represented_edges": 7,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 252,
+      "hatch_primitives": 7,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 15,
+        "known_text": 0,
+        "unknown_text": 15,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 15,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3119165B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 142,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 25,
+        "known_text": 0,
+        "unknown_text": 25,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 25,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3129274B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 681,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 28,
+        "known_text": 0,
+        "unknown_text": 28,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 28,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3173415B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 50,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 40,
+        "known_text": 0,
+        "unknown_text": 40,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 40,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3184100B1",
+      "sketch_id": "F0004",
+      "coverage": {
+        "source_edges": 6,
+        "region_edges": 0,
+        "fallback_edges": 6,
+        "represented_edges": 6,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 56,
+      "hatch_primitives": 6,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 45,
+        "known_text": 0,
+        "unknown_text": 45,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 45,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3186468B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 125,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 26,
+        "known_text": 0,
+        "unknown_text": 26,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 26,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3190364B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 159,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 21,
+        "known_text": 0,
+        "unknown_text": 21,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 21,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3191598B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 89,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 52,
+        "known_text": 0,
+        "unknown_text": 52,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 52,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3193044B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 8,
+        "region_edges": 0,
+        "fallback_edges": 8,
+        "represented_edges": 8,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 223,
+      "hatch_primitives": 8,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 15,
+        "known_text": 0,
+        "unknown_text": 15,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 15,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3205737B1",
+      "sketch_id": "F0006",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 184,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 86,
+        "known_text": 0,
+        "unknown_text": 86,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 86,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3233746B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 96,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 41,
+        "known_text": 0,
+        "unknown_text": 41,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 41,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3239928B1",
+      "sketch_id": "F0008",
+      "coverage": {
+        "source_edges": 9,
+        "region_edges": 0,
+        "fallback_edges": 9,
+        "represented_edges": 9,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 383,
+      "hatch_primitives": 9,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 13,
+        "known_text": 0,
+        "unknown_text": 13,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 13,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3240209B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 184,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 54,
+        "known_text": 0,
+        "unknown_text": 54,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 54,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3240268B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 2,
+        "region_edges": 0,
+        "fallback_edges": 2,
+        "represented_edges": 2,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 72,
+      "hatch_primitives": 2,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 61,
+        "known_text": 0,
+        "unknown_text": 61,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 61,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3244123B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 2,
+        "region_edges": 0,
+        "fallback_edges": 2,
+        "represented_edges": 2,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 137,
+      "hatch_primitives": 2,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 20,
+        "known_text": 0,
+        "unknown_text": 20,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 20,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3257351B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 94,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 15,
+        "known_text": 0,
+        "unknown_text": 15,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 15,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3261922B1",
+      "sketch_id": "F0004",
+      "coverage": {
+        "source_edges": 7,
+        "region_edges": 0,
+        "fallback_edges": 7,
+        "represented_edges": 7,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 356,
+      "hatch_primitives": 7,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 7,
+        "known_text": 0,
+        "unknown_text": 7,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 7,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3280570B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 2,
+        "region_edges": 0,
+        "fallback_edges": 2,
+        "represented_edges": 2,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 121,
+      "hatch_primitives": 2,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 22,
+        "known_text": 0,
+        "unknown_text": 22,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 22,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3281211B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 29,
+        "region_edges": 0,
+        "fallback_edges": 29,
+        "represented_edges": 29,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 149,
+      "hatch_primitives": 29,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 36,
+        "known_text": 0,
+        "unknown_text": 36,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 36,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3283256B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 426,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 10,
+        "known_text": 0,
+        "unknown_text": 10,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 10,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3305875B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 11,
+        "region_edges": 0,
+        "fallback_edges": 11,
+        "represented_edges": 11,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 231,
+      "hatch_primitives": 11,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 32,
+        "known_text": 0,
+        "unknown_text": 32,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 32,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3322902B1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 79,
+        "region_edges": 39,
+        "fallback_edges": 40,
+        "represented_edges": 79,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 4
+      },
+      "main_primitives": 222,
+      "hatch_primitives": 44,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 40,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 21,
+        "known_text": 0,
+        "unknown_text": 21,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 21,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3332519B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 8,
+        "region_edges": 0,
+        "fallback_edges": 8,
+        "represented_edges": 8,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 390,
+      "hatch_primitives": 8,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 13,
+        "known_text": 0,
+        "unknown_text": 13,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 13,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3337593B1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 87,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 16,
+        "known_text": 0,
+        "unknown_text": 16,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 16,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3340025B1",
+      "sketch_id": "F0020",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 173,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 68,
+        "known_text": 0,
+        "unknown_text": 68,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 68,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3347465B1",
+      "sketch_id": "F0005",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 137,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 22,
+        "known_text": 0,
+        "unknown_text": 22,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 22,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3363610B1",
+      "sketch_id": "F0003",
+      "coverage": {
+        "source_edges": 9,
+        "region_edges": 0,
+        "fallback_edges": 9,
+        "represented_edges": 9,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 69,
+      "hatch_primitives": 9,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 21,
+        "known_text": 0,
+        "unknown_text": 21,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 21,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3491995A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 17,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 16,
+        "known_text": 0,
+        "unknown_text": 16,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 16,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3493219A1",
+      "sketch_id": "F0003",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 37,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 19,
+        "known_text": 0,
+        "unknown_text": 19,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 19,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3493383A1",
+      "sketch_id": "F0002",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 62,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 53,
+        "known_text": 0,
+        "unknown_text": 53,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 53,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3493557A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 70,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 38,
+        "known_text": 0,
+        "unknown_text": 38,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 38,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3495022A2",
+      "sketch_id": "F0007",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 209,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 56,
+        "known_text": 0,
+        "unknown_text": 56,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 56,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3496065A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 51,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 1,
+        "known_text": 0,
+        "unknown_text": 1,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 1,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3496083A1",
+      "sketch_id": "F0004",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 60,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 0,
+        "known_text": 0,
+        "unknown_text": 0,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 0,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3496314A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 60,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 45,
+        "known_text": 0,
+        "unknown_text": 45,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 45,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3496476A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 5,
+        "region_edges": 0,
+        "fallback_edges": 5,
+        "represented_edges": 5,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 115,
+      "hatch_primitives": 5,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 15,
+        "known_text": 0,
+        "unknown_text": 15,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 15,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3498192A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 1,
+        "region_edges": 0,
+        "fallback_edges": 1,
+        "represented_edges": 1,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 122,
+      "hatch_primitives": 1,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 9,
+        "known_text": 0,
+        "unknown_text": 9,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 9,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3498415A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 35,
+        "region_edges": 0,
+        "fallback_edges": 35,
+        "represented_edges": 35,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 65,
+      "hatch_primitives": 35,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 17,
+        "known_text": 0,
+        "unknown_text": 17,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 17,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3498474A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 112,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 105,
+        "known_text": 0,
+        "unknown_text": 105,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 105,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3498480A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 236,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 37,
+        "known_text": 0,
+        "unknown_text": 37,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 37,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3499621A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 191,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 7,
+        "known_text": 0,
+        "unknown_text": 7,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 7,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3499654A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 166,
+        "region_edges": 125,
+        "fallback_edges": 41,
+        "represented_edges": 166,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 3
+      },
+      "main_primitives": 202,
+      "hatch_primitives": 44,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 41,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 16,
+        "known_text": 0,
+        "unknown_text": 16,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 16,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3501654A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 34,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 37,
+        "known_text": 0,
+        "unknown_text": 37,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 37,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3501674A1",
+      "sketch_id": "F0004",
+      "coverage": {
+        "source_edges": 2,
+        "region_edges": 0,
+        "fallback_edges": 2,
+        "represented_edges": 2,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 392,
+      "hatch_primitives": 2,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 30,
+        "known_text": 0,
+        "unknown_text": 30,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 30,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3501683A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 60,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 17,
+        "known_text": 0,
+        "unknown_text": 17,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 17,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3501852A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 326,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 21,
+        "known_text": 0,
+        "unknown_text": 21,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 21,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3501900A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 106,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 55,
+        "known_text": 0,
+        "unknown_text": 55,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 55,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3502419A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 42,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 20,
+        "known_text": 0,
+        "unknown_text": 20,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 20,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3502503A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 2,
+        "region_edges": 0,
+        "fallback_edges": 2,
+        "represented_edges": 2,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 78,
+      "hatch_primitives": 2,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 14,
+        "known_text": 0,
+        "unknown_text": 14,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 14,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3502592A1",
+      "sketch_id": "F0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 262,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 98,
+        "known_text": 0,
+        "unknown_text": 98,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 98,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    },
+    {
+      "patent_id": "EP3503130A1",
+      "sketch_id": "A0001",
+      "coverage": {
+        "source_edges": 0,
+        "region_edges": 0,
+        "fallback_edges": 0,
+        "represented_edges": 0,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0
+      },
+      "main_primitives": 17,
+      "hatch_primitives": 0,
+      "keypoint_source": null,
+      "hachure_source": null,
+      "stage1_method": "passthrough_binary",
+      "main_identical": true,
+      "additional_hatch_primitives": 0,
+      "frozen_inputs_identical": true,
+      "references": {
+        "total": 10,
+        "known_text": 0,
+        "unknown_text": 10,
+        "missing_crops": 0
+      },
+      "exports": {
+        "svg_images": 10,
+        "svg_texts": 0,
+        "dxf_texts": 0,
+        "dxf_audit_errors": 0,
+        "dxf_known_text_matches": true
+      }
+    }
+  ],
+  "errors": [],
+  "totals": {
+    "exported_drawings": 91,
+    "source_hatch_edges": 1190,
+    "represented_hatch_edges": 1190,
+    "known_reference_texts": 0,
+    "unknown_reference_texts": 2744,
+    "main_identical_drawings": 91,
+    "additional_hatch_primitives": 341,
+    "changed_hatch_drawings": 8
+  }
+}

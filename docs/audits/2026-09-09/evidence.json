@@ -1,0 +1,741 @@
+{
+  "commit": "d88637361cc0a46519e0259ca46a180a73549c99",
+  "content_manifests": {
+    "filter_manifest_clean12.csv": {
+      "discard": 218778,
+      "drawing": 56971,
+      "error": 55
+    },
+    "filter_manifest_v3.csv": {
+      "discard": 196638,
+      "drawing": 79111,
+      "error": 55
+    }
+  },
+  "current100_overlap_with_region_label_patents": [],
+  "d2c_replay": {
+    "completed": 31524,
+    "config": "/home/safe/Desktop/yassine/Vectorization/config_d2c_eval_stage3_open_closed_p2_fixed.yaml",
+    "config_snapshot": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_guarded_p2_fixed_full/stage34_replay_config.yaml",
+    "errors": [],
+    "failed": 0,
+    "marked_total": 31524,
+    "metrics": {
+      "chamfer_gt2out": {
+        "mean": 0.39730147594691345,
+        "n": 31344
+      },
+      "chamfer_out2gt": {
+        "mean": 0.29364509277629125,
+        "n": 31344
+      },
+      "chamfer_p95_sym": {
+        "mean": 1.2305005163852127,
+        "n": 31344
+      },
+      "chamfer_sym": {
+        "mean": 0.34547328436160185,
+        "n": 31344
+      },
+      "iou_pixel": {
+        "mean": 0.7857943594737821,
+        "n": 31524
+      },
+      "iou_skeleton": {
+        "mean": 0.8351591911302214,
+        "n": 31524
+      },
+      "precision_pixel": {
+        "mean": 0.8124920844046021,
+        "n": 31524
+      },
+      "recall_pixel": {
+        "mean": 0.9555531881675452,
+        "n": 31524
+      }
+    },
+    "output_db": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_guarded_p2_fixed_full/d2c_results.db",
+    "output_run": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_guarded_p2_fixed_full",
+    "replay_digest": "4e947d8dfbc0c8610cdb292e47e1db8ecb1214c0652c3948cdc9c7cf97ca20f0",
+    "requested": 31524,
+    "source_db": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_open_closed_full/d2c_results.db",
+    "source_run": "/home/safe/Desktop/yassine/Vectorization/output/Drawing2CAD/stage3_open_closed_full"
+  },
+  "deploy_replay_differences": {
+    "puhachov.device": {
+      "deploy": "cpu",
+      "replay": "cuda:1"
+    },
+    "stage2.hachure_cnn_device": {
+      "deploy": "cpu",
+      "replay": "cuda:1"
+    }
+  },
+  "effective_implicit_defaults": {
+    "dashed_grouping": false,
+    "hachure_mode": "region"
+  },
+  "exports": {
+    ".dxf": 91,
+    ".svg": 91
+  },
+  "external_data_root": {
+    "entries": [],
+    "exists": true,
+    "path": "/media/safe/secondary disk/IPdrawings"
+  },
+  "hatch_coverage_caveat": "Not an absolute count of lost final-image pixels; some may overlap other geometry. Region fills are approximations.",
+  "hatch_region_best": {
+    "best_epoch": 29,
+    "best_val_iou_all": 0.53562,
+    "best_val_iou_pos": 0.78831,
+    "checkpoint": "models/hatch_unet.pth",
+    "config": {
+      "batch": 32,
+      "epochs": 30,
+      "lr": 0.0003,
+      "patch": 512,
+      "pos_weight": 3.0,
+      "samples": 2000,
+      "seed": 42,
+      "stride": 256
+    },
+    "run_id": "run_lr3e-04_pw3.0",
+    "test_iou_all": 0.552687,
+    "test_iou_pos": 0.815879
+  },
+  "hatch_region_patent_overlap": {
+    "train:test": [
+      "EP0989594B1",
+      "EP1215482B1",
+      "EP1299902B1",
+      "EP3498430A1"
+    ],
+    "train:val": [
+      "EP1170786B1"
+    ],
+    "val:test": []
+  },
+  "hatch_region_splits": {
+    "test": {
+      "figures": 21,
+      "positives": 13
+    },
+    "train": {
+      "figures": 170,
+      "positives": 106
+    },
+    "val": {
+      "figures": 21,
+      "positives": 13
+    }
+  },
+  "hatch_representation_coverage": [
+    {
+      "edges_partly_or_wholly_outside_regions": 23,
+      "edges_wholly_outside_regions": 15,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP1467415B1/graphs/F0003_graph.json",
+      "region_member_count": 6,
+      "regions": 1,
+      "side_layer_edges": 35,
+      "unique_side_layer_pixels_outside_regions": 5904
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 52,
+      "edges_wholly_outside_regions": 34,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP1833535B1/graphs/F0001_graph.json",
+      "region_member_count": 171,
+      "regions": 5,
+      "side_layer_edges": 298,
+      "unique_side_layer_pixels_outside_regions": 5820
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 72,
+      "edges_wholly_outside_regions": 61,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP1974619B1/graphs/F0001_graph.json",
+      "region_member_count": 60,
+      "regions": 3,
+      "side_layer_edges": 150,
+      "unique_side_layer_pixels_outside_regions": 11153
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 77,
+      "edges_wholly_outside_regions": 75,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP2565056B1/graphs/F0001_graph.json",
+      "region_member_count": 9,
+      "regions": 1,
+      "side_layer_edges": 88,
+      "unique_side_layer_pixels_outside_regions": 4301
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 20,
+      "edges_wholly_outside_regions": 18,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP2793370B1/graphs/F0001_graph.json",
+      "region_member_count": 62,
+      "regions": 1,
+      "side_layer_edges": 84,
+      "unique_side_layer_pixels_outside_regions": 2099
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 15,
+      "edges_wholly_outside_regions": 7,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP2976579B1/graphs/F0003_graph.json",
+      "region_member_count": 40,
+      "regions": 2,
+      "side_layer_edges": 55,
+      "unique_side_layer_pixels_outside_regions": 3762
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 39,
+      "edges_wholly_outside_regions": 29,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP3322902B1/graphs/F0002_graph.json",
+      "region_member_count": 36,
+      "regions": 4,
+      "side_layer_edges": 79,
+      "unique_side_layer_pixels_outside_regions": 8900
+    },
+    {
+      "edges_partly_or_wholly_outside_regions": 41,
+      "edges_wholly_outside_regions": 33,
+      "graph": "output/PatentData100_Stage3GuardedP2FixedFrozen/EP3499654A1/graphs/A0001_graph.json",
+      "region_member_count": 75,
+      "regions": 3,
+      "side_layer_edges": 166,
+      "unique_side_layer_pixels_outside_regions": 2477
+    }
+  ],
+  "hatch_stroke_real": {
+    "configuration": {
+      "boundary_ignore_radius": 3,
+      "consensus_radius": 0,
+      "crossing_guard_radius": 2,
+      "full_graph_run": null,
+      "hatch_label_policy": "consensus",
+      "pipeline_dbs": [
+        "output/PatentDataHatchReviewedCurrent/results_cuda0.db",
+        "output/PatentDataHatchReviewedCurrent/results_cuda1.db"
+      ],
+      "pipeline_run": "output/PatentDataHatchReviewedCurrent",
+      "split_unit": "patent_id",
+      "support_radius": 2,
+      "teacher_config": "config_patentvec_A.yaml",
+      "validation_fold": 0,
+      "validation_modulus": 5
+    },
+    "exported_figures": 203,
+    "exporter_version": "reviewed-patent-hatch-stroke-export-1.1",
+    "label_contract": "reviewed-patent-hatch-stroke-multilabel-v1",
+    "schema_version": "reviewed-patent-hatch-stroke-dataset-1.0",
+    "skipped": {
+      "pipeline_status_quality_gate_stage1": 3,
+      "pipeline_status_quality_gate_stage2": 6
+    },
+    "source_gt_figures": 212,
+    "totals": {
+      "hatch_only_pixels": 175774,
+      "hatch_pixels": 199789,
+      "hatch_supervised_pixels": 5661723,
+      "jointly_supervised_pixels": 5661723,
+      "overlap_pixels": 24015,
+      "positive_figures": 128,
+      "positive_figures_with_trusted_hatch": 89,
+      "skeleton_pixels": 8421818,
+      "split_train": 170,
+      "split_validation": 33,
+      "structural_only_pixels": 8222029,
+      "structural_pixels": 8246044,
+      "structural_supervised_pixels": 7002782,
+      "teacher_hough_families": 406,
+      "teacher_hough_hatch_pixels": 977246,
+      "teacher_recovered_hatch_edges": 0,
+      "teacher_region_hatch_pixels": 367215,
+      "teacher_selected_hatch_pixels": 182484,
+      "unassigned_pixels": 0,
+      "unsupervised_skeleton_pixels": 1419036
+    }
+  },
+  "historical_clean12_status": {
+    "ok": 13904,
+    "quality_gate_stage1": 1364,
+    "quality_gate_stage2": 3558,
+    "quality_gate_stage3": 38145,
+    "stage1": 55
+  },
+  "observed_at_utc": "2026-09-09T08:58:16.391286+00:00",
+  "patent_replay": {
+    "completed": 91,
+    "config": "/home/safe/Desktop/yassine/Vectorization/config_patentvec_stage3_open_closed.yaml",
+    "config_snapshot": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_Stage3GuardedP2FixedFrozen/stage34_replay_config.yaml",
+    "eligible_rows": 91,
+    "errors": [],
+    "failed": 0,
+    "marked_total": 91,
+    "output_db": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_Stage3GuardedP2FixedFrozen/results.db",
+    "output_run": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_Stage3GuardedP2FixedFrozen",
+    "preserved_terminal_statuses": {
+      "quality_gate_stage1": 3,
+      "quality_gate_stage2": 6
+    },
+    "replay_digest": "da6084f614eada71eb2cc2138bf5b88247bfd3799af17ab308162afac6650951",
+    "requested": 91,
+    "source_db": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_HatchStrokeE2E_ControlCurrent/results.db",
+    "source_rows": 100,
+    "source_run": "/home/safe/Desktop/yassine/Vectorization/output/PatentData100_HatchStrokeE2E_ControlCurrent",
+    "status_counts": {
+      "ok": 91,
+      "quality_gate_stage1": 3,
+      "quality_gate_stage2": 6
+    }
+  },
+  "patent_status": {
+    "ok": 91,
+    "quality_gate_stage1": 3,
+    "quality_gate_stage2": 6
+  },
+  "pilotv3_content_buckets": {
+    "borderline": 12,
+    "negative_invalid": 27,
+    "positive_clean": 56,
+    "positive_hard": 5
+  },
+  "repository": "/home/safe/Desktop/yassine/Vectorization",
+  "scope": "Existing artifacts only; not a fresh model or pipeline evaluation",
+  "serialized_references": {
+    "cc_recovered": 1592,
+    "files": 91,
+    "labels": 2744,
+    "nonempty_text": 0,
+    "ocr_numeral": 1068,
+    "ocr_reference": 84
+  },
+  "stage1_methods": {
+    "passthrough_binary": 100
+  },
+  "stage2_evaluations": {
+    "A:archcad_val": {
+      "checkpoint": "models/puhachov_patentvec_complexityA.pth",
+      "labels": "output/ArchCAD/kp_labels",
+      "macro_f1": 0.7300502789660471,
+      "n_samples": 1159,
+      "split": "validation"
+    },
+    "A:d2c_test": {
+      "checkpoint": "models/puhachov_patentvec_complexityA.pth",
+      "labels": "output/Drawing2CAD/kp_labels",
+      "macro_f1": 0.8561358749534471,
+      "n_samples": 31524,
+      "split": "test"
+    },
+    "A:sketchgraphs_test": {
+      "checkpoint": "models/puhachov_patentvec_complexityA.pth",
+      "labels": "output/SketchGraphsTraining/stage2",
+      "macro_f1": 0.9365989397449558,
+      "n_samples": 9565,
+      "split": "test"
+    },
+    "B:archcad_val": {
+      "checkpoint": "models/puhachov_patentvec_complexityB.pth",
+      "labels": "output/ArchCAD/kp_labels",
+      "macro_f1": 0.7277088257563286,
+      "n_samples": 1159,
+      "split": "validation"
+    },
+    "B:d2c_test": {
+      "checkpoint": "models/puhachov_patentvec_complexityB.pth",
+      "labels": "output/Drawing2CAD/kp_labels",
+      "macro_f1": 0.8572400503442842,
+      "n_samples": 31524,
+      "split": "test"
+    },
+    "B:sketchgraphs_test": {
+      "checkpoint": "models/puhachov_patentvec_complexityB.pth",
+      "labels": "output/SketchGraphsTraining/stage2",
+      "macro_f1": 0.9364259066243429,
+      "n_samples": 9565,
+      "split": "test"
+    },
+    "C2:archcad_val": {
+      "accepted": 1159,
+      "batch_per_rank": 8,
+      "checkpoint": "models/puhachov_patentvec_referencefree_topology.pth",
+      "checkpoint_step": 14961,
+      "elapsed_seconds": 105.65698003768921,
+      "evaluated": 1159,
+      "labels": "output/ArchCAD/kp_labels",
+      "macro_f1": 0.7161387399422873,
+      "match_radius": 6.0,
+      "nms_radius": 3,
+      "rejected": 0,
+      "source_total": 1159,
+      "split": "validation",
+      "threshold": 0.3,
+      "throughput_sketches_s": 10.96945984625502,
+      "world_size": 1
+    },
+    "C2:d2c_test": {
+      "accepted": 31524,
+      "batch_per_rank": 16,
+      "checkpoint": "models/puhachov_patentvec_referencefree_topology.pth",
+      "checkpoint_step": 14961,
+      "elapsed_seconds": 1419.2689273357391,
+      "evaluated": 31524,
+      "labels": "output/Drawing2CAD/kp_labels",
+      "macro_f1": 0.8765431861565132,
+      "match_radius": 6.0,
+      "nms_radius": 3,
+      "rejected": 0,
+      "source_total": 31524,
+      "split": "test",
+      "threshold": 0.3,
+      "throughput_sketches_s": 22.211435333243756,
+      "world_size": 1
+    },
+    "C2:sketchgraphs_test": {
+      "accepted": 9565,
+      "batch_per_rank": 32,
+      "checkpoint": "models/puhachov_patentvec_referencefree_topology.pth",
+      "checkpoint_step": 14961,
+      "elapsed_seconds": 80.96096134185791,
+      "evaluated": 9565,
+      "labels": "output/SketchGraphsTraining/stage2",
+      "macro_f1": 0.9359808158372797,
+      "match_radius": 6.0,
+      "nms_radius": 3,
+      "rejected": 0,
+      "source_total": 9565,
+      "split": "test",
+      "threshold": 0.3,
+      "throughput_sketches_s": 118.14335997829569,
+      "world_size": 1
+    },
+    "C3:archcad_val": {
+      "accepted": 1159,
+      "batch_per_rank": 16,
+      "checkpoint": "models/puhachov_patentvec_hatch_suppressed_topology.pth",
+      "checkpoint_step": 14961,
+      "elapsed_seconds": 102.46943950653076,
+      "evaluated": 1159,
+      "labels": "output/ArchCAD/kp_labels",
+      "macro_f1": 0.7150593371468689,
+      "match_radius": 6.0,
+      "nms_radius": 3,
+      "rejected": 0,
+      "source_total": 1159,
+      "split": "validation",
+      "threshold": 0.3,
+      "throughput_sketches_s": 11.31068936827875,
+      "world_size": 1
+    },
+    "C3:d2c_test": {
+      "accepted": 31524,
+      "batch_per_rank": 16,
+      "checkpoint": "models/puhachov_patentvec_hatch_suppressed_topology.pth",
+      "checkpoint_step": 14961,
+      "elapsed_seconds": 1346.1304981708527,
+      "evaluated": 31524,
+      "labels": "output/Drawing2CAD/kp_labels",
+      "macro_f1": 0.8731612936123581,
+      "match_radius": 6.0,
+      "nms_radius": 3,
+      "rejected": 0,
+      "source_total": 31524,
+      "split": "test",
+      "threshold": 0.3,
+      "throughput_sketches_s": 23.41823474234883,
+      "world_size": 1
+    },
+    "C3:sketchgraphs_test": {
+      "accepted": 9565,
+      "batch_per_rank": 32,
+      "checkpoint": "models/puhachov_patentvec_hatch_suppressed_topology.pth",
+      "checkpoint_step": 14961,
+      "elapsed_seconds": 78.61149644851685,
+      "evaluated": 9565,
+      "labels": "output/SketchGraphsTraining/stage2",
+      "macro_f1": 0.9365971316024685,
+      "match_radius": 6.0,
+      "nms_radius": 3,
+      "rejected": 0,
+      "source_total": 9565,
+      "split": "test",
+      "threshold": 0.3,
+      "throughput_sketches_s": 121.67431523535718,
+      "world_size": 1
+    }
+  },
+  "stage2_methods": [
+    [
+      null,
+      3
+    ],
+    [
+      "cnn_tiled",
+      97
+    ]
+  ],
+  "stage3_runtime_seconds": {
+    "max": 486.08270400902256,
+    "mean": 73.56734213833748,
+    "median": 27.81426681485027,
+    "n": 91,
+    "p95": 343.7627686748747
+  },
+  "synthetic": {
+    "A": {
+      "actual_difficulty_counts": {
+        "hard": 5000,
+        "medium": 5000
+      },
+      "actual_manifest_rows": 10000,
+      "all_quality_gates_passed": true,
+      "archive_bytes": 2736384000,
+      "archive_files": 100,
+      "audit_every": 100,
+      "canvas": 1024,
+      "count": 10000,
+      "curriculum": "baseline",
+      "elapsed_seconds_this_run": 3270.6546858589863,
+      "full_generation_started": false,
+      "generated_samples_this_run": 10000,
+      "generator_version": "patentvec-generator-2.1",
+      "max_sample_attempts": 128,
+      "mode": "experiment",
+      "planned_full_data_root": "/media/safe/secondary disk/IPdrawings",
+      "requested_count": 10000,
+      "run_fingerprint": "546f680ad7dc50625c66eefe8ea5dc4e3b96a245006445b1fb8f3cc4123d4695",
+      "samples_per_second_this_run": 3.057491835881065,
+      "schema_version": "patentvec-compact-dataset-1.0",
+      "seed": 850725,
+      "shard_size": 100,
+      "source_index": "output/PatentVecSourceIndex/train.json",
+      "split": "train",
+      "summary": {
+        "audit_samples": 100,
+        "difficulty_counts": {
+          "hard": 5000,
+          "medium": 5000
+        },
+        "free2cad_edge_counts": {
+          "arc": 3676,
+          "bezier": 6087,
+          "circle": 5348,
+          "line": 93000,
+          "polyline": 38229
+        },
+        "free2cad_match_p90_px_max_per_sample": {
+          "max": 1.8675367832183838,
+          "mean": 0.9349915166616439,
+          "p50": 0.9089764952659607,
+          "p95": 1.281442117691039
+        },
+        "free2cad_polyline_origins": {
+          "aggregated_lines": 656,
+          "direct": 37573
+        },
+        "free2cad_topology_projected_samples": 10000,
+        "generation_attempts": {
+          "max": 33.0,
+          "mean": 1.693,
+          "p50": 1.0,
+          "p95": 7.0
+        },
+        "interaction_counts": {
+          "bridge": 10000,
+          "connected_crossing": 10000,
+          "containment": 10000,
+          "endpoint_join": 15000,
+          "t_junction": 10000,
+          "tangent": 7380
+        },
+        "payload_bytes": 2698866343,
+        "placement_rejections": {
+          "max": 87.0,
+          "mean": 9.6657,
+          "p50": 6.0,
+          "p95": 31.0
+        },
+        "puhachov_keypoint_counts": {
+          "corner": 139265,
+          "dropped": 46,
+          "endpoint": 107406,
+          "exact": 284644,
+          "junction": 36620,
+          "snapped": 283291
+        },
+        "semantic_counts": {
+          "arrowhead": 67482,
+          "diagram_connector": 10000,
+          "dimension": 60000,
+          "hatch": 353775,
+          "leader": 37482,
+          "object_center": 15000,
+          "object_hidden": 15000,
+          "object_visible": 310499,
+          "reference_numeral": 37482,
+          "text": 10000,
+          "text_box": 10000
+        }
+      },
+      "workers": 12
+    },
+    "B": {
+      "actual_difficulty_counts": {
+        "hard": 5000,
+        "medium": 2500,
+        "very_hard": 2500
+      },
+      "actual_manifest_rows": 10000,
+      "all_quality_gates_passed": true,
+      "archive_bytes": 3391703040,
+      "archive_files": 100,
+      "audit_every": 100,
+      "canvas": 1024,
+      "count": 10000,
+      "curriculum": "enhanced",
+      "elapsed_seconds_this_run": 3552.985709217959,
+      "full_generation_started": false,
+      "generated_samples_this_run": 10000,
+      "generator_version": "patentvec-generator-2.1",
+      "max_sample_attempts": 128,
+      "mode": "experiment",
+      "planned_full_data_root": "/media/safe/secondary disk/IPdrawings",
+      "requested_count": 10000,
+      "run_fingerprint": "08d5aabec5fd5d6e4aa13cabd3d97880a666e55a04c8a1d5239e2814a9cd280d",
+      "samples_per_second_this_run": 2.8145342589067384,
+      "schema_version": "patentvec-compact-dataset-1.0",
+      "seed": 850725,
+      "shard_size": 100,
+      "source_index": "output/PatentVecSourceIndex/train.json",
+      "split": "train",
+      "summary": {
+        "audit_samples": 100,
+        "difficulty_counts": {
+          "hard": 5000,
+          "medium": 2500,
+          "very_hard": 2500
+        },
+        "free2cad_edge_counts": {
+          "arc": 4454,
+          "bezier": 6508,
+          "circle": 5342,
+          "line": 106497,
+          "polyline": 43401
+        },
+        "free2cad_match_p90_px_max_per_sample": {
+          "max": 1.8567323684692383,
+          "mean": 0.949306828725338,
+          "p50": 0.9185025095939636,
+          "p95": 1.3222247719764708
+        },
+        "free2cad_polyline_origins": {
+          "aggregated_lines": 646,
+          "direct": 42755
+        },
+        "free2cad_topology_projected_samples": 10000,
+        "generation_attempts": {
+          "max": 70.0,
+          "mean": 3.5668,
+          "p50": 2.0,
+          "p95": 14.0
+        },
+        "interaction_counts": {
+          "bridge": 20000,
+          "connected_crossing": 10000,
+          "containment": 10000,
+          "endpoint_join": 17500,
+          "t_junction": 15481,
+          "tangent": 7546
+        },
+        "payload_bytes": 3354181557,
+        "placement_rejections": {
+          "max": 101.0,
+          "mean": 12.5012,
+          "p50": 8.0,
+          "p95": 37.0
+        },
+        "puhachov_keypoint_counts": {
+          "corner": 160672,
+          "dropped": 45,
+          "endpoint": 130815,
+          "exact": 336833,
+          "junction": 43615,
+          "snapped": 335102
+        },
+        "semantic_counts": {
+          "arrowhead": 92578,
+          "diagram_connector": 12500,
+          "dimension": 80000,
+          "hatch": 462435,
+          "leader": 52578,
+          "object_center": 20000,
+          "object_hidden": 20000,
+          "object_visible": 359827,
+          "reference_numeral": 52578,
+          "text": 12500,
+          "text_box": 12500
+        }
+      },
+      "workers": 24
+    }
+  },
+  "training_coverage": {
+    "phaseA": {
+      "accepted": 8809417,
+      "attempted": 9179789,
+      "complete": true,
+      "epoch": 1,
+      "rejected": 370372,
+      "source_path": "data/SketchGraphs/raw/sg_t16_train.npy",
+      "source_total": 9179789,
+      "status_counts": {
+        "accepted": 8809417,
+        "decode_error": 0,
+        "degenerate_geometry": 886,
+        "empty_skeleton": 0,
+        "no_supported_geometry": 369486,
+        "nonfinite_geometry": 0,
+        "other_error": 0
+      },
+      "step": 546416,
+      "unattempted": 0
+    },
+    "phaseB": {
+      "accepted": 8809417,
+      "attempted": 9179789,
+      "complete": true,
+      "epoch": 1,
+      "rejected": 370372,
+      "source_path": "data/SketchGraphs/raw/sg_t16_train.npy",
+      "source_total": 9179789,
+      "status_counts": {
+        "accepted": 8809417,
+        "decode_error": 0,
+        "degenerate_geometry": 886,
+        "empty_skeleton": 0,
+        "no_supported_geometry": 369486,
+        "nonfinite_geometry": 0,
+        "other_error": 0
+      },
+      "step": 637486,
+      "unattempted": 0
+    }
+  },
+  "weights": {
+    "models/free2cad_v3_best.pth": {
+      "bytes": 3216836,
+      "sha256": "c438ecd9d34dd4173b18e39e92eb1213473cf36f3764d2fed53b88bc29e91ba9"
+    },
+    "models/hatch_unet.pth": {
+      "bytes": 57390123,
+      "sha256": "6c69c76e491810f70b2750262a7ecc9d2a300160a1ab442c02317e48de105280"
+    },
+    "models/puhachov_patentvec_complexityA.pth": {
+      "bytes": 30018147,
+      "sha256": "3fd035c9848cf51fdb9b8dafe5065d69d6e053a81e7782763753741b8870ef8c"
+    },
+    "models/sketchcleannet.pth": {
+      "bytes": 124259665,
+      "sha256": "daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b"
+    }
+  }
+}

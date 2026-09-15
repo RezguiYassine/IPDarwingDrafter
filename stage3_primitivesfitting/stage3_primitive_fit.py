@@ -51,12 +51,17 @@ from __future__ import annotations
 import json
 import logging
 import math
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+import cv2
 import numpy as np
 from rdp import rdp as _rdp
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tools.geometry_validation import POLICY, check_primitive  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -238,71 +243,30 @@ def _fit_arc_ransac(pts: np.ndarray) -> dict:
 
 def _fit_ellipse_algebraic(pts: np.ndarray) -> dict:
     """
-    Fitzgibbon (1996) constrained algebraic ellipse fit.
-    Constraint 4ac − b² = 1 guarantees an ellipse (not hyperbola/parabola).
+    Conditioned direct least-squares ellipse fit using OpenCV's solver.
     Returns {'cx','cy','a','b','angle'} in pixel coordinates.
     """
     if len(pts) < _MIN_PTS_ELLIPSE:
         raise ValueError(f"Need ≥{_MIN_PTS_ELLIPSE} pts for ellipse")
 
-    x = pts[:, 0].astype(np.float64)
-    y = pts[:, 1].astype(np.float64)
-
-    D = np.column_stack([x**2, x*y, y**2, x, y, np.ones(len(x))])
-    S = D.T @ D
-
-    # Constraint matrix: 4ac − b² = 1
-    C         = np.zeros((6, 6))
-    C[0, 2]   = C[2, 0] = 2.0
-    C[1, 1]   = -1.0
-
+    pts = np.asarray(pts, dtype=np.float64)
+    origin = pts.mean(axis=0)
+    scale = float(np.max(np.ptp(pts, axis=0)))
+    if not np.isfinite(pts).all() or scale <= 1e-12:
+        raise ValueError("Degenerate ellipse source")
     try:
-        from scipy.linalg import eig as scipy_eig
-        evals, evecs = scipy_eig(C, S)
-    except Exception as exc:
-        raise ValueError(f"Ellipse eigendecomp failed: {exc}")
-
-    evals = evals.real
-    evecs = evecs.real
-    pos   = np.isfinite(evals) & (evals > 1e-10)
-    if not pos.any():
-        raise ValueError("No positive eigenvalue — not an ellipse")
-
-    coeffs = evecs[:, np.where(pos)[0][np.argmin(evals[pos])]]
-    a, b, c, d, e, f = coeffs
-
-    denom = b ** 2 - 4 * a * c
-    if denom >= -1e-10:
-        raise ValueError(f"Discriminant {denom:.4g} ≥ 0 — not an ellipse")
-
-    cx = (2 * c * d - b * e) / denom
-    cy = (2 * a * e - b * d) / denom
-
-    # Semi-axes from eigenvalues of the shape matrix [[a, b/2],[b/2, c]]
-    # and the conic value F₀ = F(cx, cy)
-    F0 = a*cx**2 + b*cx*cy + c*cy**2 + d*cx + e*cy + f
-    M  = np.array([[a, b / 2.0], [b / 2.0, c]])
-    lam, vecs = np.linalg.eigh(M)   # lam[0] ≤ lam[1] for symmetric M
-
-    if np.any(lam == 0):
-        raise ValueError("Degenerate shape matrix (zero eigenvalue)")
-
-    ax_sq = -F0 / lam
-    if np.any(ax_sq <= 0):
-        # Try flipping sign convention
-        ax_sq = F0 / lam
-    if np.any(ax_sq <= 0) or not np.all(np.isfinite(ax_sq)):
-        raise ValueError("Invalid ellipse semi-axes")
-
-    axes  = np.sqrt(ax_sq)          # [minor_or_major, major_or_minor]
-    idx_major = int(np.argmax(axes))
-    semi_major = float(axes[idx_major])
-    semi_minor = float(axes[1 - idx_major])
-    major_vec  = vecs[:, idx_major]
-    angle      = float(np.degrees(np.arctan2(major_vec[1], major_vec[0])))
-
-    return {"cx": float(cx), "cy": float(cy),
-            "a": semi_major, "b": semi_minor, "angle": angle}
+        center, diameters, angle = cv2.fitEllipseDirect(((pts - origin) / scale).astype(np.float32))
+    except cv2.error as exc:
+        raise ValueError(f"Ellipse fit failed: {exc}") from exc
+    axes = np.asarray(diameters, dtype=float) * scale / 2
+    center = np.asarray(center) * scale + origin
+    if not np.isfinite(np.r_[center, axes, angle]).all() or min(axes) <= 0:
+        raise ValueError("Invalid ellipse parameters")
+    if axes[1] > axes[0]:
+        axes = axes[::-1]
+        angle += 90
+    return {"cx": float(center[0]), "cy": float(center[1]),
+            "a": float(axes[0]), "b": float(axes[1]), "angle": float(angle % 180)}
 
 
 def _fit_ellipse_ransac(pts: np.ndarray) -> dict:
@@ -313,7 +277,7 @@ def _fit_ellipse_ransac(pts: np.ndarray) -> dict:
     angle_rad = np.radians(params["angle"])
 
     # Rotate points into ellipse frame and compute approximate distance to rim
-    ca, sa_ = np.cos(-angle_rad), np.sin(-angle_rad)
+    ca, sa_ = np.cos(angle_rad), np.sin(angle_rad)
     dx = pts[:, 0] - cx
     dy = pts[:, 1] - cy
     xr =  ca * dx + sa_ * dy
@@ -1033,6 +997,7 @@ def _fit_compound_path(
     edge_id,
     *,
     require_fidelity: bool = False,
+    anchor_endpoints: bool = False,
     max_segment_p95: float = _PATH_SEGMENT_MAX_P95,
     max_endpoint_error: float = _PATH_SEGMENT_MAX_ENDPOINT_ERROR,
 ) -> dict | None:
@@ -1053,6 +1018,21 @@ def _fit_compound_path(
         seg, conf = _fit_subsegment(sub)
         if seg is None:
             return None
+        if anchor_endpoints:
+            if seg["type"] == "line":
+                seg = {"type": "line", "p1": sub[0].tolist(), "p2": sub[-1].tolist()}
+            elif seg["type"] == "arc":
+                # A fitted circle need not pass through the junction pixels.
+                # Fixed-endpoint cubics preserve both the curve and its joins.
+                angles = np.radians([seg["start_angle"], seg["end_angle"]])
+                ends = np.asarray(seg["center"]) + seg["radius"] * np.column_stack([np.cos(angles), np.sin(angles)])
+                source_ends = sub[[0, -1]]
+                error = min(np.linalg.norm(ends-source_ends, axis=1).max(),
+                            np.linalg.norm(ends[::-1]-source_ends, axis=1).max())
+                if error > 1e-6:
+                    seg, conf = _fit_bezier_segment(sub)
+                    if seg is None:
+                        return None
         fidelity = _path_segment_fidelity(seg, sub)
         if fidelity is None:
             if require_fidelity:
@@ -1102,6 +1082,103 @@ def _compound_path_atom_count(path: dict) -> int:
 
 # ── Priority selector ─────────────────────────────────────────────────────────
 
+def _repair_path_connectors(edge: dict, candidate: dict, max_path_atoms: int) -> dict | None:
+    """Make source-supported SVG bridges explicit in both SVG and native DXF."""
+    from scipy.spatial import cKDTree
+    from tools.geometry_validation import stage4_export as exporter
+
+    tree = cKDTree(np.asarray(edge["pixels"], dtype=float))
+    segments, previous = [], None
+    for segment, start, end, _ in exporter._orient_path_segments(candidate["segments"]):
+        if previous is not None:
+            distance = float(np.linalg.norm(np.asarray(start)-previous))
+            if distance > 2 * POLICY.endpoint_tolerance:
+                return None
+            if distance > 1e-6:
+                samples = np.linspace(previous, start, int(math.ceil(distance / 0.25)) + 1)
+                if tree.query(samples)[0].max() > POLICY.tolerance:
+                    return None
+                segments.append({"type": "line", "p1": list(previous), "p2": list(start)})
+        segments.append(segment)
+        previous = end
+    repaired = dict(candidate, segments=segments)
+    if _compound_path_atom_count(repaired) > max_path_atoms:
+        return None
+    check = check_primitive(repaired, edge)
+    if check["status"] != "pass" or check["metrics"]["max_connector_gap"] > 1e-6:
+        return None
+    repaired["fit_metadata"] = {**candidate.get("fit_metadata", {}),
+                                "strategy": "source_supported_connectors",
+                                "explicit_connectors": len(segments)-len(candidate["segments"])}
+    return repaired
+
+
+def _guard_source_primitive(edge: dict, candidate: dict, *, max_path_atoms=64,
+                            max_points=20_000, max_segment_p95=_PATH_SEGMENT_MAX_P95,
+                            max_endpoint_error=_PATH_SEGMENT_MAX_ENDPOINT_ERROR) -> dict:
+    """Require source support on every fit, including fallbacks and path joins."""
+    integrated = edge.get("topology_origin") == "coverage_integration"
+    # Re-fitting a joined stroke must not reopen its contacts or smooth away
+    # the recovered pixels. This is a stricter fitting rule, not a gate waiver.
+    policy = replace(POLICY, tolerance=1.0, max_distance=1.0, pass_fraction=1.0,
+                     endpoint_tolerance=1e-6) if integrated else POLICY
+
+    def supported(primitive):
+        return check_primitive(primitive, edge, policy)
+
+    check = supported(candidate)
+    if (check["status"] == "pass"
+            and not (candidate["type"] == "path"
+                     and check["metrics"]["max_connector_gap"] > 1e-6)):
+        return candidate
+
+    if candidate["type"] == "path":
+        repaired = _repair_path_connectors(edge, candidate, max_path_atoms)
+        if repaired is not None and supported(repaired)["status"] == "pass":
+            return repaired
+
+    points = np.asarray(edge["pixels"], dtype=np.float64)
+    prefix = ("source_supported_integration" if integrated else
+              "source_supported_residual" if edge.get("residual_parent_edge_ids") else "source_supported")
+    metadata = {"strategy": prefix + "_refit",
+                "rejected_type": candidate["type"],
+                "rejected_reasons": check.get("reason_codes", [])}
+    if not edge.get("is_closed"):
+        for fitter in (_fit_line_ransac, _fit_arc_ransac):
+            try:
+                refit = fitter(points)
+                refit["edge_id"] = edge["id"]
+                if supported(refit)["status"] == "pass":
+                    refit["fit_metadata"] = metadata
+                    return refit
+            except ValueError:
+                pass
+
+        if 4 <= len(points) <= max_points:
+            path = _fit_compound_path(edge, edge["id"], require_fidelity=True, anchor_endpoints=True,
+                                      max_segment_p95=max_segment_p95,
+                                      max_endpoint_error=max_endpoint_error)
+            if (path is not None and _compound_path_atom_count(path) <= max_path_atoms
+                    and supported(path)["status"] == "pass"):
+                path["fit_metadata"] = dict(metadata, strategy=prefix + "_anchored_path")
+                return path
+
+    # A compact trace must pass the same test; otherwise retain the exact
+    # ordered source. Low fitting confidence remains visible to quality gates.
+    for trace in (cv2.approxPolyDP(points.astype(np.float32), 0.25 if integrated else 0.5,
+                                   bool(edge.get("is_closed"))).reshape(-1, 2), points):
+        poly = trace.tolist()
+        if edge.get("is_closed") and poly and poly[0] != poly[-1]:
+            poly.append(poly[0])
+        fallback = {"type": "polyline", "edge_id": edge["id"], "points": poly,
+                    "confidence": 0.3,
+                    "fit_metadata": dict(metadata, strategy=prefix + "_trace")}
+        if supported(fallback)["status"] == "pass":
+            return fallback
+    # Over-budget or malformed evidence must still fail/review at acceptance.
+    return fallback
+
+
 def fit_edge_ransac(
     edge: dict,
     *,
@@ -1135,6 +1212,23 @@ def fit_edge_ransac(
     """
     edge_id   = edge["id"]
     is_closed = edge.get("is_closed", False)
+
+    def finish(candidate):
+        return _guard_source_primitive(
+            edge, candidate,
+            max_path_atoms=min(64, weak_compound_max_path_atoms) if weak_compound_max_path_atoms > 0 else 64,
+            max_points=min(20_000, weak_compound_max_points) if weak_compound_max_points > 0 else 20_000,
+            max_segment_p95=weak_compound_max_segment_p95,
+            max_endpoint_error=weak_compound_max_endpoint_error)
+
+    if (edge.get("topology_origin") == "unclaimed_component"
+            and edge.get("is_simple_cycle") is False):
+        # Legacy graphs must not promote a branched pixel bag to a closed
+        # primitive. Stage 2 repair supplies proper paths for current runs.
+        trace = _reorder_loop_pixels(edge["pixels"])
+        return {"edge_id": edge_id, "type": "polyline", "points": trace.tolist(),
+                "confidence": 0.3,
+                "fit_metadata": {"strategy": "unrepaired_noncycle_trace"}}
 
     if is_closed:
         # Circle and ellipse fits are order-independent. Keep raw unique
@@ -1174,16 +1268,18 @@ def fit_edge_ransac(
             try:
                 r = _fit_circle_ransac(pts)
                 r["edge_id"] = edge_id
-                if r["confidence"] >= _CONF_THRESH_CIRCLE:
-                    return r
+                if (r["confidence"] >= _CONF_THRESH_CIRCLE
+                        and check_primitive(r, edge)["status"] == "pass"):
+                    return finish(r)
             except ValueError:
                 pass
         if len(pts) >= _MIN_PTS_ELLIPSE:
             try:
                 r = _fit_ellipse_ransac(pts)
                 r["edge_id"] = edge_id
-                if r["confidence"] >= _CONF_THRESH_ELLIPSE:
-                    return r
+                if (r["confidence"] >= _CONF_THRESH_ELLIPSE
+                        and check_primitive(r, edge)["status"] == "pass"):
+                    return finish(r)
             except ValueError:
                 pass
         ordered_pts = _reorder_loop_pixels(edge["pixels"])
@@ -1191,7 +1287,7 @@ def fit_edge_ransac(
         # Try closed polygon (handles rectangles, hexagons, etc. whose
         # skeleton corners are rounded and fool circle/ellipse fitters).
         poly = _fit_polygon_closed(ordered_pts)
-        if poly is not None:
+        if poly is not None and check_primitive(poly, edge)["status"] == "pass":
             poly["edge_id"] = edge_id
             if (
                 simplify_closed_fallback
@@ -1213,8 +1309,8 @@ def fit_edge_ransac(
                     trace["fit_metadata"]["replaced_confidence"] = float(
                         poly["confidence"]
                     )
-                    return trace
-            return poly
+                    return finish(trace)
+            return finish(poly)
 
         if simplify_closed_fallback:
             trace = _fit_closed_simplified_trace(
@@ -1227,18 +1323,18 @@ def fit_edge_ransac(
             if trace is not None:
                 trace["fit_metadata"]["replaced_type"] = "polyline"
                 trace["fit_metadata"]["replaced_confidence"] = 0.3
-                return trace
+                return finish(trace)
 
         # Final fallback: raw ordered pixel trace.
         poly_points = [[float(p[0]), float(p[1])] for p in ordered_pts]
         if poly_points and poly_points[0] != poly_points[-1]:
             poly_points.append(poly_points[0])
-        return {
+        return finish({
             "edge_id":    edge_id,
             "type":       "polyline",
             "points":     poly_points,
             "confidence": 0.3,
-        }
+        })
 
     # ── Open-edge cascade: line → arc → ellipse → best-candidate → polyline ─
     line_result = None
@@ -1247,7 +1343,7 @@ def fit_edge_ransac(
             r = _fit_line_ransac(pts)
             r["edge_id"] = edge_id
             if r["confidence"] >= _CONF_THRESH_LINE:
-                return r
+                return finish(r)
             line_result = r
         except ValueError:
             pass
@@ -1261,12 +1357,12 @@ def fit_edge_ransac(
             if r["confidence"] >= _CONF_THRESH_ARC:
                 line_fallback = _refit_arc_as_line(edge, edge_id)
                 if line_fallback is not None:
-                    return line_fallback
+                    return finish(line_fallback)
                 # If smooth_pts are a sparse RDP fallback (angular corners),
                 # arc confidence is artificially inflated — skip and use
                 # the corner-polyline fallback instead.
                 if not _spline_sparse:
-                    return r
+                    return finish(r)
             arc_result = r
         except ValueError:
             pass
@@ -1276,8 +1372,9 @@ def fit_edge_ransac(
         try:
             r = _fit_ellipse_ransac(pts)
             r["edge_id"] = edge_id
-            if r["confidence"] >= _CONF_THRESH_ELLIPSE:
-                return r
+            if (r["confidence"] >= _CONF_THRESH_ELLIPSE
+                    and check_primitive(r, edge)["status"] == "pass"):
+                return finish(r)
         except ValueError:
             pass
 
@@ -1343,10 +1440,10 @@ def fit_edge_ransac(
                         "weak_confidence": float(weak_candidate["confidence"]),
                         "path_atoms": atom_count,
                     }
-                    return path
+                    return finish(path)
 
     if weak_candidate is not None:
-        return weak_candidate
+        return finish(weak_candidate)
 
     # ── Compound-path fallback ────────────────────────────────────────────────
     # No single line/arc/ellipse fit it. Rather than dump a raw jagged polyline,
@@ -1358,16 +1455,16 @@ def fit_edge_ransac(
     if _COMPOUND_PATH_ENABLED:
         path = _fit_compound_path(edge, edge_id)
         if path is not None:
-            return path
+            return finish(path)
 
     raw_poly = edge.get("smooth_pts") or edge["pixels"]
     poly_conf = 0.65 if _spline_sparse else 0.3
-    return {
+    return finish({
         "edge_id":    edge_id,
         "type":       "polyline",
         "points":     [[float(p[0]), float(p[1])] for p in raw_poly],
         "confidence": poly_conf,
-    }
+    })
 
 
 def _scale_point(pt: list, scale: float) -> list:
@@ -1401,13 +1498,15 @@ def _scale_primitive(prim: dict, scale: float) -> dict:
         p["points"] = [_scale_point(pt, scale) for pt in p.get("points", [])]
     elif ptype == "path":
         p["segments"] = [_scale_primitive(seg, scale) for seg in p.get("segments", [])]
+    elif ptype == "hatch_strokes":
+        p["strokes"] = [[_scale_point(pt, scale) for pt in stroke] for stroke in p["strokes"]]
     elif ptype == "hatch":
         p["boundary"] = [_scale_point(pt, scale) for pt in p.get("boundary", [])]
         p["spacing"] = float(p.get("spacing", 0.0)) * scale   # angles are scale-invariant
     return p
 
 
-def _fit_removed_hachure(edge: dict) -> dict | None:
+def _fit_removed_hachure(edge: dict, *, preserve_trace: bool = False) -> dict | None:
     """
     Convert a Stage 2 side-layer hatch edge into an exportable primitive.
 
@@ -1422,6 +1521,16 @@ def _fit_removed_hachure(edge: dict) -> dict | None:
     pts = np.array(pix, dtype=np.float64)
     try:
         prim = _fit_line_ransac(pts)
+        if check_primitive(prim, edge)["status"] != "pass":
+            raise ValueError("Hatch line fit is not supported by its complete source")
+        if preserve_trace:
+            start = np.asarray(prim["p1"])
+            delta = np.asarray(prim["p2"]) - start
+            length_sq = float(delta @ delta)
+            t = np.clip((pts - start) @ delta / max(length_sq, 1e-12), 0, 1)
+            distance = np.linalg.norm(pts - (start + t[:, None] * delta), axis=1)
+            if float(distance.max()) > 0.75:
+                raise ValueError("Hatch line fit does not preserve its source trace")
     except ValueError:
         prim = {
             "type": "polyline",
@@ -1449,6 +1558,131 @@ def _hatch_region_to_primitive(region: dict) -> dict:
         "style":      "hachure",
         "source":     "hachure_region",
         "confidence": 0.6,
+    }
+
+
+def _compact_hachure_primitives(primitives: list[dict]) -> list[dict]:
+    """Pack local explicit strokes; never join gaps or infer a filled boundary."""
+    from collections import defaultdict
+
+    groups = defaultdict(list)
+    result = []
+    for primitive in primitives:
+        if primitive["type"] not in {"line", "polyline"}:
+            result.append(primitive)
+            continue
+        points = primitive.get("points") or [primitive["p1"], primitive["p2"]]
+        if len(points) > 2:
+            compact = cv2.approxPolyDP(np.asarray(points, np.float32), 0.25, False).reshape(-1, 2)
+            proposed = {"type": "polyline", "points": compact.tolist()}
+            if check_primitive(proposed, {"pixels": points})["status"] == "pass":
+                points = proposed["points"]
+        center = np.mean(points, axis=0)
+        groups[(int(center[0] // 256), int(center[1] // 256))].append((primitive, points))
+
+    def emit(members):
+        if len(members) < 4:
+            result.extend(primitive for primitive, _ in members)
+            return
+        owners = [primitive["source_hachure_indices"] for primitive, _ in members]
+        result.append({"type": "hatch_strokes", "style": "hachure",
+                       "source": "explicit_hachure_strokes", "confidence": 0.3,
+                       "strokes": [points for _, points in members],
+                       "stroke_source_indices": owners,
+                       "source_hachure_indices": [index for group in owners for index in group]})
+
+    for key in sorted(groups):
+        members, vertices = [], 0
+        for item in groups[key]:
+            if len(item[1]) > 1024:
+                result.append(item[0])
+                continue
+            if len(members) == 32 or vertices + len(item[1]) > 1024:
+                emit(members)
+                members, vertices = [], 0
+            members.append(item)
+            vertices += len(item[1])
+        emit(members)
+    return result
+
+
+def fit_hachure_layer(graph: dict, coord_scale: float = 1.0) -> tuple[list[dict], dict]:
+    """Account for every side-layer edge through a region or an explicit fallback.
+
+    Old graphs lack membership metadata. Infer ownership conservatively from
+    full containment; never let one small region suppress unrelated hatch ink.
+    """
+    edges = graph.get("removed_hachures") or []
+    regions = graph.get("hachure_regions") or []
+    represented: set[int] = set()
+    primitives = []
+    inferred_regions = 0
+    recovered_regions_traced = []
+    for region_index, region in enumerate(regions):
+        boundary = np.asarray(region.get("boundary", []), dtype=np.float32)
+        angles = region.get("angles") or []
+        if (boundary.ndim != 2 or boundary.shape[1] != 2 or len(boundary) < 3
+                or not np.isfinite(boundary).all() or cv2.contourArea(boundary) <= 0
+                or not angles or not np.isfinite(angles).all()
+                or not np.isfinite(region.get("spacing", 0))
+                or float(region.get("spacing", 0)) <= 0):
+            continue
+        indices = region.get("source_hachure_indices")
+        if indices is None:
+            indices = range(len(edges))
+            inferred_regions += 1
+        members = []
+        lo, hi = boundary.min(axis=0), boundary.max(axis=0)
+        for index in indices:
+            if (not isinstance(index, int) or isinstance(index, bool)
+                    or index in represented or not 0 <= index < len(edges)):
+                continue
+            pts = np.asarray(edges[index].get("pixels") or [], dtype=np.float64)
+            if (pts.ndim != 2 or pts.shape[1] != 2 or not len(pts)
+                    or not np.isfinite(pts).all()
+                    or np.any(pts < lo) or np.any(pts > hi)):
+                continue
+            if all(cv2.pointPolygonTest(boundary, (float(x), float(y)), False) >= 0
+                   for x, y in pts):
+                members.append(index)
+                represented.add(index)
+        if any(edges[index].get("residual_parent_edge_ids") for index in members):
+            # Newly recovered hatch/outline networks do not establish a filled
+            # region. A convex hull and estimated phase can invent vast areas
+            # of ink. Keep their actual strokes until pattern fidelity is proven.
+            represented.difference_update(members)
+            recovered_regions_traced.append(region_index)
+            continue
+        prim = _hatch_region_to_primitive(region)
+        prim["source_hachure_indices"] = members
+        prim["source_region_index"] = region_index
+        primitives.append(prim)
+
+    region_edges = len(represented)
+    unrepresented = []
+    fallback_edges = 0
+    for index, edge in enumerate(edges):
+        if index in represented:
+            continue
+        prim = _fit_removed_hachure(
+            edge, preserve_trace=bool(regions or edge.get("residual_parent_edge_ids")))
+        if prim is None:
+            unrepresented.append(index)
+            continue
+        prim["source_hachure_indices"] = [index]
+        primitives.append(prim)
+        represented.add(index)
+        fallback_edges += 1
+    if sum(p["type"] in {"line", "polyline"} for p in primitives) >= 4:
+        primitives = _compact_hachure_primitives(primitives)
+    return [_scale_primitive(p, coord_scale) for p in primitives], {
+        "source_edges": len(edges),
+        "region_edges": region_edges,
+        "fallback_edges": fallback_edges,
+        "represented_edges": len(represented),
+        "unrepresented_indices": unrepresented,
+        "legacy_regions_inferred": inferred_regions,
+        "recovered_regions_traced": recovered_regions_traced,
     }
 
 
@@ -1608,28 +1842,13 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         )
         for edge in edges
     ]
-    # Hachures: prefer parametric regions (one HATCH per filled area) over
-    # per-line fitting, which fragments at cross-hatch intersections and bloats
-    # the output (~45% of all primitives). Fall back to per-line if Stage 2
-    # produced no regions (e.g. hachure_mode="line").
-    hachure_regions = graph.get("hachure_regions") or []
-    if hachure_regions:
-        hachure_primitives = [
-            _scale_primitive(_hatch_region_to_primitive(r), coord_scale)
-            for r in hachure_regions
-        ]
-    else:
-        hachure_primitives = [
-            _scale_primitive(prim, coord_scale)
-            for edge in removed_hachures
-            for prim in [_fit_removed_hachure(edge)]
-            if prim is not None
-        ]
+    hachure_primitives, hachure_coverage = fit_hachure_layer(graph, coord_scale)
     primitives = main_primitives + hachure_primitives
 
     confidences = [p.get("confidence", 0.0) for p in main_primitives]
     mean_conf   = float(np.mean(confidences)) if confidences else 0.0
-    flagged     = mean_conf < effective_conf_thresh
+    flagged     = (mean_conf < effective_conf_thresh
+                   or bool(hachure_coverage["unrepresented_indices"]))
     weak_compound_promotions = [
         p for p in main_primitives
         if p.get("fit_metadata", {}).get("strategy") == "compound_over_weak"
@@ -1662,6 +1881,7 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     doc["quality_metrics"] = {
         "n_main_primitives": len(main_primitives),
         "n_hachure_primitives": len(hachure_primitives),
+        "hachure_coverage": hachure_coverage,
         "main_mean_confidence": mean_conf,
         "confidence_threshold": conf_thresh,
         "effective_confidence_threshold": effective_conf_thresh,

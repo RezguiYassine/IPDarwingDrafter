@@ -854,7 +854,9 @@ def _build_reference_doc(
             "iteration": int(label.get("iteration", 1)),
             "kind": label.get("kind", "leadered_text"),
             "removal_mode": label.get("removal_mode", "full"),
-            "text": "",
+            "text": str(label.get("text", "") or ""),
+            "ref_class": label.get("ref_class"),
+            "confidence": _json_num(label.get("confidence")),
             "bbox": [_json_num(v) for v in label["bbox"]],
             "crop_bbox": [_json_num(v) for v in crop_bbox],
             "position": [_json_num(cx), _json_num(cy)],
@@ -1523,6 +1525,9 @@ def run(
     """
     t_start = time.perf_counter()
     cfg = _stage0_cfg(config)
+    strict_models = bool((config or {}).get("pipeline", {}).get("deployment", {}).get("strict_models", False))
+    if strict_models and cfg.get("use_ocr") and not _ocr_available():
+        raise RuntimeError("Canonical deployment requires EasyOCR; classical reference fallback is disabled.")
     ref_dir = output_dir / "references"
     crop_dir = ref_dir / "crops"
     ref_dir.mkdir(parents=True, exist_ok=True)
@@ -1704,6 +1709,9 @@ def annotations_from_reference_json(references_json_path: Path) -> list[dict[str
         ann = {
             "id": ref.get("id", ""),
             "text": ref.get("text", ""),
+            "ref_class": ref.get("ref_class"),
+            "confidence": ref.get("confidence"),
+            "svg_render_mode": "crop",
             "position": ref.get("position", [0, 0]),
             "bbox": ref.get("bbox"),
             "crop_bbox": ref.get("crop_bbox"),

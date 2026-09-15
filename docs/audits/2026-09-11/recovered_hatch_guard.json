@@ -1,0 +1,120 @@
+{
+  "scope": "Diagnostic Stage 3/4 hatch guard replay on fresh Stage 2 evidence. Does not bypass canonical gates or provide training eligibility.",
+  "stage3_sha256": "a3fb92d8f77426820367d836e6c89e1d1139d5ef2c7992cacfd6bdd29aa1ab1c",
+  "rows": [
+    {
+      "patent_id": "EP2565056B1",
+      "sketch_id": "F0001",
+      "graph": "output/PatentData2_ResidualRepairSmoke/EP2565056B1/graphs/F0001_graph.json",
+      "graph_sha256": "252445be4a049b0cd3f1c4b041c3ba5f5289233db173e60a8c0abed125cc024f",
+      "skeleton_sha256": "30e9aff4f49a5dc28318b06a0c22dd4e4d8c549d4edaea234ee15ec4aec46890",
+      "raster": {
+        "chamfer_sym": 0.1641019349180633,
+        "chamfer_p95": 1.0,
+        "precision_at_2px": 0.9982811257343698,
+        "recall_at_2px": 0.9931876029345711,
+        "f1_at_2px": 0.9957278505554341
+      },
+      "geometry": {
+        "primitives": 1557,
+        "by_status": {
+          "pass": 1548,
+          "review": 6,
+          "fail": 3
+        },
+        "by_type": {
+          "line": 691,
+          "path": 107,
+          "arc": 24,
+          "polyline": 728,
+          "polygon": 4,
+          "circle": 3
+        }
+      },
+      "geometry_status": "fail",
+      "geometry_reasons": [
+        "geometry_path_discontinuity",
+        "geometry_skeleton_coverage_lost",
+        "geometry_source_trace_lost",
+        "geometry_unsupported_primitive",
+        "geometry_unsupported_run"
+      ],
+      "hatch_coverage": {
+        "source_edges": 1348,
+        "region_edges": 0,
+        "fallback_edges": 1348,
+        "represented_edges": 1348,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0,
+        "recovered_regions_traced": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "primitives_in": 1557,
+      "primitives_out": 1557
+    },
+    {
+      "patent_id": "EP3082506B1",
+      "sketch_id": "F0001",
+      "graph": "output/PatentData2_ResidualRepairSmoke/EP3082506B1/graphs/F0001_graph.json",
+      "graph_sha256": "0d9b8b2a4b08aa11244fabefe25610650d55ec5186bb981148d84b26b6d1fe01",
+      "skeleton_sha256": "497a8516a27b74ce9bbd56b8775124706735038b6bb92bdc7896cb89f83c4e3d",
+      "raster": {
+        "chamfer_sym": 0.1929395177041094,
+        "chamfer_p95": 1.0,
+        "precision_at_2px": 0.9987759867429948,
+        "recall_at_2px": 0.990225299442768,
+        "f1_at_2px": 0.9944822634533573
+      },
+      "geometry": {
+        "primitives": 388,
+        "by_status": {
+          "pass": 360,
+          "review": 20,
+          "fail": 8
+        },
+        "by_type": {
+          "path": 99,
+          "line": 256,
+          "arc": 9,
+          "polygon": 4,
+          "ellipse": 1,
+          "circle": 3,
+          "polyline": 16
+        }
+      },
+      "geometry_status": "fail",
+      "geometry_reasons": [
+        "geometry_endpoint_mismatch",
+        "geometry_path_discontinuity",
+        "geometry_skeleton_coverage_lost",
+        "geometry_source_trace_lost",
+        "geometry_unsupported_primitive",
+        "geometry_unsupported_run"
+      ],
+      "hatch_coverage": {
+        "source_edges": 196,
+        "region_edges": 0,
+        "fallback_edges": 196,
+        "represented_edges": 196,
+        "unrepresented_indices": [],
+        "legacy_regions_inferred": 0,
+        "recovered_regions_traced": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "primitives_in": 388,
+      "primitives_out": 388
+    }
+  ]
+}

@@ -29,6 +29,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stage3_primitivesfitting"))
 import stage3_primitive_fit as s3   # noqa: E402
+from tools.geometry_validation import check_primitive
 
 
 def _edge(pts):
@@ -45,8 +46,10 @@ def test_lshape_two_lines_sharp_corner():
     r = s3.fit_edge_ransac(_edge(pts))
     assert r["type"] == "path", r["type"]
     types = _seg_types(r)
-    assert types == ["line", "line"], types          # 2 straight arms, sharp corner
-    assert all(t != "bezier" for t in types)          # corner NOT rounded
+    assert all(t == "line" for t in types)
+    assert sum(np.linalg.norm(np.asarray(s["p2"])-s["p1"]) > 5 for s in r["segments"]) == 2
+    assert len(types) <= 3  # two arms and, when needed, the explicit short source join
+    assert check_primitive(r, _edge(pts))["metrics"]["max_connector_gap"] <= 1e-6
 
 
 def test_zigzag_three_lines():
@@ -162,8 +165,9 @@ def test_compound_promotion_cannot_discard_a_short_endpoint_hook():
 
     result = s3.fit_edge_ransac(edge, prefer_compound_over_weak=True)
 
-    assert result["type"] == "line"
+    assert result["type"] == "polyline"
     assert result["confidence"] < 0.6
+    assert check_primitive(result, edge)["status"] == "pass"
 
 
 def test_straight_line_stays_single_line():
@@ -193,8 +197,8 @@ def test_opt_in_compound_path_can_replace_a_weak_single_fit():
         weak_compound_max_path_atoms=64,
     )
 
-    assert baseline["type"] == "line"
-    assert 0.2 < baseline["confidence"] < 0.6
+    assert baseline["type"] == "path"
+    assert check_primitive(baseline, edge)["status"] == "pass"
     assert promoted["type"] == "path"
     assert promoted["confidence"] >= 0.6
     assert promoted["fit_metadata"]["strategy"] == "compound_over_weak"
@@ -213,8 +217,9 @@ def test_opt_in_compound_path_respects_complexity_cap():
         weak_compound_max_path_atoms=1,
     )
 
-    assert result["type"] == "line"
-    assert "fit_metadata" not in result
+    assert result["type"] == "polyline"
+    assert check_primitive(result, edge)["status"] == "pass"
+    assert result["fit_metadata"]["strategy"] == "source_supported_trace"
 
 
 def test_opt_in_closed_trace_replaces_raw_fixed_confidence_fallback():

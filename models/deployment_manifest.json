@@ -1,0 +1,20 @@
+{
+  "schema": "ap3-deployment-weights-v1",
+  "weights": [
+    {
+      "config_key": ["puhachov", "weights"],
+      "required": true,
+      "sha256": "3fd035c9848cf51fdb9b8dafe5065d69d6e053a81e7782763753741b8870ef8c"
+    },
+    {
+      "config_key": ["stage2", "hachure_cnn_model"],
+      "required": true,
+      "sha256": "6c69c76e491810f70b2750262a7ecc9d2a300160a1ab442c02317e48de105280"
+    },
+    {
+      "config_key": ["sketchcleannet", "weights"],
+      "required": false,
+      "sha256": "daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b"
+    }
+  ]
+}
