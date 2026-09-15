@@ -1,0 +1,69 @@
+{
+  "date": "2026-09-15",
+  "schema": "ap3-gate-recalibration-v1",
+  "baseline_run": "output/PatentData100_CurrentPipelineReviewGPU1_2026-09-14",
+  "recal_run": "output/PatentData100_GateRecal_2026-09-15",
+  "config": "config_deploy_recal.yaml",
+  "config_sha256": "dc34ff39c292ec3747fa69f127759fef5e5470fe9adb026383da8b1f504603f0",
+  "artifacts": {
+    "cohort_worklist.csv": "8c44338a997d2d35d57fdc35f689538757f47ceee15cfe790adbc55b514d8d3a",
+    "fidelity_baseline_cohort.csv": "c585c9b4661e8bd8d84568b83232103b4b095472d6ddccfcaaca3d82b32aba1c",
+    "fidelity_recal.csv": "8d450645792f31920a4528a43bca4b075cb54595713be58f066e4c8dcb4d6065",
+    "gate_metrics.csv": "7e155c2a1ca144e863178c8183c1972afd348faa09bf5490cc50276c8451c9f9"
+  },
+  "baseline_status": {
+    "ok": 23,
+    "quality_gate_stage1": 3,
+    "quality_gate_stage2": 28,
+    "quality_gate_stage3": 46
+  },
+  "baseline_acceptance": {
+    "rejected": 94,
+    "review": 6
+  },
+  "baseline_stage3_time": {
+    "median": 4.489603159017861,
+    "p90": 13.651188190467657,
+    "max": 30.785599280148745
+  },
+  "recal_status": {
+    "ok": 81,
+    "quality_gate_stage1": 3,
+    "quality_gate_stage2": 16
+  },
+  "recal_acceptance": {
+    "rejected": 75,
+    "review": 25
+  },
+  "recal_stage3_time": {
+    "median": 4.337020372971892,
+    "p90": 13.585666041821241,
+    "max": 31.25002251798287
+  },
+  "fidelity_recal_admitted": {
+    "n": 81,
+    "min": 0.9421,
+    "p10": 0.9798,
+    "median": 0.9988
+  },
+  "fidelity_newly_admitted": {
+    "n": 58,
+    "min": 0.9421,
+    "p10": 0.9714,
+    "median": 0.9981
+  },
+  "fidelity_baseline_admitted": {
+    "n": 23,
+    "min": 0.9479,
+    "median": 0.9994
+  },
+  "spearman_vs_stage3_f1": {
+    "micro_edge_ratio": -0.019,
+    "short_edge_ratio": -0.571,
+    "isolation": -0.624,
+    "n_edges": -0.5,
+    "n_primitives": -0.373,
+    "mean_conf": -0.523,
+    "low_conf_ratio": 0.596
+  }
+}
