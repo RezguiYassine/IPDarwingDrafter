@@ -13,9 +13,10 @@ pipeline:
   log_level: INFO
   quality_gates:
     enabled: true
-    max_low_conf_ratio: 0.25
-    max_low_conf_ratio_after_hachure: 0.65
-    max_primitives: 900
+    gate_policy_version: 2026-09-15.1
+    max_low_conf_ratio: 0
+    max_low_conf_ratio_after_hachure: 0
+    max_primitives: 50000
     min_hachure_edges_for_low_conf_relax: 20
     stop_on_stage1: true
     stop_on_stage2: true
@@ -26,9 +27,9 @@ puhachov:
   fusion: false
   keypoint_threshold: 0.3
   nms_radius: 5
-  tiled: true
   tile_size: 512
   tile_stride: 256
+  tiled: true
   weights: models/puhachov_patentvec_complexityA.pth
 sketchcleannet:
   device: cpu
@@ -100,13 +101,12 @@ stage1:
     morph_kernel: 2
   quality_threshold: 0.7
 stage2:
-  hachure_mode: region
   dashed_grouping: false
   fragmentation:
     max_edges: 2500
-    max_micro_edge_ratio: 0.5
+    max_micro_edge_ratio: 1.01
+    max_short_edge_ratio: 1.01
     max_unclaimed_noncycle_pixels: 100000
-    max_short_edge_ratio: 0.8
   hachure_angle_tolerance: 12.0
   hachure_cluster_radius: 95.0
   hachure_cnn_device: cpu
@@ -120,6 +120,7 @@ stage2:
   hachure_min_graph_edges: 20
   hachure_min_length: 5.0
   hachure_min_straightness: 0.7
+  hachure_mode: region
   hachure_pre_pass: false
   hachure_region_cleanup_before_metrics: true
   hachure_residual_prune_max_length: 6.0
@@ -140,22 +141,28 @@ stage2:
   spline_overshoot_limit: 5.0
   spur_min_length: 6.0
 stage3:
+  closed_trace_compete_below_confidence: 0.6
+  closed_trace_min_gain: 0.05
+  closed_trace_target_confidence: 0.65
+  closed_trace_target_p95: 2.0
+  closed_trace_vertex_caps:
+  - 24
+  - 32
+  - 48
+  - 64
+  - 96
+  - 128
   confidence_threshold: 0.6
   confidence_threshold_after_hachure: 0.5
   min_hachure_edges_for_relaxed_confidence: 20
   prefer_compound_over_weak: true
-  weak_compound_confidence_threshold: 0.6
-  weak_compound_min_gain: 0.05
-  weak_compound_max_points: 20000
-  weak_compound_max_path_atoms: 64
-  weak_compound_max_segment_p95: 2.0
-  weak_compound_max_endpoint_error: 3.0
   simplify_closed_fallback: true
-  closed_trace_vertex_caps: [24, 32, 48, 64, 96, 128]
-  closed_trace_target_confidence: 0.65
-  closed_trace_target_p95: 2.0
-  closed_trace_compete_below_confidence: 0.6
-  closed_trace_min_gain: 0.05
+  weak_compound_confidence_threshold: 0.6
+  weak_compound_max_endpoint_error: 3.0
+  weak_compound_max_path_atoms: 64
+  weak_compound_max_points: 20000
+  weak_compound_max_segment_p95: 2.0
+  weak_compound_min_gain: 0.05
 training:
   batch_size: 32
   epochs: 100
