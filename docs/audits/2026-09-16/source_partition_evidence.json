@@ -1,0 +1,49 @@
+{
+  "schema": "patentvec-source-partition-evidence-v1",
+  "date": "2026-09-16",
+  "purpose": "Source-disjoint frozen partitions for the patent-like corpus. Replaces the July train-pool index, which carried no identities, snapshots or strict flag.",
+  "input_index": "output/PatentVecSourceIndex/train.json",
+  "input_index_sha256": "120eec58d2c77f23f500d16e4cdc9d933ce9e4de36a791fd8a1eb71a1f3ed7c4",
+  "output_dir": "output/PatentVecSourcePartitions (Git-ignored; regenerate with the command below)",
+  "seed": 160926,
+  "partitions": {
+    "train": {
+      "sha256": "9e2b3199bfa9da049d51d5e384fb249de5f75421432c09c07116cfa6a4084e5c",
+      "entry_count": 12506,
+      "source_identity_count": 6519
+    },
+    "validation": {
+      "sha256": "15a9aa8680ff36572463634bf7a82c00f619b703af5bbb798207e6948e3ea3f6",
+      "entry_count": 1562,
+      "source_identity_count": 810
+    },
+    "test": {
+      "sha256": "a5435bdf21339d273dbd2c2b689ccc2e82ddb6f87a0e68a7186960a9b6179f38",
+      "entry_count": 1661,
+      "source_identity_count": 849
+    }
+  },
+  "overlaps": {
+    "train:validation": 0,
+    "train:test": 0,
+    "validation:test": 0
+  },
+  "identity_rule": {
+    "SketchGraphs": "SketchGraphs:document:<document_id>",
+    "CAD-VGDrawing": "CAD-VGDrawing:model:<model_id> (model, not view: the four sibling views of one CAD model cannot straddle a split)"
+  },
+  "source_files_hashed": 4574,
+  "implementation_sha256": "5dee2c78f0a8a0f8004a8baa047c9e3c348403d148d53e2ea50b03b485f4c2a6",
+  "scope": "Release partitions are document/model disjoint; these sources may have been seen by historical pretraining.",
+  "verification": {
+    "generator_consumes_frozen_index": true,
+    "probe": "phase2_frozenpartition10 (10 four-figure sheets, binary/2048/balanced/noise 0.35)",
+    "probe_sheets": 10,
+    "probe_retried": 0,
+    "probe_mean_attempts": 1.0,
+    "probe_annotation_rejections": 0,
+    "probe_other_rejections": 0,
+    "note": "Ten sheets is a functional check that snapshot hashes verify and generation succeeds, not a statistically meaningful rejection-rate estimate."
+  },
+  "regenerate": "python -m syntheticData.partition_sources output/PatentVecSourceIndex/train.json --output output/PatentVecSourcePartitions --seed 160926"
+}
