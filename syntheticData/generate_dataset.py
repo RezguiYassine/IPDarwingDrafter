@@ -1,26 +1,33 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
+import importlib.metadata
 import io
 import json
 import os
+import platform
 import tarfile
 import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+import yaml
+
 from syntheticData.patentvec.generator import (
     ComplexPilotGenerator,
     SourcePool,
     compact_sample_payload,
 )
+from syntheticData.patentvec.render import degradation_parameters
+from syntheticData.patentvec.stage2_targets import ARCHIVE_LABEL_CONTRACT, REFERENCE_FREE_RASTER_TOPOLOGY_CONTRACT
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EXTERNAL_DATA_ROOT = Path("/media/safe/secondary disk/IPdrawings")
-GENERATOR_VERSION = "patentvec-generator-2.1"
+GENERATOR_VERSION = "patentvec-generator-2.3"
 _WORKER_GENERATOR: ComplexPilotGenerator | None = None
 
 
@@ -40,10 +47,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--canvas", type=int, default=1024)
     parser.add_argument("--seed", type=int, default=280725)
     parser.add_argument("--audit-every", type=int, default=100)
+    parser.add_argument("--audit-strategy", choices=("periodic", "stratified"), default="periodic")
+    parser.add_argument("--retain-rasters", action="store_true")
+    parser.add_argument("--degradation-config", type=Path)
+    parser.add_argument("--acquisition", choices=("grayscale", "binary"), default="grayscale")
+    parser.add_argument("--noise-budget", type=float, help="Expected dark speckles per 1000 reference-free ink pixels")
+    parser.add_argument("--layout", choices=("single", "four_figure"), default="single")
+    parser.add_argument("--stage2-label-contract", choices=(ARCHIVE_LABEL_CONTRACT, REFERENCE_FREE_RASTER_TOPOLOGY_CONTRACT),
+                        default=ARCHIVE_LABEL_CONTRACT)
     parser.add_argument("--max-sample-attempts", type=int, default=128)
     parser.add_argument(
         "--curriculum",
-        choices=("baseline", "enhanced", "very_hard"),
+        choices=("baseline", "enhanced", "very_hard", "balanced", "patent"),
         default="baseline",
     )
     parser.add_argument(
@@ -82,6 +97,14 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("max-sample-attempts must be in [16, 512]")
     if not args.source_index.exists():
         raise SystemExit(f"missing source index: {args.source_index}")
+    if not 128 <= args.canvas <= 4096:
+        raise SystemExit("canvas must be in [128, 4096]")
+    overrides = yaml.safe_load(args.degradation_config.read_text()) if args.degradation_config else None
+    args.degradation = degradation_parameters(overrides)
+    if args.noise_budget is not None and not 0 <= args.noise_budget <= 10:
+        raise SystemExit("noise-budget must be in [0, 10]")
+    if args.layout == "four_figure" and args.canvas < 1536:
+        raise SystemExit("four-figure sheets require canvas >=1536")
 
 
 def _atomic_json(path: Path, payload) -> None:
@@ -109,6 +132,7 @@ def _worker_init(
     source_index: str,
     split: str,
     canvas: int,
+    layout: str = "single",
 ) -> None:
     global _WORKER_GENERATOR
     pool = SourcePool(
@@ -117,7 +141,11 @@ def _worker_init(
         split=split,
         index_path=Path(source_index),
     )
-    _WORKER_GENERATOR = ComplexPilotGenerator(pool, canvas=canvas)
+    if layout == "four_figure":
+        from syntheticData.patentvec.sheets import SheetGenerator
+        _WORKER_GENERATOR = SheetGenerator(pool, canvas)
+    else:
+        _WORKER_GENERATOR = ComplexPilotGenerator(pool, canvas=canvas)
 
 
 def _tar_add_bytes(archive: tarfile.TarFile, name: str, payload: bytes) -> None:
@@ -153,6 +181,10 @@ def _generate_shard(task: dict) -> dict:
                     prepared,
                     source_index=spec["source_index"],
                     audit=spec["audit"],
+                    retain_rasters=task["retain_rasters"],
+                    degradation=task["degradation"],
+                    label_contract=task["stage2_label_contract"],
+                    acquisition=task["acquisition"], noise_budget=task["noise_budget"],
                 )
                 prefix = f"samples/{spec['sample_id']}"
                 for filename in sorted(payload):
@@ -206,6 +238,8 @@ def _sample_specs(args: argparse.Namespace) -> list[dict]:
         "baseline": ("medium", "hard"),
         "enhanced": ("medium", "hard", "hard", "very_hard"),
         "very_hard": ("very_hard",),
+        "balanced": ("medium", "hard", "very_hard"),
+        "patent": ("medium", "hard", "very_hard", "very_hard", "very_hard"),
     }
     schedule = schedules[args.curriculum]
     specs = []
@@ -220,7 +254,30 @@ def _sample_specs(args: argparse.Namespace) -> list[dict]:
                 "audit": bool(args.audit_every and index % args.audit_every == 0),
             }
         )
+    if args.audit_every and args.audit_strategy == "stratified":
+        for spec in specs:
+            spec["audit"] = False
+        for difficulty in sorted(set(schedule)):
+            candidates = [spec for spec in specs if spec["difficulty"] == difficulty]
+            count = (len(candidates) + args.audit_every - 1) // args.audit_every
+            positions = ([len(candidates) // 2] if count == 1 else
+                         [round(i * (len(candidates)-1) / (count-1)) for i in range(count)])
+            for position in positions:
+                candidates[position]["audit"] = True
     return specs
+
+
+def _record_generation(output: Path, plan: dict) -> None:
+    path = output / "generation.json"
+    previous = path if path.exists() else output / "manifest.json"
+    if previous.exists():
+        saved = json.loads(previous.read_text())
+        if saved.get("run_fingerprint") != plan["run_fingerprint"]:
+            raise ValueError("Generation identity changed; use a new output directory")
+    elif any((output / "shards").glob("*.tar")):
+        raise ValueError("Existing shards have no generation identity; use a new output directory")
+    if not path.exists():
+        _atomic_json(path, plan)
 
 
 def _distribution(values: list[float]) -> dict:
@@ -294,15 +351,14 @@ def _summary(rows: list[dict]) -> dict:
     }
 
 
-def main() -> int:
-    args = parse_args()
-    _validate_args(args)
-    args.output.mkdir(parents=True, exist_ok=True)
+def _run(args: argparse.Namespace) -> int:
     (args.output / "shards").mkdir(exist_ok=True)
     (args.output / "markers").mkdir(exist_ok=True)
     specs = _sample_specs(args)
-    run_fingerprint = _fingerprint(
-        {
+    source_files = [Path(__file__).resolve(), *sorted((PROJECT_ROOT / "syntheticData/patentvec").glob("*.py")),
+                    PROJECT_ROOT / "tools/d2c_stage3_dataset.py",
+                    PROJECT_ROOT / "stage2_strokeextraction/stage2_stroke_extract.py"]
+    settings = {
             "generator_version": GENERATOR_VERSION,
             "mode": args.mode,
             "count": args.count,
@@ -315,8 +371,19 @@ def main() -> int:
             "sketchgraphs": str(args.sketchgraphs.resolve()),
             "cadvg_root": str(args.cadvg_root.resolve()),
             "source_index_sha256": _sha256(args.source_index),
-        }
-    )
+            "shard_size": args.shard_size,
+            "retain_rasters": args.retain_rasters,
+            "audit_strategy": args.audit_strategy,
+            "degradation": args.degradation,
+            "acquisition": args.acquisition, "noise_budget": args.noise_budget, "layout": args.layout,
+            "stage2_label_contract": args.stage2_label_contract,
+            "implementation": {str(p.relative_to(PROJECT_ROOT)): _sha256(p) for p in source_files},
+            "runtime": {"python": platform.python_version(), **{
+                name: importlib.metadata.version(name) for name in ("numpy", "scipy", "scikit-image", "CairoSVG", "shapely", "Pillow")}},
+    }
+    run_fingerprint = _fingerprint(settings)
+    _record_generation(args.output, {"run_fingerprint": run_fingerprint, "settings": settings,
+                                    "release_acceptance": "not_evaluated"})
     total_shards = (len(specs) + args.shard_size - 1) // args.shard_size
     tasks = []
     markers: dict[int, dict] = {}
@@ -329,6 +396,10 @@ def main() -> int:
                 "shard_index": shard_index,
                 "samples": shard_specs,
                 "max_sample_attempts": args.max_sample_attempts,
+                "retain_rasters": args.retain_rasters,
+                "degradation": args.degradation,
+                "acquisition": args.acquisition, "noise_budget": args.noise_budget,
+                "stage2_label_contract": args.stage2_label_contract,
             }
         )
         existing = _valid_marker(args.output, shard_name, task_fingerprint)
@@ -348,6 +419,10 @@ def main() -> int:
                 "samples": shard_specs,
                 "task_fingerprint": task_fingerprint,
                 "max_sample_attempts": args.max_sample_attempts,
+                "retain_rasters": args.retain_rasters,
+                "degradation": args.degradation,
+                "acquisition": args.acquisition, "noise_budget": args.noise_budget,
+                "stage2_label_contract": args.stage2_label_contract,
             }
         )
 
@@ -362,6 +437,7 @@ def main() -> int:
                 str(args.source_index),
                 args.split,
                 args.canvas,
+                args.layout,
             ),
         ) as executor:
             futures = {executor.submit(_generate_shard, task): task for task in tasks}
@@ -399,6 +475,10 @@ def main() -> int:
         "audit_every": args.audit_every,
         "max_sample_attempts": args.max_sample_attempts,
         "source_index": str(args.source_index),
+        "settings": settings,
+        "raster_retention": "all" if args.retain_rasters else "audit_only",
+        "stage2_label_contract": args.stage2_label_contract,
+        "release_acceptance": "not_evaluated",
         "elapsed_seconds_this_run": elapsed,
         "generated_samples_this_run": generated_sample_count,
         "samples_per_second_this_run": (
@@ -423,6 +503,18 @@ def main() -> int:
     print(json.dumps(manifest, indent=2, sort_keys=True))
     print(f"manifest: {args.output / 'manifest.json'}")
     return 0
+
+
+def main() -> int:
+    args = parse_args()
+    _validate_args(args)
+    args.output.mkdir(parents=True, exist_ok=True)
+    with (args.output / ".generation.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("Another generator owns this output directory") from exc
+        return _run(args)
 
 
 if __name__ == "__main__":

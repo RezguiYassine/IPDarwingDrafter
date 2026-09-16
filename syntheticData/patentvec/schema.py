@@ -327,16 +327,31 @@ def validate_drawing(drawing: CanonicalDrawing) -> list[str]:
         component_id for component_id, component in components.items()
         if component.source_dataset != "generated"
     ]
-    if len(source_components) > 1:
+    groups = [source_components]
+    if drawing.processing.get("layout") == "independent_four_figure_sheet":
+        figures = drawing.processing.get("figures", [])
+        groups = [figure.get("source_component_ids", []) for figure in figures]
+        declared = [identifier for group in groups for identifier in group]
+        if (len(groups) != 4 or any(not group for group in groups)
+                or len(declared) != len(set(declared)) or set(declared) != set(source_components)):
+            errors.append("invalid sheet figure component partition")
+            groups = [source_components]
+        else:
+            for group in groups:
+                if any(adjacency[identifier] - set(group) for identifier in group):
+                    errors.append("sheet has an undeclared cross-figure interaction")
+    for group in groups:
+        if len(group) <= 1:
+            continue
         seen = set()
-        stack = [source_components[0]]
+        stack = [group[0]]
         while stack:
             current = stack.pop()
             if current in seen:
                 continue
             seen.add(current)
             stack.extend(adjacency[current] - seen)
-        if any(component_id not in seen for component_id in source_components):
+        if any(component_id not in seen for component_id in group):
             errors.append("disconnected component interaction graph")
 
     for collection_name, junctions, primitives in (

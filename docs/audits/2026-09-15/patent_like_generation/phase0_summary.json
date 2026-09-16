@@ -1,0 +1,2009 @@
+{
+  "dataset": "/media/safe/secondary disk/IPdrawings/Patent_Like_Dataset/phase0_baseline300",
+  "manifest": {
+    "all_quality_gates_passed": true,
+    "archive_bytes": 278589440,
+    "audit_every": 10,
+    "canvas": 1024,
+    "count": 300,
+    "curriculum": "balanced",
+    "elapsed_seconds_this_run": 258.5690033980645,
+    "full_generation_started": false,
+    "generated_samples_this_run": 300,
+    "generator_version": "patentvec-generator-2.2",
+    "max_sample_attempts": 128,
+    "mode": "probe",
+    "planned_full_data_root": "/media/safe/secondary disk/IPdrawings",
+    "raster_retention": "all",
+    "release_acceptance": "not_evaluated",
+    "requested_count": 300,
+    "run_fingerprint": "d8b707445402d69e53ea00a3c23dd01e75bc4c8265c67d99f07adcbe2707a14c",
+    "samples_per_second_this_run": 1.1602318764332045,
+    "schema_version": "patentvec-compact-dataset-1.0",
+    "seed": 150926,
+    "settings": {
+      "audit_every": 10,
+      "audit_strategy": "stratified",
+      "cadvg_root": "/home/safe/Desktop/yassine/Vectorization/data/Drawing2CAD",
+      "canvas": 1024,
+      "count": 300,
+      "curriculum": "balanced",
+      "degradation": {
+        "blur_sigma_max": 0.75,
+        "blur_sigma_min": 0.35,
+        "dark_speckle_probability": 0.00012,
+        "light_speckle_probability": 8e-05,
+        "noise_std": 0.009
+      },
+      "generator_version": "patentvec-generator-2.2",
+      "implementation": {
+        "stage2_strokeextraction/stage2_stroke_extract.py": "164c52585c3bf2079ce8dddba2243842ceb45cf737fb8a4a6a6e02674b5c89c2",
+        "syntheticData/generate_dataset.py": "fc8dd5a534aa4d63ee41901db31f8dc83e470702efb1718beb77cebb5043c8dd",
+        "syntheticData/patentvec/__init__.py": "4e378d07e81c0cae81e0bb71679171b363c1f0ebf54825d00ed52138413ae8d7",
+        "syntheticData/patentvec/anchors.py": "23d20eb8797ea8f3efb6b222b198ed6eae0cb785d8246b519bcf1d136101fc68",
+        "syntheticData/patentvec/composition.py": "ad855ec235a30971932951e401857284f1677b0b2a4cb02c7b7965ec2c1b7962",
+        "syntheticData/patentvec/generator.py": "b572cf3cf5688602103e6920469455821e3d0fb7b69b37809da092d54730a830",
+        "syntheticData/patentvec/geometry.py": "e6b9a7c579c7a8ec1ff394e3c432bdd9d898a142292a96b82ef51dcb48242988",
+        "syntheticData/patentvec/hatch_stroke_targets.py": "ba6c0d427da97fd0ab100e1432632778779645a24a1623301c0bbed335e3e787",
+        "syntheticData/patentvec/patent_layers.py": "e39b376a18b3105edfd9ae28198de6e677cc261c2eeacfe11a500f647adec5d6",
+        "syntheticData/patentvec/quality.py": "e2a3eda56f9c0d9211ae6298caa961bf5116a68af56326fa88de0741422d27ad",
+        "syntheticData/patentvec/render.py": "c94f675733573a814bfb37212bf47c7b19386e89cadccdfc62a32e9e0d8182f5",
+        "syntheticData/patentvec/schema.py": "a9d00e8997fbb7648091dc0c74a3b431b7f5daafc44fab71ec55117e16015715",
+        "syntheticData/patentvec/sources.py": "266242a56225662113442af07518901336f880b5be35c9ab3d6ab4d82f9caf3d",
+        "syntheticData/patentvec/stage2_targets.py": "45c16b73554622dae3bce4efcdc40f73a640115275287284b968ca3bf835e69d",
+        "syntheticData/patentvec/training.py": "b93df97676c0c2d29d2b0a0eaae0f9e60d2b7b64246eb2df16e22cc86a623223",
+        "tools/d2c_stage3_dataset.py": "293d1f27be73c26a24a1f9ef1571282646f03e66e915493d7030982a24c3d3dd"
+      },
+      "max_sample_attempts": 128,
+      "mode": "probe",
+      "retain_rasters": true,
+      "runtime": {
+        "CairoSVG": "2.9.0",
+        "Pillow": "12.2.0",
+        "numpy": "2.4.4",
+        "python": "3.11.8",
+        "scikit-image": "0.26.0",
+        "scipy": "1.17.1",
+        "shapely": "2.1.2"
+      },
+      "seed": 150926,
+      "shard_size": 5,
+      "sketchgraphs": "/home/safe/Desktop/yassine/Vectorization/data/SketchGraphs/raw/sg_t16_train.npy",
+      "source_index_sha256": "120eec58d2c77f23f500d16e4cdc9d933ce9e4de36a791fd8a1eb71a1f3ed7c4",
+      "split": "train",
+      "stage2_label_contract": "reference-free-raster-topology-v1"
+    },
+    "shard_size": 5,
+    "source_index": "/home/safe/Desktop/yassine/Vectorization/output/PatentVecSourceIndex/train.json",
+    "split": "train",
+    "stage2_label_contract": "reference-free-raster-topology-v1",
+    "summary": {
+      "audit_samples": 30,
+      "difficulty_counts": {
+        "hard": 100,
+        "medium": 100,
+        "very_hard": 100
+      },
+      "free2cad_edge_counts": {
+        "arc": 210,
+        "bezier": 254,
+        "circle": 96,
+        "line": 3471,
+        "polyline": 1329
+      },
+      "free2cad_match_p90_px_max_per_sample": {
+        "max": 1.6976104974746704,
+        "mean": 0.9573311416308085,
+        "p50": 0.9212033748626709,
+        "p95": 1.2554548144340516
+      },
+      "free2cad_polyline_origins": {
+        "aggregated_lines": 22,
+        "direct": 1307
+      },
+      "free2cad_topology_projected_samples": 300,
+      "generation_attempts": {
+        "max": 38.0,
+        "mean": 3.73,
+        "p50": 2.0,
+        "p95": 14.0
+      },
+      "interaction_counts": {
+        "bridge": 600,
+        "connected_crossing": 300,
+        "containment": 300,
+        "endpoint_join": 500,
+        "t_junction": 511,
+        "tangent": 212
+      },
+      "payload_bytes": 276111501,
+      "placement_rejections": {
+        "max": 54.0,
+        "mean": 12.393333333333333,
+        "p50": 8.5,
+        "p95": 38.0
+      },
+      "puhachov_keypoint_counts": {
+        "corner": 3037,
+        "dropped": 2,
+        "endpoint": 34185,
+        "exact": 10307,
+        "junction": 110886,
+        "snapped": 10255
+      },
+      "semantic_counts": {
+        "arrowhead": 2785,
+        "diagram_connector": 400,
+        "dimension": 2400,
+        "hatch": 15001,
+        "leader": 1585,
+        "object_center": 600,
+        "object_hidden": 600,
+        "object_visible": 10807,
+        "reference_numeral": 1585,
+        "text": 400,
+        "text_box": 400
+      }
+    },
+    "workers": 12
+  },
+  "artifact_sha256": {
+    "generation.json": "e948e0744c5e92db3ad995917d75ba7db57c8b4e759fa5b99c6c161189867e74",
+    "manifest.json": "0ed0c5fcd900040aa3c81bbe5c3fce81c7dc4f0635fe25209ca5b54d6916ce2f",
+    "manifest.jsonl": "2ea07ac6033f87bac40a876bd7eb93c5356f427815f0282692ac8d77be499629",
+    "measurements/measurements.json": "3a49dcc79f2632b36f7f95730c64aeefea56bb7c70baa15c5c3f4556b959c227",
+    "polyline_contract.json": "1e96011bc64a9a1ab5c861149f3979d2a140eb21d1b9f789672b5cc0dfeb0063",
+    "audit/index.html": "d07a22434086f7d3ebe37d190a3c4784ca6e14bfcd9741c604386f336b40e09b"
+  },
+  "verified_resume_shards": 60,
+  "implementation_hashes_match": true,
+  "stage1": {
+    "config_sha256": "32618a2b10500515da9996d9c036f2f82f78bcf97844a393d21616b546a0fc0e",
+    "effective_config": {
+      "data": {
+        "abc_step_dir": "stage3_primitivesfitting/research/data/abc_dataset/step_files",
+        "deepcad_dir": "stage3_primitivesfitting/research/data/deepcad",
+        "training_dir": "stage3_primitivesfitting/research/data/free2cad_training",
+        "weights_dir": "models"
+      },
+      "free2cad": {
+        "device": "cuda",
+        "repo_path": "stage3_primitivesfitting/research/repos/Free2CAD/networkTraining",
+        "weights": "models/free2cad_v3_best.pth"
+      },
+      "pipeline": {
+        "deployment": {
+          "strict_models": true
+        },
+        "log_level": "INFO",
+        "quality_gates": {
+          "enabled": true,
+          "max_low_conf_ratio": 0.25,
+          "max_low_conf_ratio_after_hachure": 0.65,
+          "max_primitives": 900,
+          "min_hachure_edges_for_low_conf_relax": 20,
+          "stop_on_stage1": true,
+          "stop_on_stage2": true
+        },
+        "resume": true,
+        "workers": 6
+      },
+      "puhachov": {
+        "device": "cpu",
+        "fusion": false,
+        "keypoint_threshold": 0.3,
+        "nms_radius": 5,
+        "tiled": true,
+        "tile_size": 512,
+        "tile_stride": 256,
+        "weights": "models/puhachov_patentvec_complexityA.pth"
+      },
+      "sketchcleannet": {
+        "device": "cuda:1",
+        "weights": "/home/safe/Desktop/yassine/Vectorization/models/sketchcleannet.pth"
+      },
+      "stage0": {
+        "bridge_leader_crossings": true,
+        "crop_pad": 2,
+        "enabled": true,
+        "figure_cluster_max_bbox_area": 32000,
+        "figure_cluster_max_components": 12,
+        "figure_cluster_max_ink_area": 18000,
+        "figure_margin_ratio": 0.22,
+        "figure_require_margin": false,
+        "hough_max_line_gap": 6,
+        "hough_min_line_length": 35,
+        "hough_threshold": 24,
+        "leader_endpoint_margin": 18,
+        "leader_mask_thickness": 5,
+        "leader_max_length": 450,
+        "leader_max_length_ratio": 0.28,
+        "leader_min_support_ratio": 0.5,
+        "leader_segment_margin": 12,
+        "leader_support_radius": 1,
+        "leader_tip_trim": 5,
+        "max_guard_text_only_labels": 240,
+        "max_guard_text_only_removed_ink_ratio": 0.2,
+        "max_iterations": 10,
+        "max_leaders_per_label": 2,
+        "max_reference_labels": 220,
+        "max_removed_ink_ratio": 0.7,
+        "max_total_removed_ink_ratio": 0.82,
+        "ocr_acronym_require_leader": true,
+        "ocr_alphanumeric": true,
+        "ocr_canvas_size": 3000,
+        "ocr_cc_fill_hi": 0.85,
+        "ocr_cc_fill_lo": 0.12,
+        "ocr_cc_max_h_frac": 0.05,
+        "ocr_cc_min_h_frac": 0.012,
+        "ocr_cc_recovery": true,
+        "ocr_cc_ring_max": 0.08,
+        "ocr_conf": 0.3,
+        "ocr_gpu": false,
+        "ocr_leaders": true,
+        "ocr_multiscale": false,
+        "remove_figure_labels": true,
+        "remove_unleadered_labels": true,
+        "repair_after_removal": true,
+        "repair_close_kernel": 7,
+        "require_leader": true,
+        "text_bbox_pad": 3,
+        "text_only_on_guard": true,
+        "unleadered_allow_single_component": true,
+        "unleadered_max_bbox_area": 6500,
+        "unleadered_max_components": 6,
+        "unleadered_max_ink_area": 2200,
+        "unleadered_min_components": 1,
+        "unleadered_single_margin_ratio": 0.24,
+        "unleadered_single_max_bbox_area": 3000,
+        "unleadered_single_max_ink_area": 1400,
+        "unleadered_single_min_density": 0.18,
+        "use_ocr": true
+      },
+      "stage1": {
+        "classical": {
+          "adaptive_C": 10,
+          "adaptive_block": 35,
+          "blend_alpha": 0.6,
+          "blur_kernel": 3,
+          "min_cc_size": 30,
+          "morph_kernel": 2
+        },
+        "quality_threshold": 0.7
+      },
+      "stage2": {
+        "hachure_mode": "region",
+        "dashed_grouping": false,
+        "fragmentation": {
+          "max_edges": 2500,
+          "max_micro_edge_ratio": 0.5,
+          "max_unclaimed_noncycle_pixels": 100000,
+          "max_short_edge_ratio": 0.8
+        },
+        "hachure_angle_tolerance": 12.0,
+        "hachure_cluster_radius": 95.0,
+        "hachure_cnn_device": "cpu",
+        "hachure_cnn_model": "models/hatch_unet.pth",
+        "hachure_cnn_threshold": 0.7,
+        "hachure_max_length": 80.0,
+        "hachure_max_removed_edge_ratio": 0.75,
+        "hachure_max_residual_rms": 2.2,
+        "hachure_min_cluster_edges": 4,
+        "hachure_min_cluster_total_length": 35.0,
+        "hachure_min_graph_edges": 20,
+        "hachure_min_length": 5.0,
+        "hachure_min_straightness": 0.7,
+        "hachure_pre_pass": false,
+        "hachure_region_cleanup_before_metrics": true,
+        "hachure_residual_prune_max_length": 6.0,
+        "hachure_residual_prune_min_removed": 4,
+        "hachure_second_pass": true,
+        "hachure_trigger_micro_edge_ratio": 0.2,
+        "hachure_trigger_min_open_edges": 40,
+        "hachure_trigger_short_edge_ratio": 0.8,
+        "hachure_use_cnn": true,
+        "isolation_threshold": 0.3,
+        "junction_merge_radius": 0.0,
+        "max_input_resolution": 1000,
+        "merge_collinear_max_angle": 28.0,
+        "min_closed_loop_pixels": 80,
+        "nms_reference_resolution": 512,
+        "remove_hachures": true,
+        "simplify_graph": true,
+        "spline_overshoot_limit": 5.0,
+        "spur_min_length": 6.0
+      },
+      "stage3": {
+        "confidence_threshold": 0.6,
+        "confidence_threshold_after_hachure": 0.5,
+        "min_hachure_edges_for_relaxed_confidence": 20,
+        "prefer_compound_over_weak": true,
+        "weak_compound_confidence_threshold": 0.6,
+        "weak_compound_min_gain": 0.05,
+        "weak_compound_max_points": 20000,
+        "weak_compound_max_path_atoms": 64,
+        "weak_compound_max_segment_p95": 2.0,
+        "weak_compound_max_endpoint_error": 3.0,
+        "simplify_closed_fallback": true,
+        "closed_trace_vertex_caps": [
+          24,
+          32,
+          48,
+          64,
+          96,
+          128
+        ],
+        "closed_trace_target_confidence": 0.65,
+        "closed_trace_target_p95": 2.0,
+        "closed_trace_compete_below_confidence": 0.6,
+        "closed_trace_min_gain": 0.05
+      },
+      "training": {
+        "batch_size": 32,
+        "epochs": 100,
+        "lr": 0.0001,
+        "max_pts": 32,
+        "max_strokes": 20,
+        "n_samples": 30000,
+        "noise_std": 0.005,
+        "splits": "0.85,0.10,0.05"
+      }
+    },
+    "stage1_implementation_sha256": "422a8d9af10886a0e44ccb97f6c01a5f6e6f66aa8d4c8f05f2944770b693e095",
+    "weights_sha256": "daa8bff0978b029c69b419335d7fea693e6960e02b68e315c6eb6698e465383b"
+  },
+  "synthetic_stage1_routes": {
+    "sketchcleannet": 300
+  },
+  "patent_stage1_routes": {
+    "passthrough_binary": 100
+  },
+  "patent_results_db_sha256": "1b82673195e64a842fe02308107d69bfc7971561f9a7701df352b8db1d205f11",
+  "contract_pass": true,
+  "contract_totals": {
+    "missing_topology_labels": 0,
+    "extra_topology_labels": 0,
+    "duplicate_topology_labels": 0,
+    "unsupported_skeleton_pixels": 0,
+    "endpoints": 34185,
+    "junctions": 110886
+  },
+  "metric_summaries": [
+    {
+      "domain": "patent",
+      "difficulty": "real",
+      "view": "deployed_stage1_matched_longside1024",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 5371.6,
+          "median": 11925.0,
+          "p90": 24211.300000000003
+        },
+        "components": {
+          "p10": 20.9,
+          "median": 127.5,
+          "p90": 651.9000000000002
+        },
+        "junction_pixels_per_1k": {
+          "p10": 29.393487925027035,
+          "median": 112.06743929008533,
+          "p90": 265.3115909966639
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 5.805656836500648,
+          "median": 26.808618619217135,
+          "p90": 96.43523058873683
+        },
+        "tiny_component_fraction": {
+          "p10": 0.11077586206896552,
+          "median": 0.384785568413887,
+          "p90": 0.7229620379620385
+        },
+        "short_branch_fraction": {
+          "p10": 0.2776333789329685,
+          "median": 0.511220005782018,
+          "p90": 0.7629464285714286
+        },
+        "median_branch_length_px": {
+          "p10": 2.0,
+          "median": 5.0,
+          "p90": 14.100000000000009
+        },
+        "cn_endpoint_clusters": {
+          "p10": 69.6,
+          "median": 331.0,
+          "p90": 1044.3000000000006
+        },
+        "cn_junction_clusters": {
+          "p10": 63.7,
+          "median": 298.0,
+          "p90": 1290.5000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 5.916003509767523,
+          "median": 25.571025907494857,
+          "p90": 94.0318392050038
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 8.09778405762038,
+          "median": 32.02917873429311,
+          "p90": 74.24875596851311
+        },
+        "height": {
+          "p10": 821.9,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 534.7,
+          "median": 752.5,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 3.0,
+          "median": 6.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "patent",
+      "difficulty": "real",
+      "view": "deployed_stage1_native",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 12115.0,
+          "median": 36891.5,
+          "p90": 100196.10000000012
+        },
+        "components": {
+          "p10": 28.700000000000003,
+          "median": 160.5,
+          "p90": 4287.60000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 24.249078666179425,
+          "median": 131.1101102774362,
+          "p90": 785.7360750979732
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 2.561423797675387,
+          "median": 13.067872816725057,
+          "p90": 69.70313893330872
+        },
+        "tiny_component_fraction": {
+          "p10": 0.061048281861678995,
+          "median": 0.31672077922077924,
+          "p90": 0.9782397305182043
+        },
+        "short_branch_fraction": {
+          "p10": 0.1802707930367505,
+          "median": 0.5132440454134491,
+          "p90": 0.9907158352905633
+        },
+        "median_branch_length_px": {
+          "p10": 1.0,
+          "median": 5.0,
+          "p90": 20.10000000000001
+        },
+        "cn_endpoint_clusters": {
+          "p10": 96.9,
+          "median": 630.5,
+          "p90": 5298.700000000003
+        },
+        "cn_junction_clusters": {
+          "p10": 109.3,
+          "median": 1389.0,
+          "p90": 9170.600000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 3.74053466103004,
+          "median": 17.808559274848466,
+          "p90": 74.55993901347917
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 6.93933921694815,
+          "median": 36.663916444422476,
+          "p90": 114.16707375662865
+        },
+        "height": {
+          "p10": 1098.0,
+          "median": 2268.0,
+          "p90": 2752.0
+        },
+        "width": {
+          "p10": 1095.7,
+          "median": 1671.0,
+          "p90": 1949.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 17.8,
+          "median": 49.0,
+          "p90": 70.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "hard",
+      "view": "c2_training_input",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 4525.7,
+          "median": 7150.0,
+          "p90": 13848.400000000003
+        },
+        "components": {
+          "p10": 25.9,
+          "median": 37.5,
+          "p90": 51.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 71.9768937031365,
+          "median": 115.7662955704977,
+          "p90": 253.21373206563393
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 7.075627174510163,
+          "median": 15.247052433646402,
+          "p90": 25.424142792474587
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.18734335839598998,
+          "p90": 0.428957528957529
+        },
+        "short_branch_fraction": {
+          "p10": 0.21807847451411808,
+          "median": 0.2698179956244472,
+          "p90": 0.3581967426033198
+        },
+        "median_branch_length_px": {
+          "p10": 8.0,
+          "median": 11.0,
+          "p90": 14.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 86.9,
+          "median": 113.0,
+          "p90": 137.0
+        },
+        "cn_junction_clusters": {
+          "p10": 106.3,
+          "median": 208.5,
+          "p90": 556.0
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.233970753655793,
+          "median": 15.139541640231926,
+          "p90": 25.614280935231292
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 20.44934854960308,
+          "median": 28.416763866170662,
+          "p90": 44.03300173556782
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "hard",
+      "view": "clean_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 7798.7,
+          "median": 10662.5,
+          "p90": 17422.800000000003
+        },
+        "components": {
+          "p10": 44.9,
+          "median": 59.0,
+          "p90": 73.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 79.1148844704435,
+          "median": 110.65097486514861,
+          "p90": 273.03515324529883
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 9.66785125965878,
+          "median": 17.43048241237064,
+          "p90": 23.153301148808726
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.067816091954023,
+          "p90": 0.2063467492260062
+        },
+        "short_branch_fraction": {
+          "p10": 0.2724265556326625,
+          "median": 0.3159704511476563,
+          "p90": 0.38488589484621355
+        },
+        "median_branch_length_px": {
+          "p10": 7.9,
+          "median": 10.0,
+          "p90": 12.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 150.0,
+          "median": 183.0,
+          "p90": 205.0
+        },
+        "cn_junction_clusters": {
+          "p10": 168.3,
+          "median": 303.5,
+          "p90": 795.6000000000003
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 9.738012312754915,
+          "median": 17.69315180303343,
+          "p90": 23.153301148808726
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 21.050537284689657,
+          "median": 28.56760150828196,
+          "p90": 52.48168921238924
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "hard",
+      "view": "degraded_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 7792.5,
+          "median": 10635.5,
+          "p90": 17175.600000000006
+        },
+        "components": {
+          "p10": 157.8,
+          "median": 179.0,
+          "p90": 198.3
+        },
+        "junction_pixels_per_1k": {
+          "p10": 71.50078462820734,
+          "median": 99.52818928153042,
+          "p90": 237.60923079945823
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 9.728032085158363,
+          "median": 16.820086357190114,
+          "p90": 23.479849779436655
+        },
+        "tiny_component_fraction": {
+          "p10": 0.6572119463770576,
+          "median": 0.7155184339766203,
+          "p90": 0.7706679604357081
+        },
+        "short_branch_fraction": {
+          "p10": 0.352449050949051,
+          "median": 0.4572930318916557,
+          "p90": 0.5449359954702044
+        },
+        "median_branch_length_px": {
+          "p10": 5.0,
+          "median": 7.0,
+          "p90": 9.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 147.9,
+          "median": 179.0,
+          "p90": 201.3
+        },
+        "cn_junction_clusters": {
+          "p10": 158.0,
+          "median": 283.5,
+          "p90": 709.7000000000012
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 9.693433826301595,
+          "median": 16.857629531840963,
+          "p90": 23.355574717299124
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 19.807009921441313,
+          "median": 26.45972297948414,
+          "p90": 47.52850697930621
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "hard",
+      "view": "deployed_stage1_oracle_reference_free",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 7681.4,
+          "median": 10510.5,
+          "p90": 17673.100000000002
+        },
+        "components": {
+          "p10": 7.9,
+          "median": 17.0,
+          "p90": 33.10000000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 14.288081121725847,
+          "median": 42.59083496854775,
+          "p90": 186.63142827253773
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 9.016094605495379,
+          "median": 11.768804089538374,
+          "p90": 15.014185599186082
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "short_branch_fraction": {
+          "p10": 0.18114952653600527,
+          "median": 0.24790670553935862,
+          "p90": 0.3480600750938674
+        },
+        "median_branch_length_px": {
+          "p10": 8.0,
+          "median": 12.0,
+          "p90": 20.300000000000026
+        },
+        "cn_endpoint_clusters": {
+          "p10": 75.8,
+          "median": 131.5,
+          "p90": 212.60000000000005
+        },
+        "cn_junction_clusters": {
+          "p10": 38.8,
+          "median": 113.5,
+          "p90": 344.50000000000006
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 9.117794524488929,
+          "median": 11.978047998141566,
+          "p90": 15.199357567902211
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 4.7613597646658485,
+          "median": 10.913263140906137,
+          "p90": 23.782955628476973
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        },
+        "c2_recall_at2px": {
+          "p10": 0.8201408658093648,
+          "median": 0.9145787789012043,
+          "p90": 0.9660369359172798
+        },
+        "c2_precision_at2px": {
+          "p10": 0.46764536211650864,
+          "median": 0.6113637348733232,
+          "p90": 0.7684499671098687
+        },
+        "c2_f1_at2px": {
+          "p10": 0.6048764641005235,
+          "median": 0.7302602042750368,
+          "p90": 0.8583202880443979
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "hard",
+      "view": "reference_free_clean_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 4504.4,
+          "median": 7371.0,
+          "p90": 14204.8
+        },
+        "components": {
+          "p10": 27.9,
+          "median": 40.0,
+          "p90": 51.10000000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 75.35181771338982,
+          "median": 121.39757087469087,
+          "p90": 309.68582487191736
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 7.278938900836215,
+          "median": 16.075818217623357,
+          "p90": 25.95782423987538
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.11478919631093544,
+          "p90": 0.34267734553775747
+        },
+        "short_branch_fraction": {
+          "p10": 0.2220394736842105,
+          "median": 0.272994422994423,
+          "p90": 0.36104120042557875
+        },
+        "median_branch_length_px": {
+          "p10": 8.0,
+          "median": 10.5,
+          "p90": 14.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 90.9,
+          "median": 119.5,
+          "p90": 144.0
+        },
+        "cn_junction_clusters": {
+          "p10": 107.2,
+          "median": 218.0,
+          "p90": 696.9000000000005
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.554244355262575,
+          "median": 16.105673271652158,
+          "p90": 26.135833850989815
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 20.061437778418206,
+          "median": 29.581518694567947,
+          "p90": 63.99750983489207
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "hard",
+      "view": "reference_free_degraded_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 4632.8,
+          "median": 7335.0,
+          "p90": 13977.900000000003
+        },
+        "components": {
+          "p10": 142.0,
+          "median": 162.0,
+          "p90": 183.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 66.64467665229309,
+          "median": 105.9454718766697,
+          "p90": 288.32121269960345
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 7.398005562469138,
+          "median": 15.508474231032388,
+          "p90": 26.082935403323756
+        },
+        "tiny_component_fraction": {
+          "p10": 0.7411666988603438,
+          "median": 0.8092205034880194,
+          "p90": 0.8652795923700026
+        },
+        "short_branch_fraction": {
+          "p10": 0.3267097676044033,
+          "median": 0.47050953195262524,
+          "p90": 0.593833023255814
+        },
+        "median_branch_length_px": {
+          "p10": 3.9000000000000004,
+          "median": 6.25,
+          "p90": 10.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 89.9,
+          "median": 118.0,
+          "p90": 138.20000000000002
+        },
+        "cn_junction_clusters": {
+          "p10": 99.8,
+          "median": 200.5,
+          "p90": 628.1000000000012
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.643098679481343,
+          "median": 15.381118143411399,
+          "p90": 26.082935403323756
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 19.19927237222926,
+          "median": 27.390035096991372,
+          "p90": 52.764708938826054
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "medium",
+      "view": "c2_training_input",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 3730.4,
+          "median": 6520.0,
+          "p90": 9965.8
+        },
+        "components": {
+          "p10": 11.0,
+          "median": 23.0,
+          "p90": 46.10000000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 50.14096817799393,
+          "median": 68.11227616901303,
+          "p90": 91.24365989057073
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 6.790428363229803,
+          "median": 11.652902406098626,
+          "p90": 26.513157244148214
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.06904761904761905,
+          "p90": 0.3786764705882356
+        },
+        "short_branch_fraction": {
+          "p10": 0.13606506099468252,
+          "median": 0.2016597510373444,
+          "p90": 0.26238136324417605
+        },
+        "median_branch_length_px": {
+          "p10": 11.0,
+          "median": 14.0,
+          "p90": 19.050000000000004
+        },
+        "cn_endpoint_clusters": {
+          "p10": 54.0,
+          "median": 75.0,
+          "p90": 107.10000000000001
+        },
+        "cn_junction_clusters": {
+          "p10": 66.9,
+          "median": 133.0,
+          "p90": 185.50000000000006
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 6.790428363229803,
+          "median": 11.652902406098626,
+          "p90": 26.42951087854819
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 14.540150031378285,
+          "median": 19.859949370405808,
+          "p90": 24.81864553526043
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "medium",
+      "view": "clean_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 5773.6,
+          "median": 8756.0,
+          "p90": 12002.300000000001
+        },
+        "components": {
+          "p10": 23.0,
+          "median": 34.0,
+          "p90": 55.20000000000002
+        },
+        "junction_pixels_per_1k": {
+          "p10": 58.14932070221144,
+          "median": 72.64526776879546,
+          "p90": 104.40906275721338
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 8.404877964801763,
+          "median": 12.530732999231551,
+          "p90": 22.21521822850317
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.0,
+          "p90": 0.20051282051282057
+        },
+        "short_branch_fraction": {
+          "p10": 0.21164086687306502,
+          "median": 0.24556478490488642,
+          "p90": 0.30585543820043537
+        },
+        "median_branch_length_px": {
+          "p10": 10.0,
+          "median": 13.0,
+          "p90": 16.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 83.0,
+          "median": 110.5,
+          "p90": 141.10000000000002
+        },
+        "cn_junction_clusters": {
+          "p10": 100.9,
+          "median": 167.0,
+          "p90": 253.20000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 8.672818263320556,
+          "median": 12.589883596652585,
+          "p90": 22.381231378804824
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 15.842351261742495,
+          "median": 19.209374000500343,
+          "p90": 24.947949566039146
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "medium",
+      "view": "degraded_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 5908.7,
+          "median": 8711.5,
+          "p90": 12127.7
+        },
+        "components": {
+          "p10": 135.0,
+          "median": 155.0,
+          "p90": 178.10000000000002
+        },
+        "junction_pixels_per_1k": {
+          "p10": 52.92647909514278,
+          "median": 63.85999944501546,
+          "p90": 88.9120373787626
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 8.151850279027869,
+          "median": 12.38489856244675,
+          "p90": 21.866341614426133
+        },
+        "tiny_component_fraction": {
+          "p10": 0.7194508963135013,
+          "median": 0.7944098169068952,
+          "p90": 0.8573544973544973
+        },
+        "short_branch_fraction": {
+          "p10": 0.4222589979387982,
+          "median": 0.4778831364197218,
+          "p90": 0.5499738356881214
+        },
+        "median_branch_length_px": {
+          "p10": 4.0,
+          "median": 6.75,
+          "p90": 9.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 84.0,
+          "median": 110.0,
+          "p90": 142.10000000000002
+        },
+        "cn_junction_clusters": {
+          "p10": 96.9,
+          "median": 157.0,
+          "p90": 231.0
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 8.497546681788165,
+          "median": 12.497154782316105,
+          "p90": 21.71413461290406
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 14.569745580068615,
+          "median": 18.010535551491387,
+          "p90": 23.909806981123726
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "medium",
+      "view": "deployed_stage1_oracle_reference_free",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 7151.4,
+          "median": 9995.0,
+          "p90": 13358.1
+        },
+        "components": {
+          "p10": 11.0,
+          "median": 20.0,
+          "p90": 39.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 7.738731376770724,
+          "median": 16.796421390600145,
+          "p90": 29.638644742559986
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 6.42781115843487,
+          "median": 8.699504217442431,
+          "p90": 12.008734240536665
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "short_branch_fraction": {
+          "p10": 0.12686464088397792,
+          "median": 0.17566619915848528,
+          "p90": 0.24694132334581773
+        },
+        "median_branch_length_px": {
+          "p10": 12.9,
+          "median": 22.0,
+          "p90": 32.550000000000004
+        },
+        "cn_endpoint_clusters": {
+          "p10": 53.9,
+          "median": 88.5,
+          "p90": 131.10000000000002
+        },
+        "cn_junction_clusters": {
+          "p10": 24.8,
+          "median": 54.5,
+          "p90": 96.20000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 6.747326483057184,
+          "median": 8.818737781894072,
+          "p90": 12.179400450090876
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 3.0547132123744647,
+          "median": 5.5241072070682,
+          "p90": 8.374067770304025
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        },
+        "c2_recall_at2px": {
+          "p10": 0.8081919798948258,
+          "median": 0.9239970366913609,
+          "p90": 0.9738473232028749
+        },
+        "c2_precision_at2px": {
+          "p10": 0.42817313103349297,
+          "median": 0.5897472778578445,
+          "p90": 0.6938094110024073
+        },
+        "c2_f1_at2px": {
+          "p10": 0.5618386321737743,
+          "median": 0.7196413037479448,
+          "p90": 0.8058958080129294
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "medium",
+      "view": "reference_free_clean_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 3746.9,
+          "median": 6735.0,
+          "p90": 9975.1
+        },
+        "components": {
+          "p10": 12.0,
+          "median": 25.0,
+          "p90": 47.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 51.750700521021955,
+          "median": 68.62696738292203,
+          "p90": 96.97486039758577
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 6.964967015175518,
+          "median": 12.345854671793843,
+          "p90": 26.94936277568709
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.04083333333333333,
+          "p90": 0.3465384615384616
+        },
+        "short_branch_fraction": {
+          "p10": 0.16212851856005384,
+          "median": 0.20046728971962618,
+          "p90": 0.2665683453237411
+        },
+        "median_branch_length_px": {
+          "p10": 11.0,
+          "median": 14.0,
+          "p90": 19.10000000000001
+        },
+        "cn_endpoint_clusters": {
+          "p10": 59.7,
+          "median": 80.0,
+          "p90": 109.10000000000001
+        },
+        "cn_junction_clusters": {
+          "p10": 64.0,
+          "median": 130.5,
+          "p90": 181.10000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.292373500053095,
+          "median": 12.345854671793843,
+          "p90": 26.87990264575382
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 13.849278983892532,
+          "median": 18.889588334595032,
+          "p90": 24.3030618003323
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "medium",
+      "view": "reference_free_degraded_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 3885.4,
+          "median": 6649.5,
+          "p90": 9991.900000000001
+        },
+        "components": {
+          "p10": 124.9,
+          "median": 145.0,
+          "p90": 170.10000000000002
+        },
+        "junction_pixels_per_1k": {
+          "p10": 46.89565744099748,
+          "median": 61.80186901241861,
+          "p90": 84.2415234495895
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 6.9322493144064365,
+          "median": 12.089422709514142,
+          "p90": 25.870122411707193
+        },
+        "tiny_component_fraction": {
+          "p10": 0.7594933271260087,
+          "median": 0.8513513513513513,
+          "p90": 0.9291782189198181
+        },
+        "short_branch_fraction": {
+          "p10": 0.43262701577943474,
+          "median": 0.5065471650139843,
+          "p90": 0.6087485751506272
+        },
+        "median_branch_length_px": {
+          "p10": 1.0,
+          "median": 5.0,
+          "p90": 9.100000000000009
+        },
+        "cn_endpoint_clusters": {
+          "p10": 58.0,
+          "median": 78.5,
+          "p90": 110.10000000000001
+        },
+        "cn_junction_clusters": {
+          "p10": 58.9,
+          "median": 124.0,
+          "p90": 173.80000000000007
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.212698986647806,
+          "median": 11.971410092797377,
+          "p90": 25.870122411707193
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 13.211955818409633,
+          "median": 17.69347302459255,
+          "p90": 23.86719901697017
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "very_hard",
+      "view": "c2_training_input",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 4455.1,
+          "median": 9789.0,
+          "p90": 18119.9
+        },
+        "components": {
+          "p10": 35.9,
+          "median": 52.5,
+          "p90": 76.10000000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 95.14828231117254,
+          "median": 270.6381794277547,
+          "p90": 403.8391286200001
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 7.0998571680830445,
+          "median": 14.743177203902455,
+          "p90": 33.210237774579944
+        },
+        "tiny_component_fraction": {
+          "p10": 0.06126696832579186,
+          "median": 0.19371345029239767,
+          "p90": 0.33818181818181825
+        },
+        "short_branch_fraction": {
+          "p10": 0.2705609204402105,
+          "median": 0.4939111310015892,
+          "p90": 0.6802766027144418
+        },
+        "median_branch_length_px": {
+          "p10": 4.0,
+          "median": 6.0,
+          "p90": 11.100000000000009
+        },
+        "cn_endpoint_clusters": {
+          "p10": 112.9,
+          "median": 148.5,
+          "p90": 189.0
+        },
+        "cn_junction_clusters": {
+          "p10": 121.9,
+          "median": 560.0,
+          "p90": 1552.2
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.274437310249209,
+          "median": 15.414053541807299,
+          "p90": 33.210237774579944
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 24.269907846532718,
+          "median": 50.44791733723359,
+          "p90": 93.9395414460102
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "very_hard",
+      "view": "clean_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 9736.2,
+          "median": 15497.5,
+          "p90": 23615.400000000005
+        },
+        "components": {
+          "p10": 60.0,
+          "median": 78.0,
+          "p90": 97.10000000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 97.55630867855224,
+          "median": 235.12162331952095,
+          "p90": 357.73301877883483
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 9.185059482633445,
+          "median": 15.531127938197796,
+          "p90": 25.542897651493032
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.07038183694530444,
+          "p90": 0.1447792869269949
+        },
+        "short_branch_fraction": {
+          "p10": 0.34819438741246095,
+          "median": 0.4876580561023223,
+          "p90": 0.6711248343570859
+        },
+        "median_branch_length_px": {
+          "p10": 4.0,
+          "median": 6.0,
+          "p90": 9.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 210.7,
+          "median": 245.0,
+          "p90": 294.1
+        },
+        "cn_junction_clusters": {
+          "p10": 250.5,
+          "median": 740.0,
+          "p90": 1805.0000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 9.703355421260452,
+          "median": 16.084539864202792,
+          "p90": 25.642194995746472
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 24.81983474648153,
+          "median": 45.520965666010824,
+          "p90": 78.5356261310869
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "very_hard",
+      "view": "degraded_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 9823.5,
+          "median": 15066.5,
+          "p90": 22861.000000000004
+        },
+        "components": {
+          "p10": 172.0,
+          "median": 195.0,
+          "p90": 216.3
+        },
+        "junction_pixels_per_1k": {
+          "p10": 87.87744577039359,
+          "median": 203.49462769800047,
+          "p90": 326.44804987966666
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 9.255388263697112,
+          "median": 15.643839790044286,
+          "p90": 25.124084198212902
+        },
+        "tiny_component_fraction": {
+          "p10": 0.5823663390074323,
+          "median": 0.6511978391920457,
+          "p90": 0.7134644864588656
+        },
+        "short_branch_fraction": {
+          "p10": 0.438720621338227,
+          "median": 0.5517334549012631,
+          "p90": 0.6816903581112688
+        },
+        "median_branch_length_px": {
+          "p10": 4.0,
+          "median": 5.0,
+          "p90": 7.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 194.0,
+          "median": 233.5,
+          "p90": 280.80000000000007
+        },
+        "cn_junction_clusters": {
+          "p10": 234.3,
+          "median": 678.0,
+          "p90": 1641.8000000000004
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 9.377324251030352,
+          "median": 15.852081304577196,
+          "p90": 25.138126250372455
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 23.798734008119723,
+          "median": 42.90468966811032,
+          "p90": 72.19770905027725
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "very_hard",
+      "view": "deployed_stage1_oracle_reference_free",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 7644.1,
+          "median": 12749.0,
+          "p90": 21105.800000000003
+        },
+        "components": {
+          "p10": 11.0,
+          "median": 19.5,
+          "p90": 31.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 22.461439640685626,
+          "median": 130.82733077907073,
+          "p90": 245.1119923379894
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 11.549589206460055,
+          "median": 15.366979487881736,
+          "p90": 21.0085702880277
+        },
+        "tiny_component_fraction": {
+          "p10": 0.0,
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "short_branch_fraction": {
+          "p10": 0.2469683257918552,
+          "median": 0.4854112275181863,
+          "p90": 0.6428186903309921
+        },
+        "median_branch_length_px": {
+          "p10": 4.0,
+          "median": 6.0,
+          "p90": 13.0
+        },
+        "cn_endpoint_clusters": {
+          "p10": 93.7,
+          "median": 209.0,
+          "p90": 387.1
+        },
+        "cn_junction_clusters": {
+          "p10": 66.9,
+          "median": 369.0,
+          "p90": 954.5
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 11.941247203585155,
+          "median": 15.746617979472568,
+          "p90": 22.139183325226373
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 8.216477943461754,
+          "median": 24.119835777816114,
+          "p90": 50.22658265814533
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        },
+        "c2_recall_at2px": {
+          "p10": 0.7574476648146317,
+          "median": 0.9212557825168303,
+          "p90": 0.9598155242357498
+        },
+        "c2_precision_at2px": {
+          "p10": 0.46511154367285734,
+          "median": 0.6781703026553318,
+          "p90": 0.8059780274395362
+        },
+        "c2_f1_at2px": {
+          "p10": 0.5820228359871034,
+          "median": 0.7827554916679662,
+          "p90": 0.8732054329157105
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "very_hard",
+      "view": "reference_free_clean_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 4471.5,
+          "median": 10181.0,
+          "p90": 18907.4
+        },
+        "components": {
+          "p10": 36.9,
+          "median": 55.0,
+          "p90": 77.10000000000001
+        },
+        "junction_pixels_per_1k": {
+          "p10": 100.35369225737305,
+          "median": 293.50305196447596,
+          "p90": 435.137732814532
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 7.185130157832455,
+          "median": 14.845590619113938,
+          "p90": 33.26512872089583
+        },
+        "tiny_component_fraction": {
+          "p10": 0.010714285714285718,
+          "median": 0.11010101010101009,
+          "p90": 0.2222222222222222
+        },
+        "short_branch_fraction": {
+          "p10": 0.29376597480286415,
+          "median": 0.48442071600822645,
+          "p90": 0.6959194204817635
+        },
+        "median_branch_length_px": {
+          "p10": 4.0,
+          "median": 6.0,
+          "p90": 11.550000000000004
+        },
+        "cn_endpoint_clusters": {
+          "p10": 128.4,
+          "median": 158.5,
+          "p90": 203.10000000000002
+        },
+        "cn_junction_clusters": {
+          "p10": 131.2,
+          "median": 570.5,
+          "p90": 1635.3000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.585281967021302,
+          "median": 15.480421360885273,
+          "p90": 33.58528912713263
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 25.546729475100943,
+          "median": 54.205341576301194,
+          "p90": 95.18330069381406
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    },
+    {
+      "domain": "synthetic",
+      "difficulty": "very_hard",
+      "view": "reference_free_degraded_threshold210",
+      "count": 100,
+      "metrics": {
+        "skeleton_pixels": {
+          "p10": 4564.4,
+          "median": 9812.5,
+          "p90": 17794.8
+        },
+        "components": {
+          "p10": 157.0,
+          "median": 176.0,
+          "p90": 203.0
+        },
+        "junction_pixels_per_1k": {
+          "p10": 87.45934885530438,
+          "median": 252.0259148637284,
+          "p90": 390.3805101156687
+        },
+        "endpoint_pixels_per_1k": {
+          "p10": 7.220355756809304,
+          "median": 15.096113583087766,
+          "p90": 32.88578302801174
+        },
+        "tiny_component_fraction": {
+          "p10": 0.6580274121482913,
+          "median": 0.745985171614233,
+          "p90": 0.8175744426155918
+        },
+        "short_branch_fraction": {
+          "p10": 0.44208282490471673,
+          "median": 0.59152574261008,
+          "p90": 0.7118684370425896
+        },
+        "median_branch_length_px": {
+          "p10": 3.0,
+          "median": 4.0,
+          "p90": 7.1000000000000085
+        },
+        "cn_endpoint_clusters": {
+          "p10": 108.9,
+          "median": 150.5,
+          "p90": 192.20000000000002
+        },
+        "cn_junction_clusters": {
+          "p10": 118.9,
+          "median": 531.5,
+          "p90": 1490.8000000000002
+        },
+        "cn_endpoint_clusters_per_1k": {
+          "p10": 7.387552343326054,
+          "median": 15.514663582892096,
+          "p90": 32.90899026867083
+        },
+        "cn_junction_clusters_per_1k": {
+          "p10": 24.104579751213628,
+          "median": 50.87071886043525,
+          "p90": 91.90205287743338
+        },
+        "height": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "width": {
+          "p10": 1024.0,
+          "median": 1024.0,
+          "p90": 1024.0
+        },
+        "tile_count_512_stride256": {
+          "p10": 9.0,
+          "median": 9.0,
+          "p90": 9.0
+        }
+      }
+    }
+  ],
+  "metric_definitions": {
+    "junction_pixels": "8-neighbour degree >=3 foreground pixels, not CN graph nodes",
+    "cn_clusters": "production crossing number: 8-connected endpoint CN=1 or junction CN>=3 clusters",
+    "tiny_component": "8-connected foreground component with <=4 pixels",
+    "branch": "8-connected component after removing degree>=3 foreground pixels; legacy diagnostic, not a traced stroke",
+    "short_branch": "branch component with <=5 pixels",
+    "raster_proxy": "gray<210 then skimage skeletonize, without Stage 1 cleanup",
+    "matched_frame": "binary ink area resampling to longside 1024, threshold >=0.5, then skeletonize; resampling may change topology",
+    "stage1_input": "oracle reference-free degraded raster; no OCR approximation",
+    "acceptance": "historic numeric bands are provisional; no synthetic deployment-gate calibration"
+  },
+  "polyline_contract": {
+    "accepted_samples": 300,
+    "accepted_target_count": 1329,
+    "dataset": "/media/safe/secondary disk/IPdrawings/Patent_Like_Dataset/phase0_baseline300",
+    "match_p90_px": {
+      "max": 3.605553275759568,
+      "mean": 0.0269008337675188,
+      "p95": 3.171121151101392e-05
+    },
+    "sample_count": 300,
+    "schema_version": "patentvec-polyline-stage2-audit-1.0",
+    "target_acceptance": 1.0,
+    "target_count": 1329,
+    "thresholds": {
+      "line_p90_px": 1.5,
+      "match_p90_px": 4.0
+    }
+  },
+  "phase0_measurement_complete": true,
+  "training_release_accepted": false
+}

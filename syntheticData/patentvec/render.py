@@ -37,6 +37,31 @@ MASK_GROUPS = {
     "text_box": {"text_box"},
 }
 
+DEFAULT_DEGRADATION = {
+    "dark_speckle_probability": 0.00012,
+    "light_speckle_probability": 0.00008,
+    "blur_sigma_min": 0.35,
+    "blur_sigma_max": 0.75,
+    "noise_std": 0.009,
+}
+
+
+def degradation_parameters(overrides: dict | None = None) -> dict[str, float]:
+    overrides = {} if overrides is None else overrides
+    if not isinstance(overrides, dict) or set(overrides) - set(DEFAULT_DEGRADATION):
+        raise ValueError("Unknown degradation parameters")
+    parameters = {**DEFAULT_DEGRADATION, **overrides}
+    for name, value in parameters.items():
+        if isinstance(value, bool) or not np.isfinite(float(value)) or float(value) < 0:
+            raise ValueError(f"Invalid degradation parameter {name}")
+        parameters[name] = float(value)
+    for name in ("dark_speckle_probability", "light_speckle_probability", "noise_std"):
+        if parameters[name] > 1:
+            raise ValueError(f"Invalid degradation probability/scale {name}")
+    if not 0 < parameters["blur_sigma_min"] <= parameters["blur_sigma_max"]:
+        raise ValueError("Invalid blur sigma range")
+    return parameters
+
 
 def _fmt(value: float) -> str:
     return f"{float(value):.8f}".rstrip("0").rstrip(".")
@@ -212,11 +237,12 @@ def render_masks(drawing: CanonicalDrawing) -> dict[str, np.ndarray]:
     return masks
 
 
-def degrade_patent_scan(clean: np.ndarray, seed: int) -> np.ndarray:
+def degrade_patent_scan(clean: np.ndarray, seed: int, parameters: dict | None = None) -> np.ndarray:
+    parameters = degradation_parameters(parameters)
     rng = np.random.default_rng(seed)
     height, width = clean.shape
     image = clean.astype(np.float32) / 255.0
-    sigma = float(rng.uniform(0.35, 0.75))
+    sigma = float(rng.uniform(parameters["blur_sigma_min"], parameters["blur_sigma_max"]))
     image = cv2.GaussianBlur(image, (0, 0), sigmaX=sigma, sigmaY=sigma)
 
     y_grid, x_grid = np.mgrid[0:height, 0:width]
@@ -224,7 +250,7 @@ def degrade_patent_scan(clean: np.ndarray, seed: int) -> np.ndarray:
         0.035 * np.sin(x_grid / width * math.pi * rng.uniform(0.7, 1.4))
         + 0.025 * np.cos(y_grid / height * math.pi * rng.uniform(0.8, 1.6))
     )
-    image = image + illumination + rng.normal(0.0, 0.009, image.shape)
+    image = image + illumination + rng.normal(0.0, parameters["noise_std"], image.shape)
     image = np.clip(image, 0.0, 1.0)
 
     # Mild local fading and sparse scan dirt preserve geometry while exposing
@@ -236,8 +262,8 @@ def degrade_patent_scan(clean: np.ndarray, seed: int) -> np.ndarray:
         distance = (x_grid - cx) ** 2 + (y_grid - cy) ** 2
         fade = np.exp(-distance / max(2.0 * radius * radius, 1.0))
         image += fade * float(rng.uniform(0.015, 0.045))
-    dark_speckles = rng.random(image.shape) < 0.00012
-    light_speckles = rng.random(image.shape) < 0.00008
+    dark_speckles = rng.random(image.shape) < parameters["dark_speckle_probability"]
+    light_speckles = rng.random(image.shape) < parameters["light_speckle_probability"]
     image[dark_speckles] = rng.uniform(0.0, 0.45, dark_speckles.sum())
     image[light_speckles] = 1.0
     return np.uint8(np.clip(image * 255.0, 0, 255))

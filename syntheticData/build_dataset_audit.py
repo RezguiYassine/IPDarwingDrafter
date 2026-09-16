@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import html
+import io
 import json
 import tarfile
 from collections import Counter
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+import numpy as np
 
 from syntheticData.patentvec.render import (
     degrade_patent_scan,
@@ -80,14 +82,22 @@ def _extract_previews(dataset: Path, output: Path, rows: list[dict]) -> list[dic
                 if sample is None:
                     raise ValueError(f"missing sample.json for {row['sample_id']}")
                 drawing = CanonicalDrawing.from_dict(json.load(sample))
-                clean = render_clean(drawing)
-                degraded = degrade_patent_scan(clean, seed=drawing.seed + 701)
+                try:
+                    with Image.open(io.BytesIO(archive.extractfile(f"{row['member_prefix']}/clean.png").read())) as image:
+                        clean = np.asarray(image.convert("L"))
+                    with Image.open(io.BytesIO(archive.extractfile(f"{row['member_prefix']}/degraded.png").read())) as image:
+                        degraded = np.asarray(image.convert("L"))
+                    preview_source = "retained_rasters"
+                except KeyError:
+                    clean = render_clean(drawing)
+                    parameters = drawing.processing.get("rendering", {}).get("degradation_parameters")
+                    degraded = degrade_patent_scan(clean, seed=drawing.seed + 701, parameters=parameters)
+                    preview_source = "rerendered"
                 semantic = semantic_preview(drawing)
                 preview = make_triptych(
                     clean, degraded, semantic, drawing.sample_id
                 )
                 preview.save(output / filename, format="PNG", optimize=True)
-                preview_source = "rerendered"
             result.append(
                 {**row, "audit_preview": filename, "preview_source": preview_source}
             )

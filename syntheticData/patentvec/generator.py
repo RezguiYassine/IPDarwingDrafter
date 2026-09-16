@@ -17,14 +17,18 @@ from .geometry import primitive_bounds
 from .patent_layers import apply_complex_patent_layers, apply_vertical_slice_layers
 from .quality import evaluate_quality
 from .render import (
+    DEFAULT_STROKE_WIDTH,
+    MASK_GROUPS,
+    degradation_parameters,
     degrade_patent_scan,
     make_triptych,
     render_clean,
     render_masks,
+    rasterize_svg,
     semantic_preview,
     svg_document,
 )
-from .schema import CanonicalDrawing
+from .schema import CanonicalDrawing, Primitive, SourceRecord
 from .sources import (
     CADVGDrawingAdapter,
     SketchGraphsAdapter,
@@ -32,6 +36,12 @@ from .sources import (
     procedural_polyline_component,
 )
 from .training import free2cad_arrays, puhachov_arrays
+from .stage2_targets import (
+    ARCHIVE_LABEL_CONTRACT,
+    DEFAULT_TOPOLOGY_MASKS,
+    REFERENCE_FREE_RASTER_TOPOLOGY_CONTRACT,
+    relabel_puhachov_payload,
+)
 
 
 @dataclass
@@ -167,12 +177,52 @@ def compact_sample_payload(
     prepared: PreparedDrawing,
     source_index: int,
     audit: bool = False,
+    *,
+    retain_rasters: bool = False,
+    degradation: dict | None = None,
+    label_contract: str = ARCHIVE_LABEL_CONTRACT,
+    acquisition: str = "grayscale",
+    noise_budget: float | None = None,
 ) -> tuple[dict[str, bytes], dict]:
+    if label_contract not in (ARCHIVE_LABEL_CONTRACT, REFERENCE_FREE_RASTER_TOPOLOGY_CONTRACT):
+        raise ValueError(f"Unsupported generation label contract: {label_contract}")
+    degradation = degradation_parameters(degradation)
     drawing = prepared.drawing
+    if acquisition not in {"grayscale", "binary"}:
+        raise ValueError("Unknown acquisition encoding")
+    if noise_budget is not None:
+        if not np.isfinite(noise_budget) or noise_budget < 0:
+            raise ValueError("Invalid per-ink noise budget")
+        support = np.logical_or.reduce([prepared.masks[k] > 0 for k in DEFAULT_TOPOLOGY_MASKS])
+        light_ratio = degradation["light_speckle_probability"] / max(degradation["dark_speckle_probability"], 1e-12)
+        probability = float(noise_budget * np.count_nonzero(support) / 1000 / support.size)
+        degradation = degradation_parameters({**degradation, "dark_speckle_probability": probability,
+                                              "light_speckle_probability": probability*light_ratio})
+    def observation(clean):
+        gray = degrade_patent_scan(clean, seed=drawing.seed + 701, parameters=degradation)
+        return np.where(gray < 210, 0, 255).astype(np.uint8) if acquisition == "binary" else gray
     if not prepared.quality.get("accepted"):
         raise ValueError(f"refusing to pack failed sample {drawing.sample_id}")
     puhachov = puhachov_arrays(drawing, clean=prepared.clean)
     free2cad = _free2cad_for_source(prepared, source_index)
+    masks_payload = _npz_bytes(prepared.masks)
+    puhachov_payload = _npz_bytes(puhachov)
+    if label_contract != ARCHIVE_LABEL_CONTRACT:
+        puhachov_payload = relabel_puhachov_payload(
+            puhachov_payload, masks_payload, label_contract=label_contract,
+        )
+        with np.load(io.BytesIO(puhachov_payload), allow_pickle=False) as arrays:
+            puhachov = {name: np.asarray(arrays[name]) for name in arrays.files}
+    drawing.processing["rendering"] = {
+        "degradation_model": "patent-scan-v1",
+        "acquisition": acquisition,
+        "dark_speckles_per_1k_reference_free_ink_pixels": noise_budget,
+        "degradation_parameters": degradation,
+        "degradation_seed": drawing.seed + 701,
+        "stroke_width_defaults": DEFAULT_STROKE_WIDTH,
+        "stage2_label_contract": label_contract,
+        "reference_free_semantics": sorted(set().union(*(MASK_GROUPS[k] for k in DEFAULT_TOPOLOGY_MASKS))),
+    }
     drawing.images = {
         "masks": "masks.npz",
         "puhachov": "puhachov.npz",
@@ -185,17 +235,29 @@ def compact_sample_payload(
         "quality.json": (
             json.dumps(prepared.quality, indent=2, sort_keys=True) + "\n"
         ).encode("utf-8"),
-        "masks.npz": _npz_bytes(prepared.masks),
-        "puhachov.npz": _npz_bytes(puhachov),
+        "masks.npz": masks_payload,
+        "puhachov.npz": puhachov_payload,
         "free2cad_edges.npz": _npz_bytes(free2cad),
     }
+    if audit or retain_rasters:
+        degraded = observation(prepared.clean)
+        payload["clean.png"] = _png_bytes(prepared.clean)
+        payload["degraded.png"] = _png_bytes(degraded)
+        drawing.images.update(clean="clean.png", degraded="degraded.png")
+    if retain_rasters:
+        semantics = set(drawing.processing["rendering"]["reference_free_semantics"])
+        reference_free = rasterize_svg(
+            svg_document(drawing, primitives=[p for p in drawing.primitives_visible if p.semantic in semantics]),
+            width=drawing.canvas[0], height=drawing.canvas[1],
+        )
+        payload["reference_free_clean.png"] = _png_bytes(reference_free)
+        payload["reference_free_degraded.png"] = _png_bytes(observation(reference_free))
+        drawing.images.update(reference_free_clean="reference_free_clean.png",
+                              reference_free_degraded="reference_free_degraded.png")
     if audit:
-        degraded = degrade_patent_scan(prepared.clean, seed=drawing.seed + 701)
         semantic = semantic_preview(drawing)
         payload.update(
             {
-                "clean.png": _png_bytes(prepared.clean),
-                "degraded.png": _png_bytes(degraded),
                 "semantic.png": _png_bytes(semantic),
                 "preview.png": _png_bytes(
                     np.asarray(
@@ -220,9 +282,9 @@ def compact_sample_payload(
                 "amodal_svg": "amodal.svg",
             }
         )
-        payload["sample.json"] = (
-            json.dumps(drawing.to_dict(), indent=2, sort_keys=True) + "\n"
-        ).encode("utf-8")
+    payload["sample.json"] = (
+        json.dumps(drawing.to_dict(), indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
     row = _sample_manifest_row(
         drawing,
         prepared.quality,
@@ -233,6 +295,11 @@ def compact_sample_payload(
         audit=audit,
     )
     row["payload_bytes"] = int(sum(len(value) for value in payload.values()))
+    row["raster_retention"] = "all" if retain_rasters else "audit_only"
+    row["stage2_label_contract"] = label_contract
+    row["raster_files"] = sorted(name for name in payload if name.endswith(".png"))
+    row["degradation"] = drawing.processing["rendering"]
+    row["topology_keypoint_counts"] = json.loads(str(puhachov["meta"])).get("keypoint_counts")
     return payload, row
 
 
@@ -255,17 +322,31 @@ class SourcePool:
         index_path: Path | None = None,
     ):
         self.split = split
-        self.sketchgraphs = SketchGraphsAdapter(sketchgraphs_path, split=split)
-        self.cadvg = CADVGDrawingAdapter(cadvg_root, split=split)
         self.index_path = Path(index_path) if index_path else None
+        payload = json.loads(self.index_path.read_text()) if self.index_path else {}
+        origin_split = payload.get("origin_split", split)
+        self.sketchgraphs = SketchGraphsAdapter(sketchgraphs_path, split=origin_split)
+        self.cadvg = CADVGDrawingAdapter(cadvg_root, split=origin_split)
         self._index_buckets: dict[tuple[str, str], list[dict]] = {}
-        if self.index_path and self.index_path.exists():
-            payload = json.loads(self.index_path.read_text())
+        self._snapshots = {}
+        if self.index_path:
             if payload.get("split") != split:
                 raise ValueError(
                     f"source index split {payload.get('split')} does not match {split}"
                 )
             for entry in payload.get("entries", []):
+                if "snapshot" in entry:
+                    import hashlib
+                    encoded = json.dumps(entry["snapshot"], sort_keys=True, separators=(",", ":")).encode()
+                    if hashlib.sha256(encoded).hexdigest() != entry["snapshot_sha256"]:
+                        raise ValueError("Corrupt source snapshot")
+                    frozen = entry["snapshot"]
+                    if frozen["source"]["split"] != split or frozen["source"]["sample_id"] != entry["source_id"]:
+                        raise ValueError("Snapshot source identity/split mismatch")
+                    self._snapshots[entry["component_key"]] = SourceComponent(
+                        component_key=frozen["component_key"], source=SourceRecord(**frozen["source"]),
+                        primitives=[Primitive.from_dict(p) for p in frozen["primitives"]],
+                        source_to_component=np.asarray(frozen["source_to_component"]), descriptor=frozen["descriptor"])
                 for profile in entry.get("profiles", []):
                     self._index_buckets.setdefault(
                         (entry["dataset"], profile), []
@@ -376,7 +457,9 @@ class SourcePool:
         for _ in range(max_attempts if entries else 0):
             entry = entries[int(rng.integers(len(entries)))]
             try:
-                if dataset == "SketchGraphs":
+                if entry["component_key"] in self._snapshots:
+                    components = [self._snapshots[entry["component_key"]]]
+                elif dataset == "SketchGraphs":
                     components = self.sketchgraphs.load_source_sample(
                         int(entry["source_id"])
                     )
@@ -397,7 +480,10 @@ class SourcePool:
                 None,
             )
             if component is not None and self.matches_profile(component, profile):
-                return component
+                return copy.deepcopy(component)
+
+        if self.index_path:
+            raise RuntimeError(f"Indexed retrieval failed for {dataset}:{profile}; unrestricted fallback is forbidden")
 
         predicate = lambda item: self.matches_profile(item, profile)
         if dataset == "SketchGraphs":
@@ -412,6 +498,8 @@ class SourcePool:
         predicate: Callable[[SourceComponent], bool],
         max_attempts: int = 800,
     ) -> SourceComponent:
+        if self.index_path:
+            raise RuntimeError("Unrestricted retrieval is forbidden with a source index")
         for _ in range(max_attempts):
             source_id = int(rng.integers(len(self.sketchgraphs)))
             try:
@@ -429,6 +517,8 @@ class SourcePool:
         predicate: Callable[[SourceComponent], bool],
         max_attempts: int = 400,
     ) -> SourceComponent:
+        if self.index_path:
+            raise RuntimeError("Unrestricted retrieval is forbidden with a source index")
         for _ in range(max_attempts):
             source_id = self.cadvg.sample_ids[int(rng.integers(len(self.cadvg.sample_ids)))]
             view = self.cadvg.VIEWS[int(rng.integers(len(self.cadvg.VIEWS)))]

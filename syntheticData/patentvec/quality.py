@@ -124,7 +124,8 @@ def evaluate_quality(
     require_vertical_slice: bool = False,
     difficulty_gate: str | None = None,
 ) -> dict:
-    failures = list(validate_drawing(drawing))
+    from .annotations import annotation_failures
+    failures = list(validate_drawing(drawing)) + annotation_failures(drawing)
     warnings: list[str] = []
 
     all_points = []

@@ -5,11 +5,12 @@ from dataclasses import replace
 
 import numpy as np
 from shapely import affinity
-from shapely.geometry import LineString
+from shapely.geometry import LineString, box as geometry_box
 
 from .anchors import component_region
 from .geometry import primitive_bounds, primitive_endpoints, primitive_length, sample_primitive
 from .schema import CanonicalDrawing, Component, Junction, Primitive
+from .annotations import text_bounds, annotation_strokes
 
 
 ANNOTATION_COMPONENT_ID = "annotations"
@@ -115,6 +116,8 @@ def _box_available(
             or ey1 + padding < y0
         ):
             return False
+    if any(curve.intersects(geometry_box(*box)) for _, curve in annotation_strokes(drawing)):
+        return False
     return True
 
 
@@ -291,32 +294,17 @@ def add_leader_and_numeral(
             all_points = np.clip(np.vstack([target, elbow, end]), 0.025, 0.975)
             anchor = "start" if direction_x > 0 else "end"
             text_position = all_points[-1] + np.array([direction_x * 0.007, -0.005])
-            text_width = text_size * 0.62 * max(1, len(str(numeral)))
-            text_box = [
-                float(text_position[0] if anchor == "start" else text_position[0] - text_width),
-                float(text_position[1] - text_size),
-                float(text_position[0] + text_width if anchor == "start" else text_position[0]),
-                float(text_position[1] + text_size * 0.18),
-            ]
+            text_box = text_bounds({"position": text_position, "text": str(numeral),
+                                    "size": text_size, "anchor": anchor})
             if _box_available(drawing, text_box):
+                if any(LineString(all_points).intersects(geometry_box(*bounds)) for bounds in _layout_boxes(drawing)):
+                    continue
                 selected = (all_points, text_position, anchor, text_box)
                 break
         if selected is not None:
             break
     if selected is None:
-        all_points = np.clip(
-            np.vstack([target, target + [0.07, -0.07], target + [0.14, -0.07]]),
-            0.025,
-            0.975,
-        )
-        text_position = all_points[-1] + [0.007, -0.005]
-        anchor = "start"
-        text_box = [
-            float(text_position[0]),
-            float(text_position[1] - text_size),
-            float(min(0.98, text_position[0] + text_size * 0.62 * len(str(numeral)))),
-            float(text_position[1] + text_size * 0.18),
-        ]
+        raise ValueError("No collision-free reference label placement")
     else:
         all_points, text_position, anchor, text_box = selected
     _reserve_box(drawing, text_box)
@@ -483,10 +471,74 @@ def add_linear_dimension(
     output = []
     margin = float(rng.uniform(0.035, 0.065))
     extension = 0.009
+    if orientation not in {"horizontal", "vertical"}:
+        raise ValueError("Unknown dimension orientation")
+    span = float((upper - lower)[0 if orientation == "horizontal" else 1])
+    if span < .04:
+        raise ValueError("dimension span is too small")
+    value = str(int(round(span * 1000)))
+    coordinate = 0 if orientation == "horizontal" else 1
+    extent = [float(lower[coordinate]), float(upper[coordinate])]
+    existing_dimensions = drawing.processing.get("patent_layers", {}).get("dimensions", [])
+    if any(d.get("orientation") == orientation and np.allclose(d.get("extent", [-9., -9.]), extent, atol=1e-8)
+           for d in existing_dimensions):
+        return []
+    placement = None
+    for negative in (True, False):
+        for extra in (0., .028, .056, .084, .112):
+            dim = 1 if orientation == "horizontal" else 0
+            axis = float(lower[dim] - margin - extra if negative else upper[dim] + margin + extra)
+            if not .025 <= axis <= .975:
+                continue
+            position = ([float((lower[0]+upper[0])/2), axis-.007 if negative else axis+.020]
+                        if orientation == "horizontal" else
+                        [axis-.008 if negative else axis+.022, float((lower[1]+upper[1])/2)])
+            bounds = text_bounds({"position": position, "text": value, "size": .018,
+                                  "rotation": 0. if orientation == "horizontal" else -90., "anchor": "middle"})
+            rail_clear = True
+            for primitive in drawing.primitives_visible:
+                if primitive.generated_by != "patent_dimension_line":
+                    continue
+                a, b = np.asarray(primitive.geometry["p0"]), np.asarray(primitive.geometry["p1"])
+                if (abs(a[dim]-b[dim]) < 1e-8 and abs(a[dim]-axis) < .027
+                        and max(min(a[coordinate], b[coordinate]), extent[0]) < min(max(a[coordinate], b[coordinate]), extent[1])):
+                    rail_clear = False
+            if not (rail_clear and _box_available(drawing, bounds, padding=.004)):
+                continue
+            # _box_available only tests this dimension's TEXT against strokes that
+            # already exist. The rail and extension lines are created after the
+            # placement is chosen, so nothing stopped them from crossing text that
+            # was already placed -- the asymmetry that produced
+            # "annotation line crosses text" rejections. Check that direction too,
+            # exactly as add_leader_and_numeral already checks its own leader.
+            if orientation == "horizontal":
+                tip = axis + (extension if negative else -extension)
+                object_axis = float(lower[1] if negative else upper[1])
+                candidate_lines = [
+                    [[float(lower[0]), object_axis], [float(lower[0]), tip]],
+                    [[float(upper[0]), object_axis], [float(upper[0]), tip]],
+                    [[float(lower[0]), axis], [float(upper[0]), axis]],
+                ]
+            else:
+                tip = axis + (extension if negative else -extension)
+                object_axis = float(lower[0] if negative else upper[0])
+                candidate_lines = [
+                    [[object_axis, float(lower[1])], [tip, float(lower[1])]],
+                    [[object_axis, float(upper[1])], [tip, float(upper[1])]],
+                    [[axis, float(lower[1])], [axis, float(upper[1])]],
+                ]
+            if any(LineString(line).intersects(geometry_box(*reserved))
+                   for line in candidate_lines for reserved in _layout_boxes(drawing)):
+                continue
+            placement = (axis, negative, position, bounds)
+            break
+        if placement:
+            break
+    if placement is None:
+        raise ValueError("No collision-free dimension placement")
+    axis, negative, text_position, dimension_text_box = placement
     if orientation == "horizontal":
-        use_above = lower[1] - margin > 0.035
-        axis = lower[1] - margin if use_above else upper[1] + margin
-        axis = float(np.clip(axis, 0.03, 0.97))
+        use_above = negative
         x0, x1 = float(lower[0]), float(upper[0])
         if x1 - x0 < 0.04:
             raise ValueError("horizontal dimension span is too small")
@@ -525,12 +577,9 @@ def add_linear_dimension(
                 _dimension_arrow(drawing, np.array([x1, axis]), np.array([-1.0, 0.0])),
             ]
         )
-        text_position = [0.5 * (x0 + x1), axis - 0.007 if use_above else axis + 0.020]
         value = str(int(round((x1 - x0) * 1000)))
     else:
-        use_left = lower[0] - margin > 0.035
-        axis = lower[0] - margin if use_left else upper[0] + margin
-        axis = float(np.clip(axis, 0.03, 0.97))
+        use_left = negative
         y0, y1 = float(lower[1]), float(upper[1])
         if y1 - y0 < 0.04:
             raise ValueError("vertical dimension span is too small")
@@ -569,18 +618,8 @@ def add_linear_dimension(
                 _dimension_arrow(drawing, np.array([axis, y1]), np.array([0.0, -1.0])),
             ]
         )
-        text_position = [axis - 0.008 if use_left else axis + 0.008, 0.5 * (y0 + y1)]
         value = str(int(round((y1 - y0) * 1000)))
-    text_position = np.clip(text_position, 0.025, 0.975).tolist()
-    text_width = 0.018 * 0.62 * len(value)
-    dimension_text_box = [
-        text_position[0] - text_width / 2,
-        text_position[1] - 0.018,
-        text_position[0] + text_width / 2,
-        text_position[1] + 0.004,
-    ]
-    if _box_available(drawing, dimension_text_box, padding=0.004):
-        _reserve_box(drawing, dimension_text_box)
+    _reserve_box(drawing, dimension_text_box)
     output.append(
         _add_generated(
             drawing,
@@ -602,6 +641,7 @@ def add_linear_dimension(
     ).append(
         {
             "orientation": orientation,
+            "extent": extent,
             "target_component_id": target_component_id,
             "value": value,
             "primitive_ids": [item.primitive_id for item in output],
@@ -651,8 +691,10 @@ def add_text_box(
                 [position[0], position[1], position[0] + width, position[1] + height],
             )
         ),
-        ordered_placements[0],
+        None,
     )
+    if selected_position is None:
+        raise ValueError("No collision-free text box placement")
     x0, y0 = selected_position
     _reserve_box(drawing, [x0, y0, x0 + width, y0 + height])
     box = _add_generated(
@@ -796,7 +838,7 @@ def apply_complex_patent_layers(
         add_linear_dimension(
             drawing,
             rng,
-            target_component_id=None,
+            target_component_id=(source_component_ids[0] if index >= 2 else None),
             orientation="horizontal" if index % 2 == 0 else "vertical",
         )
 

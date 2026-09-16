@@ -1,0 +1,24 @@
+[
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "images": 30,
+    "articles": 30,
+    "scrollWidth": 1440,
+    "innerWidth": 1440,
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "images": 30,
+    "articles": 30,
+    "scrollWidth": 390,
+    "innerWidth": 390,
+    "errors": []
+  }
+]

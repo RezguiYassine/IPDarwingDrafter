@@ -27,6 +27,49 @@ Track-A composites are not CAD programs. Their Free2CAD artifact supervises
 only the repository's per-edge primitive classifier/regressor. CAD operation
 sequences must come from roadmap Track B and are not fabricated here.
 
+## Patent-like synthesis: Phase 0 (2026-09-15)
+
+The [revised roadmap](../docs/PATENT_LIKE_SYNTHESIS_ROADMAP.md) now has an
+audited 300-drawing baseline probe, balanced across medium, hard and very hard:
+
+```text
+/media/safe/secondary disk/IPdrawings/Patent_Like_Dataset/phase0_baseline300
+```
+
+Generation v2.2 adds `--retain-rasters`, `--curriculum balanced`,
+`--audit-strategy stratified`, `--degradation-config`, and
+`--stage2-label-contract reference-free-raster-topology-v1`. The original
+default noise and composition are unchanged. All four clean/degraded and
+oracle reference-free PNGs are retained alongside masks, vector/source JSON,
+Puhachov and Free2CAD NPZ targets. Rerendered audit previews use recorded noise
+parameters; retained rasters take precedence. Output identity includes code,
+configuration, source-index and runtime hashes; incompatible resumes fail.
+
+The full 300-sample exact C2 audit found no missing/extra/duplicate topology
+labels or unsupported skeleton pixels. All 1,329 polylines passed the existing
+tolerance-based independent contract. Generation took 258.57 seconds on 12
+workers and produced 278.59 MB of archives. A 30-example gallery is available
+at `phase0_baseline300/audit/index.html` on the external disk.
+
+This is **not an accepted training release**. Very-hard clean targets already
+exceed matched-size real-patent junction density. All 100 measured patents use
+binary passthrough, whereas all 300 degraded synthetic inputs invoke
+SketchCleanNet; their preprocessing fidelity and native scale differ.
+Acquisition/lineweight alignment, annotation collision checks and strict
+source-disjoint pools therefore precede more crossings or a 10k run. The
+original A/B datasets and model weights were not changed, and no training ran.
+
+The follow-up `phase05_acquisition30` reuses 30 drawings across 450 actual
+Stage 1 passes. At 1024 pixels, median clean-target fidelity F1 is 0.7134 for
+grayscale, 0.9896 for binary and 0.9963 for binary with reduced speckle. All
+90 clean-target audits and 450 input/output hash checks passed. This supports
+binary acquisition as a candidate, but tiny-component noise and native-scale
+topology remain mismatched. PNG encoding alone does not change the existing
+clean C2 training inputs. The paired viewer is `phase05_acquisition30/index.html`
+on the external disk; the full regression suite now has 439 passing tests.
+
+See [complete evidence and reproduction commands](../docs/audits/2026-09-15/patent_like_generation/README.md).
+
 ## Validated 10k experiments
 
 The frozen baseline and enhanced datasets use the same 10,000 source indices
