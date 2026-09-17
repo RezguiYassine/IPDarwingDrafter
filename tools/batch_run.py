@@ -80,7 +80,7 @@ import stage2_stroke_extract       # noqa: E402
 import stage3_primitive_fit        # noqa: E402
 import stage4_export               # noqa: E402
 
-from tools import acceptance, deployment, results_db       # noqa: E402
+from tools import acceptance, content_routing, deployment, results_db   # noqa: E402
 
 
 logger = logging.getLogger("batch_run")
@@ -100,6 +100,7 @@ _WORKER_HATCH_MODEL = None
 _WORKER_HATCH_STROKE_MODEL = None
 _WORKER_REUSE_PREPROCESSING_ROOT: Path | None = None
 _WORKER_REUSE_PREPROCESSING_DB: Path | None = None
+_WORKER_CONTENT_MANIFEST: dict | None = None
 
 _PREPROCESSING_ROW_FIELDS = (
     "s0_time", "s0_n_labels", "s0_n_leaders", "s0_n_iterations",
@@ -120,12 +121,19 @@ def _worker_init(
     config_path: str,
     reuse_preprocessing_root: str = "",
     reuse_preprocessing_db: str = "",
+    content_manifest_path: str = "",
 ) -> None:
     """Initialise per-process state: load config, load Stage-1/2 ML models."""
     global _WORKER_CFG, _WORKER_S1_MODEL, _WORKER_S2_MODEL, _WORKER_HATCH_MODEL
     global _WORKER_DEPLOYMENT_IDENTITY
     global _WORKER_HATCH_STROKE_MODEL
     global _WORKER_REUSE_PREPROCESSING_ROOT, _WORKER_REUSE_PREPROCESSING_DB
+    global _WORKER_CONTENT_MANIFEST
+
+    # Loaded per process: a malformed manifest must stop the run, not silently
+    # leave every figure's content pending.
+    _WORKER_CONTENT_MANIFEST = (content_routing.load_manifest(Path(content_manifest_path))
+                                if content_manifest_path else None)
 
     with open(config_path) as f:
         _WORKER_CFG = yaml.safe_load(f) or {}
@@ -554,6 +562,7 @@ def _process_one(job: tuple[str, str, str, str]) -> dict:
         report, path = acceptance.record(
             row, Path(job[3]), _WORKER_DEPLOYMENT_IDENTITY,
             stage0_enabled=bool((_WORKER_CFG.get("stage0", {}) or {}).get("enabled", False)),
+            content_manifest=_WORKER_CONTENT_MANIFEST,
         )
         row.update({
             "acceptance_status": report["acceptance_status"],
@@ -791,6 +800,12 @@ def main() -> int:
               "Stage-0/1 compatibility can be validated"),
     )
     parser.add_argument(
+        "--content-manifest", type=Path, default=None,
+        help=("explicit per-figure content decisions "
+              "(tools/build_content_manifest.py); without it every figure's "
+              "content check stays pending and nothing is training-eligible"),
+    )
+    parser.add_argument(
         "--reuse-source-worklist", action="store_true",
         help=("select the exact patent/sketch/input rows from the reuse DB "
               "instead of resampling the current corpus; --limit selects "
@@ -1007,6 +1022,7 @@ def main() -> int:
                      str(args.config),
                      str(reuse_root) if reuse_root is not None else "",
                      str(reuse_db) if reuse_db is not None else "",
+                     str(args.content_manifest) if args.content_manifest else "",
                  ),
              ) as pool:
 

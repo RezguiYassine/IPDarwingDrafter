@@ -8,7 +8,7 @@ import ezdxf
 import numpy as np
 import pytest
 
-from tools import acceptance, batch_run, build_training_manifest, results_db
+from tools import acceptance, batch_run, build_training_manifest, content_routing, results_db
 
 s0 = batch_run.stage0_handle_references
 s4 = batch_run.stage4_export
@@ -101,8 +101,55 @@ def test_successful_execution_requires_content_and_computes_geometry_validation(
     report, _ = _seal(root, row, validations={})
     assert report["acceptance_status"] == "review"
     assert not report["training_eligible"]
-    assert set(report["reason_codes"]) == {"content_validation_pending"}
+    # No manifest supplied: the content validator runs and reports why it
+    # cannot decide, rather than the check simply being absent.
+    assert set(report["reason_codes"]) == {"content_manifest_absent"}
+    assert report["checks"]["content"]["status"] == "pending"
     assert report["checks"]["geometry"]["status"] == "pass"
+
+
+def _content_manifest(tmp_path, row, routing="in_scope"):
+    source = Path(row["input_path"])
+    path = tmp_path / "content_decisions.json"
+    path.write_text(json.dumps({
+        "schema": content_routing.MANIFEST_SCHEMA, "version": "1",
+        "authority": "human_curation",
+        "decisions": [{"patent_id": row["patent_id"], "sketch_id": row["sketch_id"],
+                       "source_sha256": content_routing.file_digest(source),
+                       "routing": routing, "content_class": "drawing",
+                       "reason": None if routing == "in_scope" else "flowchart",
+                       "decided_by": "tester"}]}))
+    return content_routing.load_manifest(path)
+
+
+def test_manifest_decision_completes_acceptance_and_survives_verification(example, tmp_path):
+    root, row = example
+    manifest = _content_manifest(tmp_path, row)
+    report, path = acceptance.record(row, root, IDENTITY, validations={},
+                                     content_manifest=manifest)
+    row.update(acceptance_status=report["acceptance_status"],
+               acceptance_policy_version=report["policy_version"],
+               acceptance_sha256=acceptance.file_digest(path),
+               training_eligible=int(report["training_eligible"]))
+    assert report["checks"]["content"]["status"] == "pass"
+    assert report["acceptance_status"] == "accepted" and report["training_eligible"]
+    assert acceptance.eligibility_reason(row, root.parent, IDENTITY) is None
+    # The sealed content report is re-read during verification, so editing it
+    # after the fact must invalidate the row rather than pass unnoticed.
+    content_path = Path(report["artifacts"]["content_report"]["path"])
+    document = json.loads(content_path.read_text())
+    document["class_decision"]["routing"] = "out_of_scope"
+    content_path.write_text(json.dumps(document))
+    assert acceptance.eligibility_reason(row, root.parent, IDENTITY) == "acceptance_content_unverified"
+
+
+def test_out_of_scope_content_rejects_an_otherwise_perfect_figure(example, tmp_path):
+    root, row = example
+    report, _ = acceptance.record(row, root, IDENTITY, validations={},
+                                  content_manifest=_content_manifest(tmp_path, row, "out_of_scope"))
+    assert report["acceptance_status"] == "rejected"
+    assert not report["training_eligible"]
+    assert "content_out_of_scope" in report["reason_codes"]
 
 
 @pytest.mark.parametrize("stage", range(5))

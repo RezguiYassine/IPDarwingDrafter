@@ -10,7 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from tools import geometry_validation
+from tools import content_routing, geometry_validation
 
 
 SCHEMA = "ap3-acceptance-v1"
@@ -146,7 +146,8 @@ def _check_hachures(graph: dict, document: dict) -> dict:
 
 
 def record(row: dict, output_dir: Path, deployment_identity: dict | None,
-           *, validations: dict | None = None, stage0_enabled: bool = True) -> tuple[dict, Path]:
+           *, validations: dict | None = None, stage0_enabled: bool = True,
+           content_manifest: dict | None = None) -> tuple[dict, Path]:
     """Bind decisions to exact artifacts; callers cannot turn missing checks into passes."""
     sketch = row["sketch_id"]
     checks = {name: _check("pending", f"{name}_validation_missing") for name in REQUIRED_CHECKS}
@@ -213,6 +214,24 @@ def record(row: dict, output_dir: Path, deployment_identity: dict | None,
             except (KeyError, TypeError, ValueError, OSError) as exc:
                 checks["exports"] = _check("error", "invalid_acceptance_evidence")
                 checks["exports"]["detail"] = str(exc)
+    if not (validations or {}).get("content"):
+        # Ink routing needs the channel artifacts; the class decision needs only
+        # the source, so a gated or crashed figure still records why its content
+        # was or was not in scope.
+        channels = {name: Path(artifacts[name]["path"])
+                    for name in ("cleaned", "graph", "reference_mask")
+                    if name in artifacts} if status == "ok" and not missing else None
+        content_path = output_dir / "content" / f"{sketch}_content_report.json"
+        try:
+            content_report = content_routing.run(
+                row["patent_id"], sketch, Path(row["input_path"]), content_path,
+                manifest=content_manifest, channels=channels,
+            )
+            bind("content_report", content_path)
+            checks["content"] = content_routing.acceptance_check(content_report)
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            checks["content"] = _check("error", "content_validation_failed")
+            checks["content"]["detail"] = str(exc)
     checks["artifacts"] = _check("error", *missing) if missing else _check()
     verdict, reasons = decision(checks)
     result = {
@@ -270,6 +289,15 @@ def eligibility_reason(row: dict, run_output: Path, selected_identity: dict | No
                 or any(geometry["inputs"][name] != report["artifacts"][name]
                        for name in ("graph", "primitives", "skeleton"))):
             return "acceptance_geometry_unverified"
+        if "content_report" in report["artifacts"]:
+            content = json.loads(Path(report["artifacts"]["content_report"]["path"]).read_text())
+            if (content.get("schema") != content_routing.SCHEMA
+                    or content.get("validator") != content_routing.VALIDATOR
+                    or content.get("version") != content_routing.VERSION
+                    or content_routing.acceptance_check(content) != report["checks"]["content"]
+                    or content["inputs"]["source"] != report["artifacts"]["source"]
+                    or content["class_decision"].get("routing") != "in_scope"):
+                return "acceptance_content_unverified"
         if not report.get("artifacts"):
             return "acceptance_artifacts_missing"
         for artifact in report["artifacts"].values():
