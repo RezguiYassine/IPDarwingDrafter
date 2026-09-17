@@ -23,12 +23,16 @@ session, so the cohort keeps the stratification the original pilot had.
     python -m tools.curate_pilot --session output/PatentData/curation_v2
     python -m tools.curate_pilot --session output/PatentData/curation_v2 --no-display
 
-Keys at the prompt:
+Press the key WITH THE IMAGE WINDOW FOCUSED -- one keystroke, no Enter. The
+prompt is echoed along the bottom of the window as well as in the terminal.
+Under --no-display (or after you close the window) you type the letter in the
+terminal and press Enter instead.
+
     y    accept
     n    reject  (then pick a reason; a replacement is queued automatically)
     s    skip    (decide later; does not count toward the target)
     b    back    (undo the previous decision and re-show it)
-    q    save + quit
+    q    save + quit   (Esc and Ctrl-C also save and exit)
 """
 from __future__ import annotations
 
@@ -39,6 +43,10 @@ import os
 import random
 import sys
 from pathlib import Path
+
+# Patent TIFs carry a tag libtiff does not know, and cv2 logs a warning for
+# every single read. Must be set before cv2 is first imported.
+os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 
 REASONS = {
     "c": "chemistry",
@@ -128,21 +136,58 @@ def sketch_id(item: dict) -> str:
 # ── display ──────────────────────────────────────────────────────────────────
 
 class Viewer:
+    """The figure window is the input device.
+
+    Reading answers with input() would block the GUI event loop, so the window
+    stops repainting and every key you press over the image goes nowhere -- it
+    looks like a crash. Instead keys are captured from the canvas and the wait
+    is a plt.pause() loop, which keeps the window live.
+    """
+
     def __init__(self, enabled: bool):
         self.enabled = enabled
         self.fig = None
+        self.pending: list[str] = []
+        self.closed = False
+        self.finishing = False
         if not enabled:
             return
         try:
             import matplotlib.pyplot as plt
             self.plt = plt
+            # Matplotlib binds q/s/p/f/o/... to quit, save, pan, fullscreen.
+            # Those collide with the decision and reason keys, so drop them all.
+            for key in [k for k in plt.rcParams if k.startswith("keymap.")]:
+                plt.rcParams[key] = []
             self.fig, self.ax = plt.subplots(figsize=(9, 11))
             self.fig.canvas.manager.set_window_title("curate_pilot")
+            self.fig.canvas.mpl_connect("key_press_event", self._on_key)
+            self.fig.canvas.mpl_connect("close_event", self._on_close)
+            self.prompt_text = self.fig.text(0.5, 0.012, "", ha="center",
+                                             fontsize=11, family="monospace")
             plt.ion()
             plt.show(block=False)
         except Exception as exc:                       # headless or no backend
             print(f"(display unavailable: {exc}; continuing without it)")
             self.enabled = False
+
+    def _on_key(self, event) -> None:
+        if event.key:
+            self.pending.append(event.key)
+
+    def _on_close(self, event) -> None:
+        self.closed = True
+        self.enabled = False
+        if not self.finishing:
+            print("\n(window closed; falling back to typed answers + Enter)")
+
+    def finish(self) -> None:
+        self.finishing = True
+        if self.fig is not None:
+            try:
+                self.plt.close(self.fig)
+            except Exception:
+                pass
 
     def show(self, image_path: str, title: str) -> None:
         if not self.enabled:
@@ -161,6 +206,30 @@ class Viewer:
             self.fig.canvas.flush_events()
         except Exception as exc:
             print(f"(display error: {exc})")
+
+    def ask(self, prompt: str) -> str:
+        """One keypress in the figure window, no Enter. Typed input if headless."""
+        if not self.enabled:
+            return input(prompt).strip().lower()
+        print(prompt, end="", flush=True)
+        try:
+            self.prompt_text.set_text(prompt.strip())
+            self.fig.canvas.draw_idle()
+        except Exception:
+            pass
+        self.pending.clear()
+        while not self.pending:
+            if self.closed:                            # window went away mid-wait
+                print()
+                return input(prompt).strip().lower()
+            try:
+                self.plt.pause(0.05)
+            except Exception:
+                self.closed = True
+        key = self.pending.pop(0)
+        key = {"escape": "q", "enter": "", "backspace": "b"}.get(key, key)
+        print(key)
+        return key.strip().lower()
 
 
 # ── reporting ────────────────────────────────────────────────────────────────
@@ -270,7 +339,11 @@ def main() -> int:
             continue
         viewer.show(item["path"], title)
 
-        answer = input("  [y]accept [n]reject [s]kip [b]ack [q]uit > ").strip().lower()
+        try:
+            answer = viewer.ask("  [y]accept [n]reject [s]kip [b]ack [q]uit > ")
+        except (KeyboardInterrupt, EOFError):
+            print("\ninterrupted")
+            break
         if answer == "q":
             break
         if answer == "b":
@@ -305,7 +378,11 @@ def main() -> int:
                                        "prior_class": hint.get("content_class", "")}
         elif answer == "n":
             menu = " ".join(f"[{k}]{v}" for k, v in REASONS.items())
-            choice = input(f"    reason {menu} > ").strip().lower()
+            try:
+                choice = viewer.ask(f"    reason {menu} > ")
+            except (KeyboardInterrupt, EOFError):
+                print("\ninterrupted")
+                break
             reason = REASONS.get(choice, choice or "other")
             decision = {"status": "reject", "reason": reason,
                         "prior_class": hint.get("content_class", "")}
@@ -329,6 +406,7 @@ def main() -> int:
         state["cursor"] += 1
         save_state(args.session, state)
 
+    viewer.finish()
     save_state(args.session, state)
     accepted, decided = write_outputs(args.session, state)
     print(f"\nsaved {decided} decisions, {accepted} accepted")
