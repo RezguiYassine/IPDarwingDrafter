@@ -178,6 +178,65 @@ Two consequences:
    mis-routed content is still routed content. Ink routing detects ink that
    reaches no channel, not ink that reaches the wrong one.
 
+## Validation run
+
+`output/PatentDataCurated100_2026-09-17/` — the curated 100 on canonical
+`config_deploy.yaml` with `--content-manifest`. 55 minutes, 12 workers,
+85/100 executed `ok` (gated: 13 Stage 2, 1 Stage 1, 1 Stage 3).
+
+Per-check outcome over the 100 sealed records:
+
+| check | pass | review | fail | pending |
+| --- | --- | --- | --- | --- |
+| artifacts | 100 | | | |
+| deployment | 100 | | | |
+| **content** | **85** | | | 15 |
+| execution | 85 | | 15 | |
+| hachures | 85 | | | 15 |
+| stage_flags | 4 | 96 | | |
+| references | 4 | 81 | | 15 |
+| exports | 4 | 81 | | 15 |
+| geometry | 9 | 19 | 57 | 15 |
+
+Content passes on every figure that executed. The 15 `pending` are the
+quality-gated figures: their class decision passed, but ink routing needs the
+Stage-1/2 artifacts those figures never produced, so it stays pending —
+fail-closed, and moot since execution already failed.
+
+Deployment passes on all 100, confirming that `deployment_unverified` was an
+artifact of running on the research config, not a defect.
+
+### The blocker chain has collapsed from five to two
+
+Counterfactuals computed directly from the sealed checks:
+
+| if fixed | figures that become `accepted` |
+| --- | --- |
+| nothing (today) | 0 |
+| reference OCR alone | 9 |
+| geometry alone | 4 |
+| **reference OCR + geometry** | **85 — every figure that executed** |
+
+For all 85 executed figures, the *only* non-passing checks are `references`,
+`exports`, `stage_flags` (all three driven by `unknown_reference_text`) and
+`geometry`. Nothing else stands between this cohort and a training corpus.
+
+### Curation did not move the two remaining defects
+
+| | contaminated cohort | curated cohort |
+| --- | --- | --- |
+| executed `ok` | 81 | 85 |
+| `unknown_reference_text` | 80 | 81 |
+| `geometry_skeleton_coverage_lost` | 56 | 56 |
+| `geometry_stage2_residual_pending` | 75 | 76 |
+| content pending | 100 | **0** |
+| deployment unverified | 100 | **0** |
+
+The OCR and geometry failure rates are identical on a cohort that is 100%
+engineering drawings and on one that was 41% flowcharts and bar charts. Both
+are corpus-wide defects in the pipeline, not consequences of content
+contamination. Execution success rose only 81 → 85.
+
 ## Artifacts
 
 ```text

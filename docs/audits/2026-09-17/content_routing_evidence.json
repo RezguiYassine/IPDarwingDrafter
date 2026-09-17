@@ -1,0 +1,85 @@
+{
+  "run": "output/PatentDataCurated100_2026-09-17",
+  "config": "config_deploy.yaml",
+  "content_manifest_sha256": "587091aa0271475ef1b40d64c626766df5ec7b581100ec135fc26c6d8ee38a5f",
+  "status": {
+    "ok": 85,
+    "quality_gate_stage1": 1,
+    "quality_gate_stage2": 13,
+    "quality_gate_stage3": 1
+  },
+  "checks": {
+    "artifacts": {
+      "pass": 100
+    },
+    "content": {
+      "pass": 85,
+      "pending": 15
+    },
+    "deployment": {
+      "pass": 100
+    },
+    "execution": {
+      "pass": 85,
+      "fail": 15
+    },
+    "exports": {
+      "review": 81,
+      "pass": 4,
+      "pending": 15
+    },
+    "geometry": {
+      "fail": 57,
+      "pass": 9,
+      "review": 19,
+      "pending": 15
+    },
+    "hachures": {
+      "pass": 85,
+      "pending": 15
+    },
+    "references": {
+      "review": 81,
+      "pass": 4,
+      "pending": 15
+    },
+    "stage_flags": {
+      "review": 96,
+      "pass": 4
+    }
+  },
+  "reason_codes": {
+    "s4_flagged": 81,
+    "unknown_reference_text": 81,
+    "geometry_stage2_residual_pending": 76,
+    "geometry_skeleton_coverage_lost": 56,
+    "content_ink_routing_pending": 15,
+    "exports_validation_missing": 15,
+    "geometry_validation_missing": 15,
+    "hachures_validation_missing": 15,
+    "references_validation_missing": 15,
+    "s4_flagged_missing": 15,
+    "s3_flagged_missing": 14,
+    "quality_gate_stage2": 13,
+    "s2_flagged": 13,
+    "geometry_output_off_skeleton": 1,
+    "geometry_unsupported_primitive": 1,
+    "geometry_unsupported_run": 1,
+    "geometry_hatch_pattern_unverified": 1,
+    "geometry_raster_coverage_incomplete": 1,
+    "quality_gate_stage1": 1,
+    "s1_flagged": 1,
+    "s2_flagged_missing": 1,
+    "quality_gate_stage3": 1
+  },
+  "counterfactuals": {
+    "accepted_if_both_fixed": 85,
+    "accepted_if_ocr_fixed": 9,
+    "accepted_if_geometry_fixed": 4
+  },
+  "deployment_identity": {
+    "effective_config_sha256": "fe36dd630d429e2282125d1691a464d5424ac1ed6161e2b9f08035c08850278a",
+    "implementation_sha256": "84be3c72255d5420b69e75e6e6aad66006f8a551dc314cdf78c03e8dd7f7d0e2",
+    "weight_manifest_sha256": "e7fdb035a6e222dbc7b135be8754a4bd7c0c2b051143e947ef039c9c5bf09af5"
+  }
+}
