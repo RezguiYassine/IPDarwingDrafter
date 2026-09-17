@@ -67,6 +67,15 @@ stage0:
   ocr_cc_fill_hi: 0.85
   ocr_cc_fill_lo: 0.12
   ocr_cc_max_h_frac: 0.05
+  # Reject recovery candidates whose rotated bounding rectangle is this much
+  # longer than it is wide: a dash, centre line or hatch segment is a thin
+  # bar, a glyph is not. 0 disables. See docs/audits/2026-09-18/.
+  ocr_cc_max_elongation: 4.0
+  # Fold a candidate into an abutting label OCR already read, but only when the
+  # widened rectangle contains no further ink.
+  ocr_cc_merge_fragments: true
+  ocr_cc_merge_gap_x_frac: 1.5
+  ocr_cc_merge_gap_y_frac: 1.0
   ocr_cc_min_h_frac: 0.012
   ocr_cc_recovery: true
   ocr_cc_ring_max: 0.08

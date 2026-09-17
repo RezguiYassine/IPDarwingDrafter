@@ -1,0 +1,153 @@
+{
+  "question": "why do 59.8% of Stage-0 reference labels carry no text",
+  "answer": "they are cc_recovered components, never seen by the recognizer; roughly half are not text at all but dashed-line and hatch segments",
+  "cohort": "output/PatentDataCurated100_2026-09-17 (curated 100 drawings)",
+  "label_populations": {
+    "ocr_numeral": 1225,
+    "ocr_reference": 77,
+    "cc_recovered": 1611,
+    "note": "every label without text is cc_recovered; every OCR label has text"
+  },
+  "rejected_hypothesis_ocr_recognition": {
+    "claim": "the crops are legible text the numeral-tuned OCR rejected",
+    "test": "easyocr recognize() on padded/upscaled crops, ensemble over 5 preprocessing variants",
+    "per_label_valid_token_rate": 0.93,
+    "verdict": "REJECTED as the primary fix: the recognizer assigns digits to non-text with high confidence -- a vertical dash reads as '1' at 0.97, a small circle as '0' at 1.00. Recognising these would fabricate reference numerals out of geometry."
+  },
+  "rejected_filter_collinear_runs": {
+    "claim": "a dash is one of three alike blobs evenly spaced on a line, a numeral is not",
+    "test": "flag rate on cc_recovered vs on OCR-confirmed numerals, pooled per figure",
+    "recovered_flagged": 0.402,
+    "confirmed_numerals_flagged": 0.311,
+    "ratio": 1.3,
+    "verdict": "REJECTED: evenly spaced numerals along a row or around a part are a normal patent layout, so the signature does not discriminate. No parameter setting separated the populations."
+  },
+  "accepted_filter_elongation": {
+    "feature": "aspect ratio of cv2.minAreaRect around the candidate component",
+    "sweep": [
+      {
+        "threshold": 3.0,
+        "recovered_flagged": 0.328,
+        "confirmed_flagged": 0.04,
+        "ratio": 8.2
+      },
+      {
+        "threshold": 3.5,
+        "recovered_flagged": 0.286,
+        "confirmed_flagged": 0.027,
+        "ratio": 10.6
+      },
+      {
+        "threshold": 4.0,
+        "recovered_flagged": 0.246,
+        "confirmed_flagged": 0.015,
+        "ratio": 16.9
+      },
+      {
+        "threshold": 5.0,
+        "recovered_flagged": 0.204,
+        "confirmed_flagged": 0.009,
+        "ratio": 22.2
+      }
+    ],
+    "chosen": 4.0,
+    "why": "favours recall because the two failure directions are not symmetric: keeping a dash deletes drawing content, while rejecting a numeral only leaves it in the drawing to be vectorized",
+    "residual_false_positives": "1-like glyphs, 19 of 1302 confirmed numerals",
+    "not_addressed": "small circular features (holes, pins) are not elongated and still pass; they need a separate circularity test"
+  },
+  "accepted_merge_clipped_fragments": {
+    "rule": "fold a candidate into an abutting read label when the widened rectangle contains no further ink",
+    "why_emptiness_test_not_gap_bound": {
+      "abutting_pairs_examined": 95,
+      "gap_over_height_median": 0.15,
+      "union_swallows_zero_extra_ink": 0.358,
+      "max_extra_ink_px": 1908,
+      "at_gap_le_0.3h_zero_swallow": 0.541,
+      "verdict": "a gap bound alone would delete geometry on roughly two thirds of pairs, so the merge is gated on measured emptiness"
+    },
+    "merges_on_cohort": 88
+  },
+  "single_pass_replay": {
+    "figures": 24,
+    "recovered_before": 316,
+    "recovered_after": 220,
+    "reduction": 0.304
+  },
+  "deployment_identity_after_change": {
+    "effective_config_sha256": "e1fb15932ff669413b9a9a3928fd204190afca44b908abe0e67b4c4e02f5481e",
+    "implementation_sha256": "8d55b29005c56500adfacb529d14411eabc1b0e9ac591757ac20aaafba846204",
+    "weight_manifest_sha256": "e7fdb035a6e222dbc7b135be8754a4bd7c0c2b051143e947ef039c9c5bf09af5"
+  },
+  "validation_run": {
+    "before": "output/PatentDataCurated100_2026-09-17",
+    "after": "output/PatentDataCurated100_RefFix_2026-09-18",
+    "executed_ok": {
+      "before": 85,
+      "after": 85
+    },
+    "labels": {
+      "ocr_numeral": [
+        1225,
+        1218
+      ],
+      "ocr_reference": [
+        77,
+        74
+      ],
+      "cc_recovered": [
+        1611,
+        1175
+      ],
+      "total": [
+        2913,
+        2467
+      ]
+    },
+    "components_no_longer_removed": 436,
+    "stage0_ink_removed_ratio": {
+      "before": 0.1581,
+      "after": 0.1456
+    },
+    "untexted_labels_per_figure": {
+      "median": [
+        13,
+        8
+      ],
+      "mean": [
+        16.1,
+        11.8
+      ]
+    },
+    "figures_with_zero_untexted": [
+      4,
+      6
+    ],
+    "acceptance": {
+      "before": {
+        "rejected": 72,
+        "review": 28
+      },
+      "after": {
+        "accepted": 1,
+        "rejected": 71,
+        "review": 28
+      }
+    },
+    "unknown_reference_text_figures": [
+      81,
+      80
+    ],
+    "geometry_regression": {
+      "geometry_pass": [
+        9,
+        7
+      ],
+      "geometry_stage2_residual_pending": [
+        76,
+        78
+      ],
+      "note": "content that was previously deleted is now present and must be accounted for by the geometry validator; keeping it is the point, so this cost is accepted rather than tuned away"
+    },
+    "verdict": "The fix does what it was designed to do -- 436 fewer pieces of drawing content deleted -- and does NOT materially unblock acceptance. unknown_reference_text moved 81 -> 80 because the contract requires every label on a figure to be identified and the median figure still carries 8 unidentified ones."
+  }
+}

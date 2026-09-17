@@ -1228,6 +1228,87 @@ def _trace_ocr_leaders(gray: np.ndarray, labels: list[dict[str, Any]],
             })
 
 
+def _component_elongation(component: np.ndarray) -> float:
+    """Aspect ratio of the tightest rotated rectangle around one component.
+
+    This is the feature that separates a dash from a glyph. A dashed line, a
+    centre line and a hatch pattern all decompose into short straight bars,
+    and every bar passes the numeral size band, the aspect cap, the fill
+    window and the isolation ring -- those filters describe exactly this
+    shape, which is why the recovery pass was deleting dashed geometry from
+    96 of 100 drawings in the patent cohort.
+
+    An axis-aligned aspect ratio will not do it: a 45-degree dash has a nearly
+    square bounding box. The rotated rectangle measures the bar itself.
+    """
+    contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return 1.0
+    (_, _), (width, height), _ = cv2.minAreaRect(max(contours, key=cv2.contourArea))
+    if min(width, height) < 1e-6:
+        return float("inf")
+    return max(width, height) / min(width, height)
+
+
+def _merge_clipped_fragments(
+    ink: np.ndarray, ocr_labels: list[dict[str, Any]],
+    candidates: list[dict[str, Any]], cfg: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Fold a candidate into an abutting OCR label when that adds no ink.
+
+    OCR sometimes boxes only part of a token ('5' of '50', the tick of "'44")
+    and the component scan re-finds the rest, which then becomes a separate
+    label whose text is unknown even though the token was read. Widening the
+    label over the fragment repairs that, and keeps one annotation with one
+    text rather than duplicating it.
+
+    The widened rectangle is only accepted when it contains no ink beyond the
+    two boxes. A gap bound alone is not enough: over the patent cohort the
+    union swallows real geometry on roughly two thirds of abutting pairs, up
+    to 1908 px, even at a gap of 0.3x the fragment height. The emptiness test
+    is what makes this non-destructive by construction instead of by hope.
+    """
+    if not cfg.get("ocr_cc_merge_fragments", True) or not ocr_labels:
+        return candidates
+    gap_x = float(cfg.get("ocr_cc_merge_gap_x_frac", 1.5))
+    gap_y = float(cfg.get("ocr_cc_merge_gap_y_frac", 1.0))
+    height, width = ink.shape
+    survivors = []
+    for candidate in candidates:
+        x, y, bw, bh = (int(v) for v in candidate["bbox"])
+        merged = False
+        for label in sorted(ocr_labels, key=lambda l: _boxes_gap(candidate["bbox"], l["bbox"])):
+            lx, ly, lw, lh = (int(v) for v in label["bbox"])
+            if (x > lx + lw + gap_x * bh or x + bw < lx - gap_x * bh
+                    or y > ly + lh + gap_y * bh or y + bh < ly - gap_y * bh):
+                continue
+            ux0, uy0 = max(0, min(x, lx)), max(0, min(y, ly))
+            ux1, uy1 = min(width, max(x + bw, lx + lw)), min(height, max(y + bh, ly + lh))
+            added = np.zeros((uy1 - uy0, ux1 - ux0), bool)
+            added[:] = True
+            added[max(0, y - uy0):y + bh - uy0, max(0, x - ux0):x + bw - ux0] = False
+            added[max(0, ly - uy0):ly + lh - uy0, max(0, lx - ux0):lx + lw - ux0] = False
+            if np.any(ink[uy0:uy1, ux0:ux1] & added):
+                continue                       # widening would eat geometry
+            label["bbox"] = [ux0, uy0, ux1 - ux0, uy1 - uy0]
+            label["centroid"] = [ux0 + (ux1 - ux0) / 2.0, uy0 + (uy1 - uy0) / 2.0]
+            label.setdefault("components", []).append([x, y, bw, bh])
+            label["ink_area"] = int(label.get("ink_area", 0)) + int(candidate.get("ink_area", 0))
+            merged = True
+            break
+        if not merged:
+            survivors.append(candidate)
+    return survivors
+
+
+def _boxes_gap(a: list, b: list) -> float:
+    """Separation between two [x, y, w, h] boxes; 0 when they touch or overlap."""
+    ax, ay, aw, ah = (float(v) for v in a)
+    bx, by, bw, bh = (float(v) for v in b)
+    return max(0.0, max(bx - (ax + aw), ax - (bx + bw)),
+               max(by - (ay + ah), ay - (by + bh)))
+
+
 def _recover_missed_numerals(
     ink: np.ndarray, ocr_labels: list[dict[str, Any]], cfg: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -1257,6 +1338,12 @@ def _recover_missed_numerals(
     fill_lo = float(cfg.get("ocr_cc_fill_lo", 0.12))
     fill_hi = float(cfg.get("ocr_cc_fill_hi", 0.85))
     ring_max = float(cfg.get("ocr_cc_ring_max", 0.08))
+    # 0 disables. At 4.0 this rejects 24.6% of recovered candidates while
+    # flagging 1.5% of OCR-confirmed numerals, measured over the curated
+    # 100-figure cohort (docs/audits/2026-09-18/). The residual false
+    # positives are '1'-like glyphs, and the consequence of one is a numeral
+    # left in the drawing rather than a stroke deleted from it.
+    max_elongation = float(cfg.get("ocr_cc_max_elongation", 4.0))
     H, W = ink.shape
     taken = np.zeros((H, W), np.uint8)
     for l in ocr_labels:
@@ -1275,6 +1362,9 @@ def _recover_missed_numerals(
         fill = area / float(max(1, bw * bh))
         if not (fill_lo <= fill <= fill_hi):
             continue
+        if max_elongation and _component_elongation(
+                (_lab[y:y + bh, x:x + bw] == idx).astype(np.uint8)) > max_elongation:
+            continue                       # a thin bar: dash, centre line, hatch
         cx, cy = cents[idx]
         if taken[min(H - 1, max(0, int(cy))), min(W - 1, max(0, int(cx)))]:
             continue                       # already an OCR label here
@@ -1297,7 +1387,9 @@ def _recover_missed_numerals(
             "confidence": 0.5,
             "leader_lines": [],
         })
-    return out
+    # A candidate abutting a label OCR already read is the other half of that
+    # token, not a second reference whose text happens to be unknown.
+    return _merge_clipped_fragments(ink, ocr_labels, out, cfg)
 
 
 def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:

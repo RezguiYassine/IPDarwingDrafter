@@ -90,6 +90,109 @@ def test_no_recovery_without_ocr_hits():
     assert s0._recover_missed_numerals(ink, [], _cfg()) == []
 
 
+# ── line fragments must not be recovered as numerals ────────────────────────
+
+def _dashed_line(ink, x0, y0, x1, y1, dash=26, gap=18, thick=3):
+    """A dashed line: every dash is its own isolated, numeral-sized component."""
+    import math as _m
+    length = _m.hypot(x1 - x0, y1 - y0)
+    ux, uy = (x1 - x0) / length, (y1 - y0) / length
+    at = 0.0
+    while at < length:
+        end = min(length, at + dash)
+        cv2.line(ink, (int(x0 + ux * at), int(y0 + uy * at)),
+                 (int(x0 + ux * end), int(y0 + uy * end)), 1, thick, cv2.LINE_8)
+        at = end + gap
+
+
+def test_rejects_dashed_line_segments():
+    """Dashes pass every size/fill/isolation filter, so shape has to reject them."""
+    ink = np.zeros((_H, _W), np.uint8)
+    _digit(ink, "12", (120, 150))                   # calibration numeral
+    _dashed_line(ink, 500, 300, 500, 800)           # vertical dashed line
+    _dashed_line(ink, 700, 300, 1100, 700)          # diagonal, so the axis-aligned
+    rec = s0._recover_missed_numerals(ink, _fake_ocr_label(), _cfg())
+    on_line = [r for r in rec
+               if 470 < r["centroid"][0] < 530
+               or (650 < r["centroid"][0] < 1150 and 250 < r["centroid"][1] < 750)]
+    assert not on_line, f"recovered {len(on_line)} dash(es) as reference numerals"
+
+
+def test_elongation_gate_can_be_disabled():
+    """Turning the gate off restores the old behaviour, dashes and all.
+
+    The diagonal line is the one to check: an axis-aligned vertical dash fills
+    its bounding box almost completely and the pre-existing fill window
+    already rejects it, so it proves nothing about this gate.
+    """
+    ink = np.zeros((_H, _W), np.uint8)
+    _digit(ink, "12", (120, 150))
+    _dashed_line(ink, 700, 300, 1100, 700)
+    def on_diagonal(labels):
+        return [r for r in labels if 650 < r["centroid"][0] < 1150
+                and 250 < r["centroid"][1] < 750]
+    assert not on_diagonal(s0._recover_missed_numerals(ink, _fake_ocr_label(), _cfg()))
+    cfg = dict(_cfg(), ocr_cc_max_elongation=0)
+    assert on_diagonal(s0._recover_missed_numerals(ink, _fake_ocr_label(), cfg))
+
+
+def test_round_digits_survive_the_elongation_gate():
+    """The gate must not reach glyphs: '0' and '8' are nowhere near a bar."""
+    ink = np.zeros((_H, _W), np.uint8)
+    _digit(ink, "12", (120, 150))
+    _digit(ink, "08", (900, 850))
+    rec = s0._recover_missed_numerals(ink, _fake_ocr_label(), _cfg())
+    assert any(c["centroid"][0] > 850 and c["centroid"][1] > 750 for c in rec), \
+        "a round digit was rejected as a line fragment"
+
+
+# ── clipped-fragment merging ────────────────────────────────────────────────
+
+def _glyph_boxes(ink):
+    """Exact component boxes, so a fixture label matches the glyph it stands for."""
+    n, _, stats, cents = cv2.connectedComponentsWithStats(ink, 8)
+    boxes = [([int(v) for v in stats[i][:4]], [float(c) for c in cents[i]],
+              int(stats[i][4])) for i in range(1, n)]
+    return sorted(boxes, key=lambda b: b[0][0])
+
+
+def _label_for(box, centroid, area, text="5"):
+    return {"bbox": list(box), "centroid": list(centroid), "components": [list(box)],
+            "ink_area": area, "kind": "ocr_numeral", "text": text,
+            "confidence": 0.9, "leader_lines": []}
+
+
+def test_fragment_abutting_a_read_label_is_merged_not_relabelled():
+    """The other half of a token joins the label that was read, keeping one text."""
+    ink = np.zeros((_H, _W), np.uint8)
+    _digit(ink, "5", (400, 500))                    # the part OCR boxed
+    _digit(ink, "0", (438, 500))                    # the part it clipped off
+    (box, centroid, area), *_ = _glyph_boxes(ink)
+    label = _label_for(box, centroid, area)
+    width_before = box[2]
+    rec = s0._recover_missed_numerals(ink, [label], _cfg())
+    assert not any(430 < r["centroid"][0] < 490 and 450 < r["centroid"][1] < 520
+                   for r in rec), "the clipped half stayed a separate unknown label"
+    assert label["bbox"][2] > width_before, "the label was not widened over the fragment"
+    assert len(label["components"]) == 2
+    assert label["text"] == "5", "merging must not disturb the text that was read"
+
+
+def test_merge_is_refused_when_it_would_swallow_ink():
+    """A gap with geometry in it is not intra-token whitespace."""
+    ink = np.zeros((_H, _W), np.uint8)
+    _digit(ink, "5", (400, 500))
+    _digit(ink, "0", (500, 500))                    # further away
+    (box, centroid, area), *_ = _glyph_boxes(ink)
+    cv2.line(ink, (470, 400), (470, 600), 1, 3)     # geometry between them
+    label = _label_for(box, centroid, area)
+    before = list(label["bbox"])
+    rec = s0._recover_missed_numerals(ink, [label], _cfg())
+    assert label["bbox"] == before, "widened the label across intervening geometry"
+    assert any(480 < r["centroid"][0] < 560 for r in rec), \
+        "the far component should remain its own candidate"
+
+
 def _run_standalone():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
