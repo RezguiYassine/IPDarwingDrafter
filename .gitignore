@@ -98,3 +98,6 @@ models/free2cad_sketchgraphs*.pth
 
 # Cloned third-party reference repos (re-clone via setup.sh / research README)
 **/research/repos/
+
+# Training-control research checkpoints (patent-like synthetic vs real-only control)
+models/puhachov_arm[AB]_*.pth

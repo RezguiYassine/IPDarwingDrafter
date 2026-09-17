@@ -1,0 +1,68 @@
+{
+  "schema": "ap3-training-control-v1",
+  "date": "2026-09-17",
+  "question": "Does a patent-like synthetic corpus improve real-patent Stage-2 reconstruction?",
+  "answer": "No measurable improvement; slightly negative.",
+  "protocol": {
+    "mixer": "D2C 34.0% / SketchGraphs 42.5% / ArchCAD guard 8.5% / secondary 15.0%",
+    "steps": 14961,
+    "batch": 12,
+    "lr": 1e-05,
+    "warm_start": "models/puhachov_sketchgraphs_cadvg40_phaseB.pth",
+    "secondary_pool_size": 2028,
+    "armA_secondary": "patent-like synthetic sheets (binary/2048/four-figure/balanced/noise 0.35/gap 3.0)",
+    "armB_secondary": "matched count of real Drawing2CAD samples",
+    "note": "Arm A samples are 4-figure sheets, so each is seen ~12x per run vs ~3x in the original A/B protocol."
+  },
+  "proxy_selector_3domain": {
+    "armA_best": 0.852,
+    "armB_best": 0.846
+  },
+  "proxy_final_per_channel": {
+    "armA": {
+      "macro": 0.829,
+      "endpoint": 0.663,
+      "junction": 0.875,
+      "corner": 0.948
+    },
+    "armB": {
+      "macro": 0.82,
+      "endpoint": 0.646,
+      "junction": 0.863,
+      "corner": 0.951
+    }
+  },
+  "patent_benchmark_status": {
+    "armA": {
+      "ok": 78,
+      "quality_gate_stage1": 3,
+      "quality_gate_stage2": 19
+    },
+    "armB": {
+      "ok": 82,
+      "quality_gate_stage1": 3,
+      "quality_gate_stage2": 15
+    }
+  },
+  "patent_benchmark_fidelity": {
+    "armA": {
+      "median_f1": 0.99874,
+      "p10_f1": 0.97662,
+      "median_chamfer": 0.1817
+    },
+    "armB": {
+      "median_f1": 0.9987,
+      "p10_f1": 0.96561,
+      "median_chamfer": 0.18858
+    }
+  },
+  "paired_delta_f1_A_minus_B": {
+    "figures": 77,
+    "mean": -0.000169,
+    "median": -3.9e-05,
+    "A_better": 29,
+    "B_better": 46,
+    "tied": 2
+  },
+  "conclusion": "Proxy-domain gains (junction +0.012) did not transfer. Arm A completed 4 fewer figures (78 vs 82). Distribution matching on five of six metrics bought no measurable real-patent gain. Do not pursue the branch-length gap or the 10k release on this basis."
+}

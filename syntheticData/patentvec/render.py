@@ -43,6 +43,16 @@ DEFAULT_DEGRADATION = {
     "blur_sigma_min": 0.35,
     "blur_sigma_max": 0.75,
     "noise_std": 0.009,
+    # Stroke-attached breakage. Every other degradation here is additive or
+    # photometric, so nothing erases ink ALONG a stroke. A gap splits one long
+    # branch into two short ones while creating no junction, which is how real
+    # scans produce short branches at low junction density -- the one patent
+    # statistic additive speckle cannot reproduce. Budget is gaps per 1000 clean
+    # ink pixels, so it is resolution independent like the speckle budget.
+    # Defaults to 0: existing recipes are unchanged unless a gap budget is set.
+    "gap_budget": 0.0,
+    "gap_radius_min": 1.0,
+    "gap_radius_max": 2.5,
 }
 
 
@@ -58,6 +68,10 @@ def degradation_parameters(overrides: dict | None = None) -> dict[str, float]:
     for name in ("dark_speckle_probability", "light_speckle_probability", "noise_std"):
         if parameters[name] > 1:
             raise ValueError(f"Invalid degradation probability/scale {name}")
+    if parameters["gap_budget"] > 50:
+        raise ValueError("Invalid gap_budget")
+    if not parameters["gap_radius_min"] <= parameters["gap_radius_max"]:
+        raise ValueError("Invalid gap radius range")
     if not 0 < parameters["blur_sigma_min"] <= parameters["blur_sigma_max"]:
         raise ValueError("Invalid blur sigma range")
     return parameters
@@ -242,6 +256,23 @@ def degrade_patent_scan(clean: np.ndarray, seed: int, parameters: dict | None = 
     rng = np.random.default_rng(seed)
     height, width = clean.shape
     image = clean.astype(np.float32) / 255.0
+
+    # Erase short spans of ink before blurring, so gap edges are softened by the
+    # same acquisition blur as everything else rather than appearing as crisp
+    # cuts. Centres are sampled on clean ink, so gaps land on strokes instead of
+    # on background like speckle does.
+    if parameters["gap_budget"] > 0:
+        rows, columns = np.nonzero(clean < 128)
+        if len(columns):
+            count = int(round(parameters["gap_budget"] * len(columns) / 1000.0))
+            if count > 0:
+                chosen = rng.choice(len(columns), size=min(count, len(columns)), replace=False)
+                for index in chosen:
+                    radius = float(rng.uniform(parameters["gap_radius_min"],
+                                               parameters["gap_radius_max"]))
+                    cv2.circle(image, (int(columns[index]), int(rows[index])),
+                               max(1, int(round(radius))), 1.0, -1)
+
     sigma = float(rng.uniform(parameters["blur_sigma_min"], parameters["blur_sigma_max"]))
     image = cv2.GaussianBlur(image, (0, 0), sigmaX=sigma, sigmaY=sigma)
 
