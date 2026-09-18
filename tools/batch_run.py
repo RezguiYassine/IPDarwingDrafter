@@ -496,28 +496,30 @@ def _run_stages(job: tuple[str, str, str, str]) -> dict:
         row["total_time"] = total_time()
         return row
 
-    max_primitives = int(gates.get("max_primitives", 0) or 0)
-    max_low_conf_ratio = float(gates.get("max_low_conf_ratio", 0.0) or 0.0)
+    # `null` disables a gate; a number is the bound and is applied literally.
+    max_primitives = stage2_stroke_extract.gate_bound(gates, "max_primitives", None)
+    max_low_conf_ratio = stage2_stroke_extract.gate_bound(
+        gates, "max_low_conf_ratio", None, maximum=1.0)
     hachure_relax_min_edges = int(
         gates.get("min_hachure_edges_for_low_conf_relax", 0) or 0
     )
-    hachure_max_low_conf_ratio = float(
-        gates.get("max_low_conf_ratio_after_hachure", 0.0) or 0.0
-    )
+    hachure_max_low_conf_ratio = stage2_stroke_extract.gate_bound(
+        gates, "max_low_conf_ratio_after_hachure", None, maximum=1.0)
     effective_max_low_conf_ratio = max_low_conf_ratio
     if (
-        hachure_max_low_conf_ratio
+        hachure_max_low_conf_ratio is not None
         and hachure_relax_min_edges
         and getattr(s2, "n_hachure_edges_removed", 0) >= hachure_relax_min_edges
     ):
-        effective_max_low_conf_ratio = max(
-            max_low_conf_ratio,
-            hachure_max_low_conf_ratio,
+        effective_max_low_conf_ratio = (
+            hachure_max_low_conf_ratio if max_low_conf_ratio is None
+            else max(max_low_conf_ratio, hachure_max_low_conf_ratio)
         )
     if gates_enabled and (
         s3.flagged
-        or (max_primitives and row["s3_n_budget_primitives"] > max_primitives)
-        or (effective_max_low_conf_ratio
+        or (max_primitives is not None
+            and row["s3_n_budget_primitives"] > max_primitives)
+        or (effective_max_low_conf_ratio is not None
             and row.get("s3_low_conf_ratio", 0.0) > effective_max_low_conf_ratio)
     ):
         row["status"] = "quality_gate_stage3"
@@ -525,7 +527,7 @@ def _run_stages(job: tuple[str, str, str, str]) -> dict:
             f"primitive set not suitable for accurate CAD export: "
             f"n={s3.n_primitives}, budget_n={row['s3_n_budget_primitives']}, mean_conf={s3.mean_confidence:.3f}, "
             f"low_conf_ratio={row.get('s3_low_conf_ratio', 0.0):.3f}, "
-            f"max_low_conf_ratio={effective_max_low_conf_ratio:.3f}"
+            f"max_low_conf_ratio={effective_max_low_conf_ratio}"
         )
         row["total_time"] = total_time()
         return row

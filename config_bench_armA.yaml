@@ -13,8 +13,8 @@ pipeline:
   log_level: INFO
   quality_gates:
     enabled: true
-    max_low_conf_ratio: 0
-    max_low_conf_ratio_after_hachure: 0
+    max_low_conf_ratio: null              # disabled; a number here is a literal bound
+    max_low_conf_ratio_after_hachure: null
     max_primitives: 50000
     min_hachure_edges_for_low_conf_relax: 20
     stop_on_stage1: true
@@ -103,8 +103,8 @@ stage2:
   dashed_grouping: false
   fragmentation:
     max_edges: 2500
-    max_micro_edge_ratio: 1.01
-    max_short_edge_ratio: 1.01
+    max_micro_edge_ratio: null   # demoted to a recorded metric on 2026-09-15
+    max_short_edge_ratio: null   # demoted to a recorded metric on 2026-09-15
     max_unclaimed_noncycle_pixels: 100000
   hachure_angle_tolerance: 12.0
   hachure_cluster_radius: 95.0

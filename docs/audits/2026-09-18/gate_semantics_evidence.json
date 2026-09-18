@@ -1,0 +1,43 @@
+{
+  "problem": "Four of nine quality gates were off while reading as the strictest possible setting. The gate condition was written `if bound and value > bound`, so any falsy value disabled the gate: max_low_conf_ratio: 0 and max_low_conf_ratio_after_hachure: 0 read as zero tolerance and meant off. The two fragmentation ratio gates were disabled by setting them to 1.01, above the maximum a ratio can reach, which reads stricter still. A reader of config_deploy.yaml would conclude the opposite of its behaviour.",
+  "evidence_of_the_disguise": {
+    "figures_with_nonzero_low_confidence_ratio": 86,
+    "median_low_confidence_ratio": 0.15,
+    "figures_gated_for_it": 0
+  },
+  "new_semantics": {
+    "null": "disables the gate -- the only way to turn one off",
+    "number": "the bound, applied literally; 0 means zero tolerance",
+    "absent_key": "keeps the documented default, so configs that omit a key are unaffected",
+    "ratio_above_its_maximum": "raises ValueError naming `null` as the way to disable, so the 1.01 idiom cannot return silently"
+  },
+  "reader": "stage2_stroke_extract.gate_bound(), used by the Stage-2 fragmentation gate and the Stage-3 gates in batch_run",
+  "configs_updated": [
+    "config_deploy.yaml",
+    "config_deploy_recal.yaml",
+    "config_bench_armA.yaml",
+    "config_bench_armB.yaml"
+  ],
+  "configs_untouched": "every other config in the repo already used real values (0.25 / 0.65 for low-confidence, 0.5 / 0.8 for the ratio gates)",
+  "behaviour_equivalence": {
+    "method": "rerun of all 15 gated figures plus 7 that passed, compared field by field against output/PatentDataCurated100_GeomFix_2026-09-18",
+    "figures": 22,
+    "fields_compared": [
+      "status",
+      "s2_n_edges",
+      "s2_isolation",
+      "s2_micro_edge_ratio",
+      "s2_short_edge_ratio",
+      "s3_n_primitives",
+      "s3_low_conf_ratio",
+      "acceptance_status"
+    ],
+    "differences": 0,
+    "run": "output/GateSemanticsVerify_2026-09-18"
+  },
+  "deployment_identity": {
+    "effective_config_sha256": "5ea126037acf57b6f24fc7c4db6af5f4ef618eb834b16c8ce69206586a057bdb",
+    "implementation_sha256": "280ccf5f1feecbe401958541c8e6540f1054ff22471b5355170717d8b23465fb"
+  },
+  "what_this_does_not_do": "It turns no gate back on. Four of nine remain disabled; that was a deliberate outcome of the 2026-09-15 recalibration for the two ratio gates, but whether max_low_conf_ratio should be off is a separate question this work does not answer."
+}

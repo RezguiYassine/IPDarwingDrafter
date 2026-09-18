@@ -2778,6 +2778,33 @@ def _deduplicate_hachure_edges(
     return kept
 
 
+_GATE_UNSET = object()
+
+
+def gate_bound(config, key, default, *, maximum=None):
+    """Read a quality-gate bound. `null` disables the gate; a number is literal.
+
+    The older convention disabled a gate on any falsy value, so 0 -- the
+    strictest-looking setting a reader could put in the file -- silently
+    turned the gate off, and a ratio gate was disabled by setting it above
+    1.0, which reads as the strictest setting of all. Both made
+    config_deploy.yaml assert the opposite of what it did. Here the only way
+    to disable a gate is to say so.
+    """
+    value = config.get(key, _GATE_UNSET)
+    if value is _GATE_UNSET:
+        value = default
+    if value is None:
+        return None
+    value = float(value)
+    if maximum is not None and value > maximum:
+        raise ValueError(
+            f"{key}={value:g} exceeds the maximum this quantity can reach ({maximum:g}), "
+            f"so the gate could never fire; write `{key}: null` to disable it explicitly"
+        )
+    return value
+
+
 def _open_edge_length_stats(edges: list[dict]) -> tuple[list[float], float, float, float]:
     open_lengths = [
         _chain_length([(int(p[0]), int(p[1])) for p in edge["pixels"]])
@@ -5537,9 +5564,9 @@ def run(
     n_closed = sum(1 for e in edges if e.get("is_closed"))
 
     frag_cfg = cfg_kp.get("fragmentation", {})
-    max_micro_ratio = frag_cfg.get("max_micro_edge_ratio", 0.50)
-    max_short_ratio = frag_cfg.get("max_short_edge_ratio", 0.80)
-    max_edges = frag_cfg.get("max_edges", 5000)
+    max_micro_ratio = gate_bound(frag_cfg, "max_micro_edge_ratio", 0.50, maximum=1.0)
+    max_short_ratio = gate_bound(frag_cfg, "max_short_edge_ratio", 0.80, maximum=1.0)
+    max_edges = gate_bound(frag_cfg, "max_edges", 5000)
     noncycle_unclaimed_sizes = [
         len(edge.get("pixels") or [])
         for edge in edges
@@ -5549,21 +5576,23 @@ def run(
     max_noncycle_unclaimed_pixels = max(
         noncycle_unclaimed_sizes, default=0
     )
-    max_allowed_noncycle_unclaimed_pixels = int(
-        frag_cfg.get("max_unclaimed_noncycle_pixels", 100000) or 0
+    max_allowed_noncycle_unclaimed_pixels = gate_bound(
+        frag_cfg, "max_unclaimed_noncycle_pixels", 100000
     )
     flagged = (
         iso_ratio > threshold
         or any(c["reason"] in {"component_budget", "edge_budget"}
                for c in coverage_recovery["components"])
-        or len(edges) > max_edges
+        or (max_edges is not None and len(edges) > max_edges)
         or (
-            max_allowed_noncycle_unclaimed_pixels
+            max_allowed_noncycle_unclaimed_pixels is not None
             and max_noncycle_unclaimed_pixels
             > max_allowed_noncycle_unclaimed_pixels
         )
-        or (n_open >= 50 and micro_edge_ratio > max_micro_ratio)
-        or (n_open >= 50 and short_edge_ratio > max_short_ratio)
+        or (max_micro_ratio is not None
+            and n_open >= 50 and micro_edge_ratio > max_micro_ratio)
+        or (max_short_ratio is not None
+            and n_open >= 50 and short_edge_ratio > max_short_ratio)
     )
 
     # ── Serialise graph ───────────────────────────────────────────────────
