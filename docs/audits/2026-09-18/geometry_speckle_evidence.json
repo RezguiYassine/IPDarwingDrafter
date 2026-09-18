@@ -1,0 +1,98 @@
+{
+  "question": "why does the geometry check block 78 of 85 executed figures",
+  "answer": "both of its failing rules judge individual pixels, and every offending pixel in the cohort is isolated speckle -- no figure has lost structure",
+  "skeleton_coverage_lost": {
+    "rule": "fail when fraction<0.80 OR p95>4.0 OR max>8.0, on per-pixel skeleton-to-model distance over ~40k pixels",
+    "failures_driven_by_the_max_rule_alone": 54,
+    "failures_also_failing_fraction_or_p95": 1,
+    "fraction_within_tolerance": {
+      "median": 1.0,
+      "figures_at_or_above_0.95": "83/84"
+    },
+    "p95_px": {
+      "median": 0.702,
+      "max": 7.0
+    },
+    "max_px": {
+      "median": 18.7,
+      "p90": 237.0,
+      "max": 871.7
+    },
+    "largest_uncovered_CONNECTED_run_px": {
+      "median": 1.0,
+      "p90": 3.0,
+      "max": 6,
+      "figures_analysed": 55,
+      "distribution": {
+        "<=1px": 37,
+        "<=3px": 51,
+        "<=8px": 55
+      }
+    },
+    "interpretation": "max is the extreme order statistic of a per-pixel distance over tens of thousands of samples, so a single speck exceeds any fixed bound. Lost content is connected; nothing in this cohort was lost."
+  },
+  "stage2_residual_pending": {
+    "rule": "review when any source pixel is unrepresented",
+    "figures_with_residual": 91,
+    "residual_source_pixels": {
+      "median": 12,
+      "p90": 1710,
+      "max": 52137
+    },
+    "largest_residual_CONNECTED_run_px": {
+      "median": 1,
+      "max": 1,
+      "note": "exactly 1 on all 91 figures -- not one has two adjacent unrepresented pixels"
+    }
+  },
+  "change": {
+    "validator_version": "3 -> 4",
+    "raster_recall": "largest_unsupported_run_pixels > 16 replaces max > 8.0; fraction and p95 rules unchanged",
+    "stage2_coverage": "largest_residual_run_pixels > 4 replaces 'any missing pixel'",
+    "counts_retained": "both checks still record residual_source_pixels and the run length, so a stray pixel stays visible in the evidence"
+  },
+  "validation_run": {
+    "before": "output/PatentDataCurated100_RefFix_2026-09-18",
+    "after": "output/PatentDataCurated100_GeomFix_2026-09-18",
+    "geometry_check": {
+      "before": {
+        "fail": 56,
+        "review": 22,
+        "pass": 7,
+        "pending": 15
+      },
+      "after": {
+        "pass": 82,
+        "fail": 2,
+        "review": 1,
+        "pending": 15
+      }
+    },
+    "geometry_stage2_residual_pending": [
+      78,
+      0
+    ],
+    "geometry_skeleton_coverage_lost": [
+      55,
+      1
+    ],
+    "acceptance": {
+      "before": {
+        "accepted": 1,
+        "rejected": 71,
+        "review": 28
+      },
+      "after": {
+        "accepted": 5,
+        "rejected": 17,
+        "review": 78
+      }
+    },
+    "counterfactual_if_reference_text_fixed": {
+      "before": 7,
+      "after": 82
+    }
+  },
+  "remaining": "The entire gap to a training corpus is now unknown_reference_text on 80 figures. 82 of 85 executed figures would be accepted if it were cleared.",
+  "still_of_the_same_shape": "geometry_output_off_skeleton, the precision half of the raster check, still uses the raw max against 8.0 px over the same sample. It fires on 1 figure today."
+}

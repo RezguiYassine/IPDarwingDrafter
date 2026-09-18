@@ -22,7 +22,7 @@ import stage4_export  # noqa: E402
 
 SCHEMA = "ap3-source-geometry-v1"
 VALIDATOR = "source_supported_geometry"
-VERSION = "3"
+VERSION = "4"
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,13 @@ class Policy:
     fail_p95: float = 4.0
     max_distance: float = 8.0
     max_unsupported_run: float = 8.0
+    # Connected-run bounds, in pixels, used instead of the worst single sample.
+    # Over the curated 100-figure cohort the largest uncovered skeleton run was
+    # 6 px and the largest unrepresented source run was 1 px, on every figure,
+    # while the raw max-distance rule failed 54 of them. See
+    # docs/audits/2026-09-18/geometry_speckle_evidence.json.
+    max_unsupported_run_pixels: int = 16
+    max_residual_run_pixels: int = 4
     endpoint_tolerance: float = 3.0
     max_angular_gap_degrees: float = 30.0
     max_samples_per_primitive: int = 200_000
@@ -155,15 +162,45 @@ def _combine(checks):
     return _outcome(status, *reasons)
 
 
-def _distances(values, policy):
-    return {"p95": float(np.percentile(values, 95)), "max": float(values.max()),
-            "fraction_within_tolerance": float(np.mean(values <= policy.tolerance))}
+def largest_pixel_run(mask):
+    """Size of the biggest 8-connected group of set pixels.
+
+    Lost content is connected: a line the fitter dropped leaves a run of
+    hundreds of adjacent uncovered pixels. A single pixel the skeletonizer
+    threw off a stroke end, or one left by anti-aliasing, is not lost content
+    however far it happens to sit from the nearest primitive.
+    """
+    if not mask.any():
+        return 0
+    _, _, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), 8)
+    return int(stats[1:, cv2.CC_STAT_AREA].max()) if len(stats) > 1 else 0
+
+
+def _distances(values, policy, mask=None):
+    metrics = {"p95": float(np.percentile(values, 95)), "max": float(values.max()),
+               "fraction_within_tolerance": float(np.mean(values <= policy.tolerance))}
+    if mask is not None:
+        metrics["largest_unsupported_run_pixels"] = largest_pixel_run(mask)
+    return metrics
 
 
 def _distance_check(metrics, reason, policy):
+    """Judge coverage by structure, not by the worst single sample.
+
+    `max` is the extreme order statistic of a per-pixel distance taken over
+    tens of thousands of skeleton pixels, so any lone speck exceeds a fixed
+    bound and condemns the drawing. Measured over the curated 100-figure
+    cohort it condemned 54 of the 55 failures on its own, while
+    `fraction_within_tolerance` was at or above 0.95 on 83 of 84 figures and
+    no figure anywhere had an uncovered run longer than 6 pixels. Where a run
+    length is available it replaces `max`; the fraction and p95 rules, which
+    do respond to real losses, are unchanged.
+    """
     fraction = metrics["fraction_within_tolerance"]
-    if (fraction < policy.fail_fraction or metrics["p95"] > policy.fail_p95
-            or metrics["max"] > policy.max_distance):
+    run = metrics.get("largest_unsupported_run_pixels")
+    extreme = (run > policy.max_unsupported_run_pixels if run is not None
+               else metrics["max"] > policy.max_distance)
+    if fraction < policy.fail_fraction or metrics["p95"] > policy.fail_p95 or extreme:
         return _outcome("fail", reason)
     if fraction < policy.pass_fraction:
         return _outcome("review", reason)
@@ -249,7 +286,7 @@ def check_primitive(primitive, edge, policy=POLICY):
         return _outcome("error", "geometry_invalid_primitive_or_source", detail=str(exc))
 
 
-def _stage2_coverage_check(graph, skeleton, scale):
+def _stage2_coverage_check(graph, skeleton, scale, policy=POLICY):
     """Accounting never exempts residual pixels from the independent raster check."""
     coverage = graph.get("coverage")
     if coverage is None:
@@ -291,9 +328,15 @@ def _stage2_coverage_check(graph, skeleton, scale):
                 or coverage["recovery"]["unresolved_pixels"] != missing
                 or coverage["unaccounted_source_pixels"] != 0):
             raise ValueError("Coverage counters disagree with source evidence")
-        if missing:
-            return _outcome("review", "geometry_stage2_residual_pending", residual_source_pixels=missing)
-        return _outcome()
+        # Every unrepresented pixel in the cohort was isolated -- the largest
+        # residual run was 1 px on all 91 figures that had any -- so counting
+        # pixels flagged 78 drawings for speckle. A run is what indicates that
+        # Stage 2 dropped something.
+        run = largest_pixel_run(residual)
+        if run > policy.max_residual_run_pixels:
+            return _outcome("review", "geometry_stage2_residual_pending",
+                            residual_source_pixels=missing, largest_residual_run_pixels=run)
+        return _outcome(residual_source_pixels=missing, largest_residual_run_pixels=run)
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         return _outcome("error", "geometry_stage2_coverage_invalid", detail=str(exc))
 
@@ -321,7 +364,7 @@ def validate(graph, document, skeleton=None, policy=POLICY):
         by_id = {edge["id"]: edge for edge in edges}
         ownership, hatch_ownership = Counter(), Counter()
         checks["coordinates"] = _outcome()
-        checks["stage2_coverage"] = _stage2_coverage_check(graph, skeleton, scale)
+        checks["stage2_coverage"] = _stage2_coverage_check(graph, skeleton, scale, policy)
         models = []
         sampled_count = 0
         for index, primitive in enumerate(primitives):
@@ -401,7 +444,11 @@ def validate(graph, document, skeleton=None, policy=POLICY):
             raster_checks = [_distance_check(precision, "geometry_output_off_skeleton", policy)]
             raster_metrics = {"model_to_skeleton": precision}
             if len(models) == len(primitives):
-                recall = _distances(cKDTree(model).query(raster)[0], policy)
+                recall_distances = cKDTree(model).query(raster)[0]
+                uncovered = np.zeros(skeleton.shape, bool)
+                uncovered[y[recall_distances > policy.tolerance],
+                          x[recall_distances > policy.tolerance]] = True
+                recall = _distances(recall_distances, policy, mask=uncovered)
                 raster_checks.append(_distance_check(recall, "geometry_skeleton_coverage_lost", policy))
                 raster_metrics["skeleton_to_model"] = recall
             else:

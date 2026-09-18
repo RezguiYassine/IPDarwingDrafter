@@ -117,6 +117,12 @@ def test_recovery_budgets_retain_unresolved_evidence(limits):
 
 
 def test_singleton_is_accounted_but_never_claimed_as_rendered_or_noise():
+    """A stray pixel stays visible in the evidence without condemning the drawing.
+
+    The counters must still show it as unrepresented -- coverage may never
+    claim it was rendered -- but one isolated pixel is not lost content, so it
+    no longer raises a review. A connected run does; see the companion test.
+    """
     points = [[x, 20] for x in range(10, 31)]
     nodes, edges = graph(points)
     image = mask(points+[[50, 50]])
@@ -126,6 +132,35 @@ def test_singleton_is_accounted_but_never_claimed_as_rendered_or_noise():
     assert g["coverage"]["recovery"]["unresolved_spans"] == [[50, 50, 51]]
     doc = {"image_size": [100, 80], "primitives": [s3.fit_edge_ransac(e) for e in g["edges"]]}
     report = geometry.validate(g, doc, image > 0)
+    coverage = report["checks"]["stage2_coverage"]
+    assert coverage["residual_source_pixels"] == 1
+    assert coverage["largest_residual_run_pixels"] == 1
+    assert "geometry_stage2_residual_pending" not in report["reason_codes"]
+    assert "geometry_skeleton_coverage_lost" not in report["reason_codes"]
+
+
+def test_a_run_of_unrepresented_pixels_still_raises_review():
+    """What the singleton test used to stand in for: actual dropped content.
+
+    Coverage recovery would normally rescue a stray run, so its budget is
+    capped to force the run to survive as unresolved -- the state that means
+    Stage 2 really did drop something.
+    """
+    points = [[x, 20] for x in range(10, 31)]
+    nodes, edges = graph(points)
+    dropped = [[50, y] for y in range(30, 50)]      # a 20 px connected run
+    image = mask(points + dropped)
+    ledger = s2._CoverageLedger(image)
+    ledger.record("input_graph", edges, ())
+    nodes2, edges2, recovery = s2.recover_source_coverage(
+        image, nodes, edges, (), max_component_pixels=5)
+    ledger.record("final_source_recovery", edges2, ())
+    g = {"image_shape": list(image.shape), "stage2_scale": 1.0, "nodes": nodes2,
+         "edges": edges2, "removed_hachures": [], "coverage": ledger.report(recovery)}
+    doc = {"image_size": [100, 80], "primitives": [s3.fit_edge_ransac(e) for e in g["edges"]]}
+    report = geometry.validate(g, doc, image > 0)
+    coverage = report["checks"]["stage2_coverage"]
+    assert coverage["largest_residual_run_pixels"] >= len(dropped)
     assert "geometry_stage2_residual_pending" in report["reason_codes"]
     assert "geometry_skeleton_coverage_lost" in report["reason_codes"]
 
