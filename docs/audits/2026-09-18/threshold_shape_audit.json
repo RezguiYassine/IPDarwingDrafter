@@ -1,0 +1,145 @@
+{
+  "cohort": "output/PatentDataCurated100_GeomFix_2026-09-18 (100 curated drawings, 85 executed)",
+  "drawing_size_spread": {
+    "source_ink_px": {
+      "p10": 12313,
+      "median": 32036,
+      "p90": 88048,
+      "p90_over_p10": 7.2
+    },
+    "image_area_px": {
+      "p10": 1456654,
+      "median": 3704192,
+      "p90": 4928830,
+      "p90_over_p10": 3.4
+    }
+  },
+  "shape_A_extreme_order_statistic": {
+    "geometry.max_distance on raster RECALL": {
+      "status": "FIXED this session",
+      "was": "failed 54 figures on isolated pixels"
+    },
+    "geometry.max_distance on raster PRECISION (geometry_output_off_skeleton)": {
+      "status": "STILL LIVE -- same construction, same bound of 8.0 px",
+      "model_to_skeleton_max": {
+        "median": 2.07,
+        "p90": 2.38,
+        "max": 8.56
+      },
+      "p95": {
+        "median": 0.7,
+        "max": 1.0,
+        "bound": 4.0
+      },
+      "fraction_within_tolerance": {
+        "median": 1.0,
+        "min": 0.9963
+      },
+      "figures_failing_on_max_alone": "1 of 85",
+      "why_it_has_not_blown_up": "model points are sampled from primitives fitted to the skeleton, so they are near it by construction; the recall direction had no such guarantee because the skeleton carries speckle no primitive covers",
+      "verdict": "low impact today, identical latent defect -- one stray primitive sample trips it"
+    },
+    "geometry.max_unsupported_run (8.0)": {
+      "status": "correct shape -- already a run length"
+    },
+    "content_routing.max_unrouted_component (100)": {
+      "status": "correct shape -- a connected-component area"
+    }
+  },
+  "shape_B_absolute_bound_on_a_size_dependent_quantity": {
+    "stage2.max_edges = 2500": {
+      "status": "LIVE AND CONTAMINATED",
+      "corr_edge_count_with_source_ink": 0.74,
+      "corr_edge_density_with_source_ink": -0.02,
+      "edge_density_passing_figures": {
+        "median": 13.9,
+        "p90": 30.1,
+        "p99": 68.8,
+        "max": 102.9,
+        "units": "edges per 1000 source ink px"
+      },
+      "largest_decile_vs_rest": {
+        "edges_median": [
+          1715,
+          384
+        ],
+        "density_median": [
+          23.4,
+          12.3
+        ],
+        "reading": "4.5x the edges but only 1.9x the density, so about half the gap is size"
+      },
+      "size_gated_examples": [
+        {
+          "figure": "EP2987931B1/F0005",
+          "edges": 2518,
+          "density": 15.9,
+          "median_edge_len_px": 10.2,
+          "micro_ratio": 0.26,
+          "isolation": 0.014
+        },
+        {
+          "figure": "EP3295810B1/F0001",
+          "edges": 3703,
+          "density": 17.0,
+          "median_edge_len_px": 8.2,
+          "micro_ratio": 0.24,
+          "isolation": 0.0
+        }
+      ],
+      "verdict": "both examples have healthy graphs -- density at the passing median, long edges, low micro ratio -- and were gated for being large"
+    },
+    "pipeline.max_primitives = 50000": {
+      "status": "dormant",
+      "max_observed": 3779,
+      "fraction_of_bound": 0.076,
+      "corr_with_size": 0.82,
+      "verdict": "would become a size gate if it ever bound"
+    },
+    "stage2.max_unclaimed_noncycle_pixels = 100000": {
+      "status": "fully dormant",
+      "observed": "0 on every figure"
+    },
+    "stage0.max_reference_labels = 220": {
+      "status": "dormant",
+      "max_observed": 67
+    },
+    "absolute_pixel_lengths_not_resolution_relative": [
+      "stage2.spur_min_length 6.0",
+      "stage2.min_closed_loop_pixels 80",
+      "stage2.hachure_cluster_radius 95.0",
+      "stage2.hachure_max_length 80.0",
+      "stage0.hough_min_line_length 35",
+      "stage0.unleadered_max_ink_area 2200",
+      "stage0.figure_cluster_max_bbox_area 32000"
+    ],
+    "note_on_those": "not gates, but drawing area spans 3.4x and ink 7.2x across this cohort, so each means something different on a different scan"
+  },
+  "governance_finding_gates_that_read_strict_but_are_off": {
+    "max_low_conf_ratio: 0": "a DISABLE sentinel -- `if effective_max_low_conf_ratio and ...` short-circuits on 0. Reads as zero tolerance, means off. 86 figures carry a nonzero low-confidence ratio (median 0.15) and none is gated for it.",
+    "max_low_conf_ratio_after_hachure: 0": "same sentinel",
+    "max_primitives: 0 semantics": "same `if x and ...` pattern",
+    "max_micro_edge_ratio: 1.01 / max_short_edge_ratio: 1.01": "disabled by exceeding the maximum possible value of a ratio; also reads as strict"
+  },
+  "tally_of_nine_audited_gates": {
+    "live": [
+      "stage2.max_edges",
+      "stage2.isolation_threshold"
+    ],
+    "disabled_by_sentinel_or_impossible_value": [
+      "max_low_conf_ratio",
+      "max_low_conf_ratio_after_hachure",
+      "max_micro_edge_ratio",
+      "max_short_edge_ratio"
+    ],
+    "dormant_never_approached": [
+      "pipeline.max_primitives",
+      "stage2.max_unclaimed_noncycle_pixels",
+      "stage0.max_reference_labels"
+    ],
+    "never_trips_but_meaningful": [
+      "stage1.quality_threshold"
+    ]
+  },
+  "what_this_audit_does_not_settle": "Identifying that max_edges is size-contaminated does not say what replaces it. micro_edge_ratio separates the 13 gated figures cleanly -- genuinely fragmented ones sit at 0.38-0.95 and healthy ones at 0.10-0.26 -- but it overlaps heavily with the passing population, whose p90 is 0.61, so it cannot simply be switched on. Resolving max_edges still needs ground truth, exactly as the 2026-09-15 gate recalibration said."
+}
