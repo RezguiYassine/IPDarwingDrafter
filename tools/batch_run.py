@@ -54,6 +54,7 @@ import csv
 import datetime as _dt
 import json
 import logging
+import multiprocessing
 import os
 import random
 import shutil
@@ -117,6 +118,46 @@ class _ReusedPreprocessingFailure(RuntimeError):
         self.source_row = source_row
 
 
+def _assign_accelerators(config: dict, slot: int) -> None:
+    """Pin this worker to one GPU and rewrite its device strings to it.
+
+    easyocr wraps the recogniser in DataParallel whose device_ids start at
+    cuda:0, so handing a worker "cuda:1" leaves the weights and the wrapper on
+    different devices and the pass fails outright. Making the chosen card the
+    only visible one sidesteps that: every device string in this worker then
+    names the same physical GPU, and the workers spread evenly across the pool
+    instead of piling onto card 0 until it runs out of memory.
+
+    Must run before anything initialises CUDA in this process.
+    """
+    pool = (config.get("pipeline") or {}).get("gpu_devices") or []
+    if not pool:
+        return
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(pool[slot % len(pool)])
+    for section, key in (("stage0", "ocr_gpu"), ("puhachov", "device"),
+                         ("sketchcleannet", "device"), ("stage2", "hachure_cnn_device")):
+        block = config.get(section) or {}
+        value = block.get(key)
+        if isinstance(value, str) and value.startswith("cuda"):
+            block[key] = "cuda:0"
+            config[section] = block
+
+
+def _release_accelerator_cache() -> None:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _worker_slot() -> int:
+    """A stable small index for this pool worker, for round-robin device pinning."""
+    identity = getattr(multiprocessing.current_process(), "_identity", ())
+    return (identity[0] - 1) if identity else os.getpid()
+
+
 def _worker_init(
     config_path: str,
     reuse_preprocessing_root: str = "",
@@ -137,6 +178,7 @@ def _worker_init(
 
     with open(config_path) as f:
         _WORKER_CFG = yaml.safe_load(f) or {}
+    _assign_accelerators(_WORKER_CFG, _worker_slot())
     _WORKER_DEPLOYMENT_IDENTITY = None
     if deployment.strict_models(_WORKER_CFG):
         _WORKER_DEPLOYMENT_IDENTITY = deployment.preflight(Path(config_path))["identity"]
@@ -355,6 +397,11 @@ def _run_stages(job: tuple[str, str, str, str]) -> dict:
                 "s0_active_removal":    int(s0.active_removal),
                 "s0_flagged":           int(s0.flagged),
             })
+            # OCR activations dominate this worker's GPU footprint and are dead
+            # once Stage 0 returns. Releasing the cached blocks lets the later
+            # stages allocate instead of the allocator holding them to the end
+            # of the figure.
+            _release_accelerator_cache()
 
         if _WORKER_REUSE_PREPROCESSING_ROOT is None:
             stage1_started = True
@@ -372,6 +419,11 @@ def _run_stages(job: tuple[str, str, str, str]) -> dict:
                 "s0_active_removal":    int(s0.active_removal),
                 "s0_flagged":           int(s0.flagged),
             })
+            # OCR activations dominate this worker's GPU footprint and are dead
+            # once Stage 0 returns. Releasing the cached blocks lets the later
+            # stages allocate instead of the allocator holding them to the end
+            # of the figure.
+            _release_accelerator_cache()
         row.update({
             "s1_time":       s1.processing_time_s,
             "s1_quality":    s1.skeleton_quality,

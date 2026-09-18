@@ -62,9 +62,14 @@ def _behavior(config: dict) -> dict:
         "puhachov", "sketchcleannet", "pipeline",
     )})
     for section, keys in {
-        "puhachov": ("device",), "sketchcleannet": ("device",),
-        "stage2": ("hachure_cnn_device",),
-        "pipeline": ("workers", "log_level", "resume"),
+        "puhachov": ("device", "devices"), "sketchcleannet": ("device",),
+        "stage2": ("hachure_cnn_device", "hachure_cnn_devices"),
+        # Where OCR runs is a placement choice like the CNN devices above, not a
+        # behavioural one. effective_config_sha256 still hashes the whole
+        # resolved config, so a GPU run and a CPU run remain distinguishable in
+        # every acceptance record; only the canonical-behaviour test ignores it.
+        "stage0": ("ocr_gpu", "ocr_gpu_devices"),
+        "pipeline": ("workers", "log_level", "resume", "gpu_devices"),
     }.items():
         for key in keys:
             profile[section].pop(key, None)

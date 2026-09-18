@@ -1,0 +1,56 @@
+{
+  "phase": "B - throughput",
+  "hardware": "2x RTX 4090, 24564 MiB each, previously idle during runs",
+  "microbenchmark_single_figure": {
+    "easyocr_cpu_s": 5.31,
+    "easyocr_gpu_s": 0.63,
+    "speedup": 8.4,
+    "detections": "5 on both",
+    "peak_gpu_mib": 3108
+  },
+  "bugs_found": {
+    "dataparallel_device_mismatch": "easyocr wraps the recogniser in DataParallel whose device_ids start at cuda:0, so gpu='cuda:1' left weights and wrapper on different devices and 16 of 20 figures failed outright. Fixed by pinning CUDA_VISIBLE_DEVICES per worker so the chosen card is the only one visible.",
+    "allocator_retention": "OCR activations stayed cached to the end of each figure; 4 workers per GPU exhausted 23.5 GiB. Fixed by releasing the cache once Stage 0 returns; peak fell from 23.4 GiB to 3.9 GiB per card."
+  },
+  "timings_curated_20": {
+    "cpu": {
+      "total_s": 270.0,
+      "stage0_s": 181.0,
+      "stage2_s": 80.0
+    },
+    "gpu": {
+      "total_s": 33.34,
+      "stage0_s": 2.29,
+      "stage1_s": 0.15,
+      "stage2_s": 21.84,
+      "stage3_s": 5.46,
+      "stage4_s": 1.3
+    },
+    "speedup_total": 8.1,
+    "speedup_stage0": 79.0,
+    "speedup_stage2": 3.7,
+    "workers": 6,
+    "ok": "20/20"
+  },
+  "equivalence_vs_cpu": {
+    "roadmap_test": "same label count, same texts, boxes within 2 px on 20 figures",
+    "identical_label_count": "16/20",
+    "identical_text_multiset": "15/20",
+    "label_centre_distance": {
+      "median_px": 0.0,
+      "p95_px": 0.0,
+      "within_2px": 0.979
+    },
+    "status_identical": "20/20",
+    "acceptance_status_identical": "20/20",
+    "s2_n_edges_differ": "6/20",
+    "s3_n_primitives_differ": "6/20",
+    "verdict": "The strict label-set test FAILS (16/20, 15/20). Float differences in CNN detection move borderline glyphs. No figure changes status or acceptance, and the text differences are single borderline readings that look neutral to favourable for GPU: on EP2730496B1 the CPU read '8' where the GPU read '68', and on EP2000273B1 the GPU found a '4' the CPU missed. Adopted with the deviation recorded rather than claimed as equivalent.",
+    "corpus_projection": "78k figures at 33.3 s and 6 workers is roughly 5 days, against about 20 days on CPU"
+  },
+  "identities": {
+    "cpu_config_sha256_prefix": "5ea126037acf57b6",
+    "gpu_config_sha256_prefix": "c77041ad6fa23f7b",
+    "note": "_behavior() ignores device placement so both are canonical, while effective_config_sha256 still distinguishes them in every record"
+  }
+}
