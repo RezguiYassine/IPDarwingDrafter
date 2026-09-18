@@ -149,5 +149,65 @@
       "note": "content that was previously deleted is now present and must be accounted for by the geometry validator; keeping it is the point, so this cost is accepted rather than tuned away"
     },
     "verdict": "The fix does what it was designed to do -- 436 fewer pieces of drawing content deleted -- and does NOT materially unblock acceptance. unknown_reference_text moved 81 -> 80 because the contract requires every label on a figure to be identified and the median figure still carries 8 unidentified ones."
-  }
+  },
+  "followup_mechanisms_tested_and_rejected": {
+    "circularity": {
+      "claim": "the round non-text (holes, pins, gear outlines) can be filtered by circularity",
+      "best_rules": [
+        {
+          "rule": "circ>0.70 & holes>0",
+          "recovered": 0.084,
+          "confirmed": 0.147,
+          "ratio": 0.6
+        },
+        {
+          "rule": "circ>0.75 & aspect<1.15 & radial_cv<0.08",
+          "recovered": 0.008,
+          "confirmed": 0.001,
+          "ratio": 9.9
+        },
+        {
+          "rule": "radial_cv<0.08 & aspect<1.15",
+          "recovered": 0.024,
+          "confirmed": 0.003,
+          "ratio": 7.7
+        }
+      ],
+      "verdict": "REJECTED: the precise rules reach at most 2.4% of survivors (28 of 1175) and the permissive ones flag the digit 0 more often than they flag circles. Not worth a filter."
+    },
+    "recogniser_self_agreement": {
+      "claim": "a real glyph reads the same under every preprocessing variant, geometry does not",
+      "classes": {
+        "text": "components inside OCR-confirmed label boxes",
+        "non_text_proxy": "candidates the elongation gate rejected"
+      },
+      "agree_3_of_5_with_valid_token": {
+        "confirmed_text": 0.502,
+        "elongation_rejected": 0.833
+      },
+      "verdict": "REJECTED, and inverted: the dash class agrees MORE than the text class. A dash reads '1' under every variant; a real glyph's reading shifts with binarisation and rotation. Agreement is anti-correlated with being text."
+    }
+  },
+  "corrections": {
+    "share_of_survivors_that_are_non_text": {
+      "earlier_claim": "roughly half, mostly small circular features",
+      "basis_of_error": "eyeball extrapolation from a 48-crop sample taken before the elongation filter",
+      "measured": "~23% geometry / ~77% text in a 48-crop sample of the 1175 survivors; circular features are 1-3%, not half"
+    },
+    "ocr_recovery_rate_93_percent": {
+      "what_it_measured": "max over 5 preprocessing variants of 'produced a token the reference classifier accepts' -- optimistic by construction",
+      "stricter_measurement": "on components known to be text, a single consensus reading yields a valid token 86.6% of the time and 3-of-5 variants agree only 50.2% of the time",
+      "implication": "OCR recognition would introduce errors on real text too, not only on the geometry it cannot distinguish"
+    }
+  },
+  "remaining_population": {
+    "untexted_labels": 1175,
+    "composition_48_crop_sample": {
+      "text": 0.77,
+      "geometry": 0.23,
+      "of_which_figure_caption_fragments": 0.15
+    },
+    "caption_finding": "About 15% of survivors are fragments of FIG./Fig. captions. OCR detects those tokens and the reference blacklist rejects them as non-references, and then the component scan re-adds their letters as unknown labels. The blacklist decision is discarded instead of being used to suppress recovery in that region -- a tractable fix that reuses a decision already made, worth roughly 175 components."
+  },
+  "recommendation": "Stop here on reference recovery. Four mechanisms were measured on this blocker and one worked; acceptance moved by one figure. The geometry check blocks 78 figures and has never been investigated."
 }
