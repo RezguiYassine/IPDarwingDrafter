@@ -1,0 +1,129 @@
+{
+  "phase": "C - ground truth",
+  "cohort": "500 synthetic patent-like sheets, binary acquisition, patent curriculum; 498 executed; each carries the vector geometry it was drawn from",
+  "why": "every fidelity number this project had quoted was Stage 3 agreeing with the Stage-1 skeleton Stage 2 derived from -- self-consistency, which cannot tell a faithful reconstruction from a confident wrong one",
+  "metric": {
+    "tool": "tools/gt_fidelity.py",
+    "tests": 11,
+    "self_validation": "dropping N ground-truth primitives must cost exactly N recall and no precision; inventing geometry must cost precision and no recall"
+  },
+  "first_true_fidelity": {
+    "recall": {
+      "median": 0.8977,
+      "p10": 0.8252,
+      "mean": 0.8886
+    },
+    "precision": {
+      "median": 0.951,
+      "p10": 0.8887,
+      "mean": 0.9409
+    },
+    "f1": {
+      "median": 0.9194,
+      "p10": 0.8684,
+      "mean": 0.9128
+    },
+    "by_difficulty": {
+      "medium": 0.9292,
+      "hard": 0.9251,
+      "very_hard": 0.9133
+    }
+  },
+  "recall_by_semantic_layer": {
+    "hatch": {
+      "found": 27938,
+      "total": 28859,
+      "recall": 0.9681
+    },
+    "object_visible": {
+      "found": 18339,
+      "total": 19995,
+      "recall": 0.9172
+    },
+    "arrowhead": {
+      "found": 3881,
+      "total": 5647,
+      "recall": 0.6873
+    },
+    "dimension": {
+      "found": 2333,
+      "total": 3531,
+      "recall": 0.6607
+    },
+    "leader": {
+      "found": 2304,
+      "total": 3293,
+      "recall": 0.6997
+    },
+    "object_center": {
+      "found": 1017,
+      "total": 1195,
+      "recall": 0.851
+    },
+    "object_hidden": {
+      "found": 990,
+      "total": 1195,
+      "recall": 0.8285
+    },
+    "diagram_connector": {
+      "found": 750,
+      "total": 797,
+      "recall": 0.941
+    }
+  },
+  "headline_finding": {
+    "self_consistency_says_complete": 0.9893,
+    "ground_truth_says_recovered": 0.8977,
+    "gap_points": 9.2,
+    "reading": "The proxy overstates completeness by about nine points, and the reason is structural: it measures agreement with the Stage-1 skeleton, so geometry that never reaches the skeleton is invisible to it. Arrowheads (69.4%), dimension lines (67.3%) and leaders (70.7%) are exactly that population -- Stage 1 and Stage 2 lose them together and then agree with each other."
+  },
+  "no_internal_signal_predicts_quality": {
+    "correlation_with_true_f1": {
+      "s3_mean_conf": 0.05,
+      "s3_low_conf_ratio": 0.02,
+      "s2_micro_edge_ratio": 0.21,
+      "s2_short_edge_ratio": 0.19,
+      "s2_isolation": 0.18,
+      "s2_n_edges": -0.11,
+      "s2_median_edge_len": -0.14,
+      "s3_n_primitives": 0.09
+    },
+    "self_consistency_vs_true_f1": {
+      "precision_fraction": 0.06,
+      "recall_fraction": 0.15,
+      "recall_p95": -0.22,
+      "uncovered_run": 0.03,
+      "residual_pixels": -0.02
+    },
+    "worst_50_vs_best_50": {
+      "s2_micro_edge_ratio": [
+        0.1814,
+        0.2814
+      ],
+      "s2_isolation": [
+        0.02293,
+        0.0331
+      ],
+      "s3_mean_conf": [
+        0.8543,
+        0.8668
+      ],
+      "s2_n_hachure_edges_removed": [
+        254,
+        1074
+      ],
+      "reading": "micro_edge_ratio and isolation are HIGHER on the best sheets, so both gates' premises are inverted; confidence is identical either side"
+    },
+    "settles": "max_low_conf_ratio should stay off. It was demoted in September on correlational grounds without ground truth; ground truth agrees."
+  },
+  "limitations": {
+    "narrow_variance": "true F1 spans 0.71 to 0.98 with an IQR of 0.045, which attenuates every correlation reported above; a null here is weaker evidence than a null across a wide range would be",
+    "gates_never_fire": "neither live gate fires on any of the 498 sheets (max_edges on 0%, isolation on 0%), so this cohort CANNOT calibrate max_edges -- the same limitation CAD250 had. Synthetic sheets carry a median of 105 Stage-2 edges against 425 on real patents.",
+    "transfer_unknown": "the synthetic-to-real gap is exactly what the September training control measured as a null; these calibrations transfer only to the extent that gap is small, and that extent is unmeasured"
+  },
+  "roadmap_status": {
+    "C1": "done, 498/500",
+    "C2": "done and self-validated",
+    "C3": "partially done -- the proxy and the confidence gates are settled, max_edges is NOT calibratable on this cohort"
+  }
+}

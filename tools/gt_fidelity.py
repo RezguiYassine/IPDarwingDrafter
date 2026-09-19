@@ -40,12 +40,20 @@ VERSION = "1"
 def _sample_truth(primitive: dict, scale: float, step: float = 1.0) -> np.ndarray | None:
     """Ground-truth geometry in pixels. Normalised coordinates, canvas-scaled."""
     geometry = primitive.get("geometry") or {}
-    kind = (primitive.get("primitive_type") or primitive.get("type") or "").lower()
+    kind = (primitive.get("kind") or primitive.get("primitive_type")
+            or primitive.get("type") or "").lower()
     if "p0" in geometry and "p1" in geometry and not kind.startswith("arc"):
         a = np.asarray(geometry["p0"], float) * scale
         b = np.asarray(geometry["p1"], float) * scale
         n = max(2, int(math.ceil(np.linalg.norm(b - a) / step)) + 1)
         return np.linspace(a, b, n)
+    if kind in {"cubic_bezier", "bezier"} and "points" in geometry:
+        control = np.asarray(geometry["points"], float) * scale
+        if len(control) >= 4:
+            t = np.linspace(0, 1, 64)[:, None]
+            c = control[:4]
+            return ((1 - t) ** 3 * c[0] + 3 * (1 - t) ** 2 * t * c[1]
+                    + 3 * (1 - t) * t ** 2 * c[2] + t ** 3 * c[3])
     if "points" in geometry:
         points = np.asarray(geometry["points"], float) * scale
         if len(points) < 2:
@@ -87,13 +95,13 @@ def score(truth: dict, primitives: list[dict], *, tolerance: float = 3.0,
     scale = float(canvas[0])
     truth_samples, truth_types = [], []
     for primitive in truth.get("primitives_visible") or []:
-        if primitive.get("semantic_layer") in drop_layers:
+        semantic = primitive.get("semantic") or primitive.get("semantic_layer")
+        if semantic in drop_layers or (primitive.get("kind") or "") == "text":
             continue
         points = _sample_truth(primitive, scale, step)
         if points is not None and len(points) >= 2:
             truth_samples.append(points)
-            truth_types.append(primitive.get("primitive_type")
-                               or primitive.get("type") or "unknown")
+            truth_types.append(semantic or primitive.get("kind") or "unknown")
     fitted_samples = []
     for primitive in primitives:
         try:

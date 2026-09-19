@@ -20,7 +20,7 @@ CANVAS = 1000
 
 def line(x0, y0, x1, y1, layer="object_visible"):
     """A ground-truth line in the generator's normalised coordinates."""
-    return {"primitive_type": "line", "semantic_layer": layer,
+    return {"kind": "line", "semantic": layer,
             "geometry": {"p0": [x0 / CANVAS, y0 / CANVAS],
                          "p1": [x1 / CANVAS, y1 / CANVAS]}}
 
@@ -89,9 +89,9 @@ def test_removed_reference_numerals_are_not_counted_as_missed_geometry():
 
 
 def test_polyline_and_arc_ground_truth_are_sampled():
-    poly = {"primitive_type": "polyline", "semantic_layer": "object_visible",
+    poly = {"kind": "polyline", "semantic": "object_visible",
             "geometry": {"points": [[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]]}}
-    arc = {"primitive_type": "arc", "semantic_layer": "object_visible",
+    arc = {"kind": "arc", "semantic": "object_visible",
            "geometry": {"center": [0.5, 0.5], "radius": 0.2,
                         "start_angle": 0.0, "end_angle": 180.0}}
     scored = gt_fidelity.score(truth_of([poly, arc]), [])
