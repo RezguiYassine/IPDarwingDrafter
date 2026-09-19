@@ -973,6 +973,40 @@ def _ocr_available() -> bool:
     return _OCR_AVAILABLE
 
 
+_OCR_CPU_READER = None
+
+
+def _cpu_ocr_reader():
+    """A CPU reader kept aside for figures too large for the GPU.
+
+    Thirteen figures in a thousand -- 1.3% -- exhausted GPU memory during the
+    scale run, every one of them a large scan. Failing those outright would
+    lose real drawings to a placement choice, so they finish on CPU: slower
+    for that figure, and the run completes.
+    """
+    global _OCR_CPU_READER
+    if _OCR_CPU_READER is None:
+        import easyocr
+        _OCR_CPU_READER = easyocr.Reader(["en"], gpu=False, verbose=False)
+    return _OCR_CPU_READER
+
+
+def _read_with_fallback(reader, image, **kwargs):
+    try:
+        return reader.readtext(image, **kwargs)
+    except Exception as exc:                 # torch raises OutOfMemoryError
+        if "out of memory" not in str(exc).lower():
+            raise
+        logger.warning("OCR ran out of GPU memory on a %s image; retrying on CPU.",
+                       "x".join(str(v) for v in image.shape[:2]))
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        return _cpu_ocr_reader().readtext(image, **kwargs)
+
+
 def _get_ocr_reader(cfg: dict[str, Any]):
     global _OCR_READER
     if _OCR_READER is None:
@@ -1124,8 +1158,8 @@ def _ocr_pass(gray: np.ndarray, cfg: dict[str, Any], *, scale: float, canvas: in
     reader = _get_ocr_reader(cfg)
     img = (gray if scale == 1.0 else
            cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC))
-    res = reader.readtext(img, canvas_size=canvas, mag_ratio=mag,
-                          text_threshold=txt_thr, low_text=low_txt)
+    res = _read_with_fallback(reader, img, canvas_size=canvas, mag_ratio=mag,
+                              text_threshold=txt_thr, low_text=low_txt)
     allow_alnum = bool(cfg.get("ocr_alphanumeric", True))
     H, W = gray.shape
     min_h = max(6, int(cfg.get("ocr_min_h_frac", 0.004) * H))

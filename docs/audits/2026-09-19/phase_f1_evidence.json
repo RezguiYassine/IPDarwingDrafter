@@ -1,0 +1,64 @@
+{
+  "phase": "F1 - dry run at scale",
+  "cohort": "1000 figures, one per patent, drawn from filter_manifest_v3 'drawing' rows, disjoint from the curated 100; no content decisions exist for them",
+  "execution": {
+    "ok": 807,
+    "quality_gate_stage2": 137,
+    "quality_gate_stage1": 40,
+    "stage0": 13,
+    "quality_gate_stage3": 3,
+    "ok_rate": 0.807,
+    "curated_100_ok_rate": 0.86,
+    "reading": "80.7% against 86% on the curated cohort, so the curated 100 was mildly optimistic but broadly representative"
+  },
+  "timing_seconds": {
+    "total": {
+      "median": 14.983091386035085,
+      "p90": 72.33193123135716,
+      "max": 1061.385408748407
+    },
+    "by_stage_median": {
+      "s0": 1.82,
+      "s1": 0.1,
+      "s2": 6.75,
+      "s3": 3.66,
+      "s4": 0.68
+    },
+    "by_stage_p90": {
+      "s0": 3.92,
+      "s1": 0.18,
+      "s2": 50.09,
+      "s3": 11.86,
+      "s4": 3.4
+    },
+    "reading": "median 15.0s, better than the curated cohort's 33s because the median patent figure is simpler, but the tail is heavy: p90 is 72s and the worst figure took 1061s, essentially all of it Stage 2."
+  },
+  "defect_found_only_at_scale": {
+    "what": "13 figures (1.3%) died with CUDA out-of-memory in Stage 0 OCR",
+    "why": "large scans at 10 workers across 2 cards; the curated 100 never triggered it",
+    "fix": "a CPU reader now catches the OOM and finishes that figure, so the run completes instead of losing real drawings to a placement choice",
+    "note": "this is exactly what a dry run is for and is the only new failure mode volume exposed"
+  },
+  "acceptance": {
+    "review": 795,
+    "rejected": 192,
+    "error": 13,
+    "accepted": 0,
+    "reading": "content_manifest_absent fires on 100% of figures because none has a human content decision. Acceptance is fail-closed and Phase D is confirmed as the binding constraint on scale, not anything in the pipeline."
+  },
+  "reason_codes_over_10_percent": {
+    "content_manifest_absent": 1.0,
+    "the_19_percent_validation_missing_family": 0.193,
+    "quality_gate_stage2": 0.137,
+    "s2_flagged": 0.137
+  },
+  "roadmap_rule": "F1 says anything firing on more than 10% of figures gets treatment before F2. Excluding content (Phase D) and the validation-missing family (a consequence of non-execution), that leaves the Stage-2 gate at 13.7% -- which is the max_edges question already queued as the next item.",
+  "holding_at_scale": {
+    "geometry_skeleton_coverage_lost": 0.018,
+    "note": "the run-length fix holds: 1.8% at scale against 55% before it"
+  },
+  "corpus_projection": {
+    "figures_per_hour_10_workers": 2402.7084312889942,
+    "note": "median 15s at 10 workers is roughly 2400 figures/hour, so ~78k figures is about 1.4 days of wall clock, but the heavy tail makes that optimistic"
+  }
+}
