@@ -1,0 +1,40 @@
+{
+  "phase": "D - content authority at scale",
+  "goal": "replace the per-figure human content decision, which does not reach 15,600 patents",
+  "training_data": "the 158 curated decisions (100 in scope, 58 out of scope)",
+  "attempt_1_image_features": {
+    "model": "frozen ResNet18 ImageNet features, 512-d, plus a logistic probe",
+    "cross_validated_accuracy": 0.709,
+    "by_margin": [
+      {
+        "margin": 0.0,
+        "covered": 1.0,
+        "accuracy": 0.709
+      },
+      {
+        "margin": 0.4,
+        "covered": 0.804,
+        "accuracy": 0.764
+      },
+      {
+        "margin": 0.9,
+        "covered": 0.418,
+        "accuracy": 0.879
+      }
+    ],
+    "verdict": "FAILS the 95% acceptance test. Even auto-deciding only the most confident 42% gives 87.9%, short of the 98% precision a non-human authority needs."
+  },
+  "attempt_2_pipeline_features": {
+    "features": "20 Stage-0 to Stage-3 quantities plus four shape ratios (closed-edge fraction, hachure fraction, labels per edge, hatch-primitive fraction)",
+    "cross_validated_accuracy": 0.646,
+    "verdict": "WORSE than image features. Ran the 58 rejected figures through the pipeline to obtain features for both classes, so the comparison is fair.",
+    "most_informative": {
+      "closed_frac": -0.52,
+      "s1_quality": 0.5,
+      "labels_per_edge": -0.46
+    }
+  },
+  "conclusion": "Both approaches fail, and by a wide margin rather than narrowly. The task is harder than it looks: a mechanical cross-section and a block diagram are both thin black lines on white, and the distinction is semantic. 158 examples is too few for either representation to learn it.",
+  "consequence": "Content routing stays human-gated, which makes Phase D -- not anything in the pipeline -- the binding constraint on corpus scale.",
+  "recommendation": "The fix is labels, not a better model. tools/curate_pilot.py already works and is resumable; roughly 1000 decisions at a few seconds each is one to two hours of curation, and is the cheapest path to a usable authority. Training on 158 and hoping is not."
+}

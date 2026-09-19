@@ -1,0 +1,46 @@
+{
+  "phase": "E1 - is the Stage-2 fragmentation the deferred hatch-style defect?",
+  "method": "HatchUNet predicted-hatch fraction of ink, on the 12 Stage-2 gated figures and 20 that pass",
+  "baseline_passing_figures": 0.063,
+  "fragmented_gated_figures": [
+    {
+      "figure": "EP3062407B1/F0002",
+      "micro": 0.62,
+      "hatch": 0.512
+    },
+    {
+      "figure": "EP3493068A1/F0002",
+      "micro": 0.52,
+      "hatch": 0.474
+    },
+    {
+      "figure": "EP3305642B1/F0001",
+      "micro": 0.59,
+      "hatch": 0.221
+    },
+    {
+      "figure": "EP3499653A1/A0001",
+      "micro": 0.44,
+      "hatch": 0.158
+    },
+    {
+      "figure": "EP3502393A1/F0005",
+      "micro": 0.38,
+      "hatch": 0.06
+    },
+    {
+      "figure": "EP3503702A1/F0002",
+      "micro": 0.95,
+      "hatch": 0.015
+    },
+    {
+      "figure": "EP3501322A1/F0005",
+      "micro": 0.82,
+      "hatch": 0.001
+    }
+  ],
+  "median_fragmented": 0.158,
+  "verdict": "PARTIAL, not general. Four of seven fragmented figures carry substantial predicted hatch (15.8% to 51.2% against a 6.3% baseline), but the two MOST fragmented -- micro ratios of 0.82 and 0.95 -- carry essentially none, so their fragmentation has a different cause. A median-only reading would have called this hatch-driven and overstated it.",
+  "note": "On the figures where hatch IS predicted at 47-51%, the detector is firing and the figure still gates, so removal is not preventing fragmentation. That is a different defect from the missed bold/solid styles the owner flagged.",
+  "recommendation": "E2 (extend HatchUNet training styles, 3-5 days including labelling) would address at most 4 of 12 gated figures, about 4% of the cohort, and only if the cause there is detection rather than removal. Deprioritised on that return. E1 cost half a day and was worth it precisely for producing this answer."
+}
