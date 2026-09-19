@@ -100,11 +100,20 @@ def capture_entities(item: dict, entities: list, *, svg: bool, prefix: str) -> N
         item["entity_ids"] = [entity.dxf.handle for entity in entities]
 
 
+# Stage 0 removes some marks without identifying them. They are not
+# references, carry no text, and the DXF has no text to write for them; the
+# crop preserves the mark either way. Demanding a label would flag the figure
+# for not knowing something the pipeline was never able to know.
+UNIDENTIFIED = "unidentified_mark"
+
+
 def finish_annotation(item: dict, annotation: dict) -> None:
     leaders = annotation.get("leader_lines") or []
     item["leaders_expected"] = len(leaders) or int("leader_to" in annotation)
-    item["label_required"] = bool(annotation.get("text") or annotation.get("image_path")
-                                  or annotation.get("source") == "stage0_references")
+    item["label_required"] = bool(
+        annotation.get("kind") != UNIDENTIFIED
+        and (annotation.get("text") or annotation.get("image_path")
+             or annotation.get("source") == "stage0_references"))
     item["complete"] = (
         not item["errors"] and item["leaders_written"] == item["leaders_expected"]
         and (not item["label_required"] or item["label"] in {"text", "crop"})

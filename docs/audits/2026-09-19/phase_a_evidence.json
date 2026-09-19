@@ -1,0 +1,84 @@
+{
+  "phase": "A - clear the reference blocker",
+  "baseline_2026_09_18": {
+    "accepted": 5,
+    "executed": 85,
+    "unknown_reference_text": 80,
+    "untexted_labels": 1175,
+    "seconds_per_figure": 270
+  },
+  "final": {
+    "accepted": 83,
+    "rejected": 16,
+    "review": 1,
+    "executed": 86,
+    "accepted_of_executed": "83/86",
+    "unknown_reference_text": 0,
+    "seconds_per_figure": 33,
+    "label_kinds": {
+      "unidentified_mark": 860,
+      "ocr_numeral": 925,
+      "ocr_reference": 17
+    },
+    "labels_total": 1489,
+    "labels_demoted": 311,
+    "labels_unidentified": 761
+  },
+  "A1_vocabulary": {
+    "tool": "tools/reference_vocabulary.py",
+    "measurement": "in-series readings named in the description 92.1%, off-series 24.7%",
+    "acceptance_test": "roadmap asked for >=95% recall verified by hand-checking 20 patents",
+    "result": "92.1% via an automated in-series proxy; the hand check was NOT performed",
+    "verdict": "FELL SHORT of its own acceptance test, recorded rather than waived"
+  },
+  "A2_wrong_text_gate": {
+    "finding": "360 of 1451 texted labels (24.8%) carried a numeral the patent never names",
+    "examples": [
+      "EP2020016B1 read 8,8,8,8,8,8 in a drawing numbered 10,102,12,14",
+      "EP2099533B1 read 316,319,322,325 off the described series",
+      "EP1930717B1 read A4o for A40"
+    ],
+    "note": "shipped inert in v1 -- in_vocabulary was computed and never persisted, so the check could not fire and 83 figures were accepted without it. Found and fixed."
+  },
+  "A3_closed_set_recognition": {
+    "negative_control": "crops the elongation gate rejected as line fragments",
+    "one_character_match": {
+      "known_text": 0.629,
+      "line_fragments": 0.643,
+      "ratio": 1.0,
+      "verdict": "no information -- the dictionary was accepting noise, not reading it"
+    },
+    "two_character_match": {
+      "known_text": 0.257,
+      "line_fragments": 0.0,
+      "note": "0 of 70; the 95% upper bound on that rate is about 4%"
+    },
+    "impact_of_the_gate": "149 of 177 closed-set labels were fabrications. Removing them changed acceptance by ZERO, so the defect was invisible in the headline number.",
+    "rejected_repairs": {
+      "text_level": "5% resolvable unambiguously, 55% ambiguous, 40% no candidate",
+      "widened_crop_reread": "72.5% 'recovered' but the examples were 8->1 at confidence 1.00 and 5->11: the same fabrication in a different costume"
+    }
+  },
+  "A4_demotion": {
+    "decision": "owner chose to trade a missing label for a wrong one",
+    "behaviour": "an out-of-vocabulary reading keeps its removal and its crop but drops the numeral claim, recorded as unidentified_mark with a demoted_from trail",
+    "cost_made_visible": "every acceptance record carries labels_total, labels_demoted_unreadable and labels_unidentified",
+    "effect": "references check 80 review -> 86 pass; accepted 27 -> 83"
+  },
+  "A5_caption_suppression": "blacklisted OCR boxes become taken regions so caption letters are not re-added as unknown labels",
+  "roadmap_targets": {
+    "D1_eligible_share_of_executed": {
+      "target": 0.75,
+      "actual": 0.9651162790697675
+    },
+    "D4_seconds_per_figure": {
+      "target": 120,
+      "actual": 33
+    },
+    "D2_wrong_text_rate": {
+      "target": 0.02,
+      "actual": "not met by correction; 311 wrong readings are discarded rather than fixed, which is the chosen trade"
+    }
+  },
+  "remaining": "All 14 unaccepted figures fail before acceptance: 12 gated at Stage 2, 1 at Stage 1, 1 at Stage 3. Acceptance itself blocks nothing."
+}

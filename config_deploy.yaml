@@ -14,7 +14,7 @@ pipeline:
   quality_gates:
     enabled: true
     gate_policy_version: 2026-09-15.1
-    max_low_conf_ratio: null              # disabled; a number here is a literal bound
+    max_low_conf_ratio: null
     max_low_conf_ratio_after_hachure: null
     max_primitives: 50000
     min_hachure_edges_for_low_conf_relax: 20
@@ -37,6 +37,7 @@ sketchcleannet:
 stage0:
   bridge_leader_crossings: true
   crop_pad: 2
+  demote_out_of_vocabulary: true
   enabled: true
   figure_cluster_max_bbox_area: 32000
   figure_cluster_max_components: 12
@@ -64,25 +65,25 @@ stage0:
   ocr_acronym_require_leader: true
   ocr_alphanumeric: true
   ocr_canvas_size: 3000
+  ocr_cc_closed_set: true
+  ocr_cc_closed_set_min_chars: 2
   ocr_cc_fill_hi: 0.85
   ocr_cc_fill_lo: 0.12
-  ocr_cc_max_h_frac: 0.05
-  # Reject recovery candidates whose rotated bounding rectangle is this much
-  # longer than it is wide: a dash, centre line or hatch segment is a thin
-  # bar, a glyph is not. 0 disables. See docs/audits/2026-09-18/.
   ocr_cc_max_elongation: 4.0
-  # Fold a candidate into an abutting label OCR already read, but only when the
-  # widened rectangle contains no further ink.
+  ocr_cc_max_h_frac: 0.05
   ocr_cc_merge_fragments: true
   ocr_cc_merge_gap_x_frac: 1.5
   ocr_cc_merge_gap_y_frac: 1.0
   ocr_cc_min_h_frac: 0.012
   ocr_cc_recovery: true
   ocr_cc_ring_max: 0.08
+  ocr_cc_suppress_caption_text: true
   ocr_conf: 0.3
   ocr_gpu: false
   ocr_leaders: true
   ocr_multiscale: false
+  patent_corpus_root: data/PatentData/ReorganisedData
+  reference_vocabulary_root: output/PatentData/vocabularies
   remove_figure_labels: true
   remove_unleadered_labels: true
   repair_after_removal: true
@@ -100,6 +101,7 @@ stage0:
   unleadered_single_max_ink_area: 1400
   unleadered_single_min_density: 0.18
   use_ocr: true
+  use_reference_vocabulary: true
 stage1:
   classical:
     adaptive_C: 10
@@ -113,8 +115,8 @@ stage2:
   dashed_grouping: false
   fragmentation:
     max_edges: 2500
-    max_micro_edge_ratio: null   # demoted to a recorded metric on 2026-09-15
-    max_short_edge_ratio: null   # demoted to a recorded metric on 2026-09-15
+    max_micro_edge_ratio: null
+    max_short_edge_ratio: null
     max_unclaimed_noncycle_pixels: 100000
   hachure_angle_tolerance: 12.0
   hachure_cluster_radius: 95.0

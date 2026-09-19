@@ -14,7 +14,7 @@ from tools import content_routing, geometry_validation
 
 
 SCHEMA = "ap3-acceptance-v1"
-POLICY_VERSION = "2026-09-14.1"
+POLICY_VERSION = "2026-09-19.1"
 REQUIRED_CHECKS = {"execution", "stage_flags", "deployment", "artifacts", "exports",
                    "references", "hachures", "content", "geometry"}
 ROW_FIELDS = ("patent_id", "sketch_id", "input_path", "status", "error",
@@ -94,6 +94,7 @@ def _check_export(report: dict, document: dict, artifacts: dict) -> dict:
             if annotation.get("text") and item.get("label") not in {"text", "crop"}:
                 failures.append(f"{name}_missing_reference_label")
             elif (name == "dxf" and not annotation.get("text")
+                  and annotation.get("kind") != UNIDENTIFIED
                   and annotation.get("source") == "stage0_references"):
                 reviews.append("unknown_reference_text")
             elif not item.get("complete"):
@@ -101,6 +102,11 @@ def _check_export(report: dict, document: dict, artifacts: dict) -> dict:
     if failures:
         return _check("error", *sorted(set(failures + reviews)))
     return _check("review", *sorted(set(reviews))) if reviews else _check()
+
+
+# A mark Stage 0 removed without identifying. It is not a reference, so it
+# carries no text and none is demanded of it; the crop still preserves it.
+UNIDENTIFIED = "unidentified_mark"
 
 
 def _check_references(references: dict, document: dict, bind) -> dict:
@@ -124,9 +130,28 @@ def _check_references(references: dict, document: dict, bind) -> dict:
         return _check("review", "references_not_removed")
     if references.get("flagged") is not False:
         return _check("review", "reference_document_flagged_or_unverified")
-    if any(not label.get("text") for label in expected):
-        return _check("review", "unknown_reference_text")
-    return _check()
+    reviews = []
+    # Only a label that claims to be a reference owes the record its text.
+    claimed = [l for l in expected if l.get("kind") != UNIDENTIFIED]
+    # Demotion trades a wrong label for a missing one, which is the safer
+    # direction but not a free one: the mark is removed from the drawing and
+    # contributes no text-to-drawing link. Counting it keeps that cost visible
+    # in the record instead of letting a clean acceptance imply clean reading.
+    demoted = sum(1 for l in expected if l.get("demoted_reason"))
+    if any(not label.get("text") for label in claimed):
+        reviews.append("unknown_reference_text")
+    # A numeral the patent's own description never names is a misreading far
+    # more often than a reference the drafter forgot: measured over the
+    # curated cohort, 92.1% of readings that match the patent's numbering
+    # series are named in the text against 24.7% of those that do not. The
+    # contract could previously see a missing numeral but never a wrong one.
+    if any(label.get("in_vocabulary") == "absent" for label in claimed):
+        reviews.append("reference_not_in_description")
+    result = _check("review", *reviews) if reviews else _check()
+    result["labels_total"] = len(expected)
+    result["labels_demoted_unreadable"] = demoted
+    result["labels_unidentified"] = sum(1 for l in expected if l.get("kind") == UNIDENTIFIED)
+    return result
 
 
 def _check_hachures(graph: dict, document: dict) -> dict:

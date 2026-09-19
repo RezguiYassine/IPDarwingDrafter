@@ -40,6 +40,7 @@ sketchcleannet:
 stage0:
   bridge_leader_crossings: true
   crop_pad: 2
+  demote_out_of_vocabulary: true
   enabled: true
   figure_cluster_max_bbox_area: 32000
   figure_cluster_max_components: 12
@@ -67,6 +68,8 @@ stage0:
   ocr_acronym_require_leader: true
   ocr_alphanumeric: true
   ocr_canvas_size: 3000
+  ocr_cc_closed_set: true
+  ocr_cc_closed_set_min_chars: 2
   ocr_cc_fill_hi: 0.85
   ocr_cc_fill_lo: 0.12
   ocr_cc_max_elongation: 4.0
@@ -77,10 +80,13 @@ stage0:
   ocr_cc_min_h_frac: 0.012
   ocr_cc_recovery: true
   ocr_cc_ring_max: 0.08
+  ocr_cc_suppress_caption_text: true
   ocr_conf: 0.3
   ocr_gpu: true
   ocr_leaders: true
   ocr_multiscale: false
+  patent_corpus_root: data/PatentData/ReorganisedData
+  reference_vocabulary_root: output/PatentData/vocabularies
   remove_figure_labels: true
   remove_unleadered_labels: true
   repair_after_removal: true
@@ -98,6 +104,7 @@ stage0:
   unleadered_single_max_ink_area: 1400
   unleadered_single_min_density: 0.18
   use_ocr: true
+  use_reference_vocabulary: true
 stage1:
   classical:
     adaptive_C: 10

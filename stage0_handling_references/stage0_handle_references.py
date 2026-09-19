@@ -857,6 +857,13 @@ def _build_reference_doc(
             "text": str(label.get("text", "") or ""),
             "ref_class": label.get("ref_class"),
             "confidence": _json_num(label.get("confidence")),
+            # Whether the patent's own description names this token, and how
+            # the reading was obtained. Both are evidence the acceptance
+            # contract reads; without them a wrong numeral is invisible.
+            "in_vocabulary": label.get("in_vocabulary", "unknown"),
+            "matched_by": label.get("matched_by"),
+            "demoted_from": label.get("demoted_from"),
+            "demoted_reason": label.get("demoted_reason"),
             "bbox": [_json_num(v) for v in label["bbox"]],
             "crop_bbox": [_json_num(v) for v in crop_bbox],
             "position": [_json_num(cx), _json_num(cy)],
@@ -1025,6 +1032,87 @@ def _boxes_iou(a: list, b: list) -> float:
     return inter / union if union > 0 else 0.0
 
 
+_VOCABULARY: dict | None = None          # set per figure by run(); read by the passes
+_SUPPRESSED_TEXT_BOXES: list = []        # blacklisted OCR boxes, e.g. "FIG. 4"
+
+
+def _load_vocabulary(input_path: Path, cfg: dict[str, Any]) -> dict | None:
+    """The vocabulary for the patent this figure belongs to, or None.
+
+    Prebuilt files are preferred so a corpus run does not re-parse the same
+    XML once per figure; otherwise it is built on demand. A patent with no XML
+    simply has no vocabulary, and every downstream check treats that as
+    "unknown" rather than as evidence against a label.
+    """
+    if not cfg.get("use_reference_vocabulary", True):
+        return None
+    patent_id = Path(input_path).parent.name
+    root = cfg.get("reference_vocabulary_root")
+    if root:
+        path = Path(root) / f"{patent_id}_vocabulary.json"
+        if path.is_file():
+            try:
+                from tools import reference_vocabulary
+                return reference_vocabulary.load(path)
+            except Exception:
+                return None
+    corpus = cfg.get("patent_corpus_root")
+    if not corpus:
+        return None
+    try:
+        from tools import reference_vocabulary
+        return reference_vocabulary.for_patent(Path(corpus), patent_id)
+    except Exception:
+        return None
+
+
+def set_reference_vocabulary(vocabulary: dict | None) -> None:
+    """Install the vocabulary for the figure about to be processed.
+
+    Passed through module state rather than every signature because the
+    detection passes are called from several places and re-threading them all
+    would touch far more code than the feature is worth.
+    """
+    global _VOCABULARY
+    _VOCABULARY = vocabulary
+
+
+def _vocabulary_tokens() -> set[str]:
+    return set((_VOCABULARY or {}).get("tokens") or ())
+
+
+def _vocabulary_width() -> int | None:
+    return {"1x": 1, "10x": 2, "100x": 3, "1000x": 4}.get((_VOCABULARY or {}).get("series"))
+
+
+def _vocabulary_status(text: str) -> str:
+    """Does the patent's own description name this token?
+
+    "unknown" when there is no vocabulary for the patent, so a missing XML
+    never reads as evidence against a label.
+    """
+    tokens = _vocabulary_tokens()
+    if not tokens:
+        return "unknown"
+    stripped = (text or "").strip(".,:;()[]'\u2019")
+    return "present" if stripped in tokens else "absent"
+
+
+def _off_series(text: str) -> bool:
+    """A reading whose digit count differs from the patent's numbering style.
+
+    A single digit in a drawing whose numerals run 100, 102, 116 is a clipped
+    glyph far more often than a real reference: measured over the curated
+    cohort, 92.1% of in-series readings are named in the description against
+    24.7% of off-series ones.
+    """
+    width = _vocabulary_width()
+    if width is None:
+        return False
+    digits = re.search(r"\d+", text or "")
+    return bool(digits) and len(digits.group(0)) != width
+
+
 def _ocr_pass(gray: np.ndarray, cfg: dict[str, Any], *, scale: float, canvas: int,
               mag: float, txt_thr: float, low_txt: float) -> list[dict[str, Any]]:
     """One OCR detection pass at `scale` (CUBIC upscale); labels in NATIVE coords.
@@ -1051,9 +1139,16 @@ def _ocr_pass(gray: np.ndarray, cfg: dict[str, Any], *, scale: float, canvas: in
         if conf < conf_th or not t or len(t) > max_chars:
             continue
         cls = _classify_reference_token(t)
-        if cls is None or (not allow_alnum and cls != "numeral"):
-            continue
         xs = [p[0] / scale for p in box]; ys = [p[1] / scale for p in box]  # → native
+        if cls is None or (not allow_alnum and cls != "numeral"):
+            # A caption the blacklist rejected is still text. Remembering where
+            # it sits stops the component scan from re-adding its letters one
+            # by one as unknown reference labels.
+            if t:
+                x0, y0 = int(min(xs)), int(min(ys))
+                _SUPPRESSED_TEXT_BOXES.append(
+                    [x0, y0, int(max(xs) - x0), int(max(ys) - y0)])
+            continue
         x0, y0 = int(min(xs)), int(min(ys))
         bw, bh = int(max(xs) - x0), int(max(ys) - y0)
         w_cap = bh * max(max_aspect, 1.4 * len(t.strip(".,:;()[]")))
@@ -1068,6 +1163,7 @@ def _ocr_pass(gray: np.ndarray, cfg: dict[str, Any], *, scale: float, canvas: in
             "ref_class": cls,
             "text": t,
             "confidence": float(conf),
+            "in_vocabulary": _vocabulary_status(t),
             "leader_lines": [],
         })
     return labels
@@ -1309,8 +1405,138 @@ def _boxes_gap(a: list, b: list) -> float:
                max(by - (ay + ah), ay - (by + bh)))
 
 
+_CLOSED_SET_VARIANTS = ((64, False, None), (96, True, None), (128, True, None),
+                        (96, False, [90, 180, 270]))
+_CLOSED_SET_ALLOW = ("0123456789abcdefghijklmnopqrstuvwxyz"
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ'")
+
+
+def _prepare_crop(crop: np.ndarray, target_h: int, otsu: bool) -> np.ndarray:
+    scale = target_h / max(1, crop.shape[0])
+    image = cv2.resize(crop, (max(1, int(crop.shape[1] * scale)), target_h),
+                       interpolation=cv2.INTER_CUBIC)
+    if otsu:
+        image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
+        image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+    pad = max(4, int(0.3 * target_h))
+    return cv2.copyMakeBorder(image, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=255)
+
+
+def _read_closed_set(gray: np.ndarray, boxes: list, cfg: dict[str, Any]) -> tuple[str, float]:
+    """Read a candidate, accepting only a token the patent's text names.
+
+    Open-set recognition cannot be used here: measured on this cohort the
+    recogniser reads a vertical dash as '1' at 0.97 confidence and a small
+    circle as '0' at 1.00, so pointing it at these crops would manufacture
+    reference numerals out of geometry. Restricting the answer to the
+    patent's own vocabulary changes the failure mode -- a dash that reads '1'
+    is accepted only if '1' is a reference in this patent, and a drawing
+    numbered in hundreds rejects every single-digit reading outright.
+    """
+    tokens = _vocabulary_tokens()
+    if not tokens or not _ocr_available():
+        return "", 0.0
+    # A single-character match carries no information. Measured on this cohort
+    # against a negative class of crops the elongation gate rejected as line
+    # fragments, a one-character vocabulary match is returned for 64.3% of
+    # those fragments and 62.9% of known text -- a ratio of 1.0, meaning the
+    # dictionary is accepting noise, not reading it. At two characters the
+    # fragment rate is 0 of 70 while a quarter of known text still matches: a
+    # dash reads as '1' under every variant and essentially never as '11'.
+    min_chars = int(cfg.get("ocr_cc_closed_set_min_chars", 2))
+    xs = [b[0] for b in boxes]; ys = [b[1] for b in boxes]
+    x1 = max(b[0] + b[2] for b in boxes); y1 = max(b[1] + b[3] for b in boxes)
+    x0, y0 = min(xs), min(ys)
+    pad = max(2, int(0.3 * (y1 - y0)))
+    crop = gray[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad]
+    if crop.size == 0:
+        return "", 0.0
+    reader = _get_ocr_reader(cfg)
+    best_text, best_conf = "", 0.0
+    for target_h, otsu, rotations in _CLOSED_SET_VARIANTS:
+        try:
+            results = reader.recognize(_prepare_crop(crop, target_h, otsu),
+                                       allowlist=_CLOSED_SET_ALLOW, detail=1,
+                                       rotation_info=rotations)
+        except Exception:
+            continue
+        for _, text, confidence in results or []:
+            candidate = str(text).strip().strip(".,:;()[]'\u2019")
+            if (len(candidate) >= min_chars and candidate in tokens
+                    and float(confidence) > best_conf):
+                best_text, best_conf = candidate, float(confidence)
+    return best_text, best_conf
+
+
+def _group_adjacent(candidates: list[dict[str, Any]], gap_frac: float = 0.9
+                    ) -> list[list[int]]:
+    """Cluster horizontally adjacent, vertically aligned candidates.
+
+    A '1' and a '2' side by side are the token '12'; read separately neither
+    can match a multi-digit vocabulary entry.
+    """
+    order = sorted(range(len(candidates)), key=lambda i: candidates[i]["bbox"][0])
+    groups: list[list[int]] = []
+    for index in order:
+        x, y, w, h = (int(v) for v in candidates[index]["bbox"])
+        placed = False
+        for group in groups:
+            gx, gy, gw, gh = (int(v) for v in candidates[group[-1]]["bbox"])
+            if (abs((y + h / 2) - (gy + gh / 2)) <= 0.6 * max(h, gh)
+                    and 0 <= x - (gx + gw) <= gap_frac * max(h, gh)
+                    and 0.5 <= h / max(1, gh) <= 2.0):
+                group.append(index)
+                placed = True
+                break
+        if not placed:
+            groups.append([index])
+    return groups
+
+
+def _identify_recovered(gray: np.ndarray, candidates: list[dict[str, Any]],
+                        cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Name what can be named; mark the rest as removed-but-unidentified.
+
+    A candidate the recogniser cannot match to the patent's vocabulary is not
+    a reference whose text happens to be unknown -- it is a mark that was
+    removed without being identified, and the record now says so rather than
+    claiming a reference class it cannot support.
+    """
+    if not cfg.get("ocr_cc_closed_set", True) or not candidates:
+        for candidate in candidates:
+            candidate["kind"] = "unidentified_mark"
+        return candidates
+    for group in _group_adjacent(candidates):
+        boxes = [candidates[i]["bbox"] for i in group]
+        text, confidence = _read_closed_set(gray, boxes, cfg)
+        if not text:
+            for i in group:
+                candidates[i]["kind"] = "unidentified_mark"
+            continue
+        # The group spells one token: the first component carries it, the rest
+        # become its components so the token stays a single annotation.
+        head = candidates[group[0]]
+        head.update(kind="ocr_numeral" if text[0].isdigit() else "ocr_reference",
+                    ref_class=_classify_reference_token(text) or "numeral",
+                    text=text, confidence=confidence, in_vocabulary="present",
+                    matched_by="closed_set")
+        for i in group[1:]:
+            x, y, w, h = (int(v) for v in candidates[i]["bbox"])
+            head["components"].append([x, y, w, h])
+            head["ink_area"] = int(head.get("ink_area", 0)) + int(candidates[i].get("ink_area", 0))
+            hx, hy, hw, hh = (int(v) for v in head["bbox"])
+            nx0, ny0 = min(hx, x), min(hy, y)
+            nx1, ny1 = max(hx + hw, x + w), max(hy + hh, y + h)
+            head["bbox"] = [nx0, ny0, nx1 - nx0, ny1 - ny0]
+            head["centroid"] = [nx0 + (nx1 - nx0) / 2.0, ny0 + (ny1 - ny0) / 2.0]
+            candidates[i]["_absorbed"] = True
+    return [c for c in candidates if not c.pop("_absorbed", False)]
+
+
+
 def _recover_missed_numerals(
-    ink: np.ndarray, ocr_labels: list[dict[str, Any]], cfg: dict[str, Any]
+    ink: np.ndarray, ocr_labels: list[dict[str, Any]], cfg: dict[str, Any],
+    gray: np.ndarray | None = None
 ) -> list[dict[str, Any]]:
     """Recover numerals OCR missed, using the OCR hits to calibrate size.
 
@@ -1349,6 +1575,13 @@ def _recover_missed_numerals(
     for l in ocr_labels:
         x, y, bw, bh = (int(v) for v in l["bbox"])
         taken[max(0, y):y + bh, max(0, x):x + bw] = 1
+    # A box the blacklist rejected is a caption, not a reference; its letters
+    # must not come back as unknown labels through the component scan.
+    if cfg.get("ocr_cc_suppress_caption_text", True):
+        for x, y, bw, bh in _SUPPRESSED_TEXT_BOXES:
+            margin = max(2, int(0.3 * bh))
+            taken[max(0, y - margin):y + bh + margin,
+                  max(0, x - margin):x + bw + margin] = 1
     n, _lab, stats, cents = cv2.connectedComponentsWithStats(
         ink.astype(np.uint8), connectivity=8
     )
@@ -1389,7 +1622,41 @@ def _recover_missed_numerals(
         })
     # A candidate abutting a label OCR already read is the other half of that
     # token, not a second reference whose text happens to be unknown.
-    return _merge_clipped_fragments(ink, ocr_labels, out, cfg)
+    out = _merge_clipped_fragments(ink, ocr_labels, out, cfg)
+    if gray is None:
+        for candidate in out:
+            candidate["kind"] = "unidentified_mark"
+        return out
+    return _identify_recovered(gray, out, cfg)
+
+
+def _demote_out_of_vocabulary(labels: list[dict[str, Any]],
+                              cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """Drop the claim, keep the removal, when the patent never names the token.
+
+    A numeral the description does not mention is a misreading far more often
+    than a reference the drafter forgot: 92.1% of readings matching a patent's
+    numbering series are named in its text against 24.7% of those that are
+    not. Writing such a reading into the DXF asserts a correspondence between
+    a drawing feature and a description that does not exist, which is worse
+    for downstream use than asserting nothing.
+
+    So the mark is still removed and its crop still reinjected -- the ink is
+    preserved exactly as before -- but it is recorded as unidentified rather
+    than as the numeral the recogniser guessed. A missing label is recoverable
+    later; a wrong one silently corrupts the correspondence.
+    """
+    if not cfg.get("demote_out_of_vocabulary", True):
+        return labels, 0
+    demoted = 0
+    for label in labels:
+        if label.get("in_vocabulary") != "absent":
+            continue
+        label.update(kind="unidentified_mark", text="", ref_class=None,
+                     demoted_from=label.get("text") or None,
+                     demoted_reason="not_in_description")
+        demoted += 1
+    return labels, demoted
 
 
 def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
@@ -1399,7 +1666,7 @@ def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, A
     if cfg.get("use_ocr") and _ocr_available():
         labels = _ocr_reference_labels(gray, cfg)
         if labels:
-            labels = labels + _recover_missed_numerals(ink, labels, cfg)
+            labels = labels + _recover_missed_numerals(ink, labels, cfg, gray)
         if labels and cfg.get("ocr_leaders", True):
             _trace_ocr_leaders(gray, labels, cfg)
         # Precision gate: bare acronyms (SSG, PSG, BO) are the riskiest reference
@@ -1409,6 +1676,7 @@ def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, A
         if cfg.get("ocr_acronym_require_leader", True):
             labels = [lab for lab in labels
                       if lab.get("ref_class") != "acronym" or lab.get("leader_lines")]
+        labels, n_demoted = _demote_out_of_vocabulary(labels, cfg)
         n_leadered = sum(1 for lab in labels if lab.get("leader_lines"))
         mask = (_build_removal_mask((h, w), labels, cfg) if labels
                 else np.zeros((h, w), np.uint8))
@@ -1423,6 +1691,7 @@ def _detect_reference_pass(gray: np.ndarray, cfg: dict[str, Any]) -> dict[str, A
             "ink": ink, "background": background, "labels": labels,
             "n_clusters": len(labels), "n_leadered_labels": n_leadered,
             "n_unleadered_labels": len(labels) - n_leadered, "n_figure_labels": 0,
+            "n_demoted_labels": n_demoted,
             "mask": mask, "removed_ink": removed_ink, "total_ink": total_ink,
             "removed_ratio": removed_ratio, "flagged": flagged, "reason": reason,
         }
@@ -1617,6 +1886,8 @@ def run(
     """
     t_start = time.perf_counter()
     cfg = _stage0_cfg(config)
+    _SUPPRESSED_TEXT_BOXES.clear()          # per figure, never across figures
+    set_reference_vocabulary(_load_vocabulary(input_path, cfg))
     strict_models = bool((config or {}).get("pipeline", {}).get("deployment", {}).get("strict_models", False))
     if strict_models and cfg.get("use_ocr") and not _ocr_available():
         raise RuntimeError("Canonical deployment requires EasyOCR; classical reference fallback is disabled.")
@@ -1809,6 +2080,7 @@ def annotations_from_reference_json(references_json_path: Path) -> list[dict[str
             "crop_bbox": ref.get("crop_bbox"),
             "image_path": ref.get("crop_path"),
             "kind": ref.get("kind", ""),
+            "in_vocabulary": ref.get("in_vocabulary", "unknown"),
             "removal_mode": ref.get("removal_mode", ""),
             "leader_lines": [
                 {
