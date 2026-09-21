@@ -82,26 +82,44 @@ def _covered_fraction(points: np.ndarray, tree: cKDTree, tolerance: float) -> fl
     return float((tree.query(points)[0] <= tolerance).mean())
 
 
+# What Stage 0 removes on purpose. Never counted as missed geometry.
+TEXT_LAYERS = ("reference_numeral", "text", "text_box")
+# Annotation geometry: arrowheads, dimension lines, leaders. Excluded from the
+# fidelity target on the owner's decision of 2026-09-21 -- the downstream use
+# learns drawing geometry, not dimensioning -- and reported separately so the
+# 67-71% recall there stays visible rather than hidden inside the headline.
+ANNOTATION_LAYERS = ("arrowhead", "dimension", "leader", "diagram_connector")
+
+
 def score(truth: dict, primitives: list[dict], *, tolerance: float = 3.0,
           overlap: float = 0.80, step: float = 1.0,
-          drop_layers: tuple = ("reference_numeral", "text", "text_box")) -> dict:
-    """Precision and recall over one sheet.
+          recall_layers_dropped: tuple = TEXT_LAYERS + ANNOTATION_LAYERS,
+          support_layers_dropped: tuple = TEXT_LAYERS) -> dict:
+    """Precision and recall over one sheet, with two different truth sets.
 
-    Reference numerals and captions are excluded from the ground truth: Stage 0
-    removes them deliberately, so counting them as missed geometry would score
-    the pipeline down for doing its job.
+    Recall is scored against drawing geometry only: an arrowhead the pipeline
+    missed is not a failure under the chosen target. Precision is scored
+    against everything that was drawn except text: an arrowhead the pipeline
+    reconstructed is real ink, not an invention, and penalising it would make
+    the pipeline look worse for doing more. Using one truth set for both --
+    the first version of this policy -- dropped precision from 0.95 to 0.71
+    for exactly that reason.
     """
     canvas = truth.get("canvas") or [1024, 1024]
     scale = float(canvas[0])
-    truth_samples, truth_types = [], []
+    recall_samples, recall_types, support_samples = [], [], []
     for primitive in truth.get("primitives_visible") or []:
         semantic = primitive.get("semantic") or primitive.get("semantic_layer")
-        if semantic in drop_layers or (primitive.get("kind") or "") == "text":
+        if (primitive.get("kind") or "") == "text":
             continue
         points = _sample_truth(primitive, scale, step)
-        if points is not None and len(points) >= 2:
-            truth_samples.append(points)
-            truth_types.append(semantic or primitive.get("kind") or "unknown")
+        if points is None or len(points) < 2:
+            continue
+        if semantic not in support_layers_dropped:
+            support_samples.append(points)
+        if semantic not in recall_layers_dropped:
+            recall_samples.append(points)
+            recall_types.append(semantic or primitive.get("kind") or "unknown")
     fitted_samples = []
     for primitive in primitives:
         try:
@@ -112,26 +130,28 @@ def score(truth: dict, primitives: list[dict], *, tolerance: float = 3.0,
             fitted_samples.append(np.asarray(sampled, float))
 
     fitted_tree = cKDTree(np.vstack(fitted_samples)) if fitted_samples else None
-    truth_tree = cKDTree(np.vstack(truth_samples)) if truth_samples else None
+    support_tree = cKDTree(np.vstack(support_samples)) if support_samples else None
 
-    found = [_covered_fraction(p, fitted_tree, tolerance) >= overlap for p in truth_samples]
-    supported = [_covered_fraction(p, truth_tree, tolerance) >= overlap for p in fitted_samples]
+    found = [_covered_fraction(p, fitted_tree, tolerance) >= overlap for p in recall_samples]
+    supported = [_covered_fraction(p, support_tree, tolerance) >= overlap for p in fitted_samples]
     recall = float(np.mean(found)) if found else float("nan")
     precision = float(np.mean(supported)) if supported else float("nan")
     f1 = (2 * precision * recall / (precision + recall)
           if precision + recall > 0 and not math.isnan(precision + recall) else float("nan"))
 
     by_type = collections.defaultdict(lambda: [0, 0])
-    for kind, hit in zip(truth_types, found):
+    for kind, hit in zip(recall_types, found):
         by_type[kind][0] += int(hit)
         by_type[kind][1] += 1
     return {
-        "truth_primitives": len(truth_samples), "fitted_primitives": len(fitted_samples),
+        "truth_primitives": len(recall_samples), "fitted_primitives": len(fitted_samples),
         "recall": recall, "precision": precision, "f1": f1,
         "missed": int(sum(1 for f in found if not f)),
         "unsupported": int(sum(1 for s in supported if not s)),
         "recall_by_type": {k: {"found": v[0], "total": v[1]} for k, v in sorted(by_type.items())},
-        "policy": {"tolerance": tolerance, "overlap": overlap, "step": step},
+        "policy": {"tolerance": tolerance, "overlap": overlap, "step": step,
+                   "recall_excludes": list(recall_layers_dropped),
+                   "support_excludes": list(support_layers_dropped)},
     }
 
 
@@ -143,7 +163,10 @@ def main() -> int:
     ap.add_argument("--tolerance", type=float, default=3.0)
     ap.add_argument("--overlap", type=float, default=0.80)
     ap.add_argument("--output", type=Path)
+    ap.add_argument("--include-annotations", action="store_true",
+                    help="score arrowheads, dimensions and leaders too (the pre-2026-09-21 target)")
     args = ap.parse_args()
+    recall_drop = TEXT_LAYERS if args.include_annotations else TEXT_LAYERS + ANNOTATION_LAYERS
 
     rows = []
     for primitives_path in sorted(args.run.glob("*/primitives/*_primitives.json")):
@@ -154,7 +177,8 @@ def main() -> int:
         truth = json.loads(truth_path.read_text())
         document = json.loads(primitives_path.read_text())
         result = score(truth, document.get("primitives") or [],
-                       tolerance=args.tolerance, overlap=args.overlap)
+                       tolerance=args.tolerance, overlap=args.overlap,
+                       recall_layers_dropped=recall_drop)
         result["sample_id"] = sample_id
         result["difficulty"] = truth.get("difficulty")
         rows.append(result)

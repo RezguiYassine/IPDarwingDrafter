@@ -1,0 +1,65 @@
+{
+  "question": "can the IPC classification in the patent XML stand in for image labels",
+  "coverage": "158 of 158 curated patents carry an IPC code",
+  "rules_on_the_158": [
+    {
+      "rule": "first section in B/F",
+      "keeps": 55,
+      "drawings": 45,
+      "non_drawings": 10,
+      "precision": 0.818,
+      "recall_of_drawings": 0.45
+    },
+    {
+      "rule": "any section in B/F",
+      "keeps": 63,
+      "precision": 0.81,
+      "recall_of_drawings": 0.51
+    },
+    {
+      "rule": "first section in A/B/E/F",
+      "keeps": 84,
+      "precision": 0.798,
+      "recall_of_drawings": 0.67
+    },
+    {
+      "rule": "no section in C/G/H",
+      "keeps": 75,
+      "precision": 0.8,
+      "recall_of_drawings": 0.6
+    }
+  ],
+  "what_B_F_lets_through": {
+    "block_diagram": 4,
+    "plot_or_chart": 4,
+    "shaded_render_or_photo": 1,
+    "other": 1
+  },
+  "what_B_F_discards": {
+    "accepted drawings by first section": {
+      "A": 14,
+      "E": 8,
+      "G": 13,
+      "H": 18,
+      "C": 1,
+      "D": 1
+    }
+  },
+  "corpus": {
+    "patents_with_a_drawing_figure": 15606,
+    "first_section": {
+      "A": 2513,
+      "B": 2765,
+      "C": 1102,
+      "D": 175,
+      "E": 501,
+      "F": 1889,
+      "G": 2894,
+      "H": 3767
+    },
+    "B_plus_F": 4654,
+    "share": 0.298
+  },
+  "verdict": "A PRIOR, NOT AN AUTHORITY. It raises the drawing rate of the pool from ~71% (corpus filter) to ~82% and cuts it to 4654 patents, but 82% is far from the 98% an automated authority needs, and the rule discards 31 good drawings in G/H (electrical) for every 45 it keeps. It narrows where to label; it does not replace labelling.",
+  "owner_decision": "mechanical-only subset by IPC section, plus ~1000 hand labels inside it"
+}

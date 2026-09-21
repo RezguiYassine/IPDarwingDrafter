@@ -1,0 +1,64 @@
+{
+  "question": "does max_edges=2500 protect anything, or reject figures the pipeline handles",
+  "why_synthesis_could_not_answer": {
+    "synthetic_max_edges_reached": 714,
+    "levers_measured": {
+      "four_figure+very_hard+canvas2048": "96->450 (4.5x)",
+      "gap_budget_6": "->516",
+      "gap_budget_14": "->680 (1.5x)"
+    },
+    "verdict": "diminishing returns 3.7x short of the gate; real 2500+ figures carry dense hatching and fine detail the compositor cannot produce"
+  },
+  "gate_off_run": {
+    "cohort": "106 real figures gated by edge count alone (isolation<=0.3), 2508 to 52785 edges",
+    "config": "config_nogate_edges.yaml",
+    "executed": 91,
+    "geometry_pass_of_executed": 76,
+    "gated_at_stage3_by_max_primitives": 14,
+    "by_band": [
+      {
+        "edges": "2500-4000",
+        "n": 48,
+        "ok": 44,
+        "geometry_pass": 37,
+        "median_time_s": 210
+      },
+      {
+        "edges": "4000-8000",
+        "n": 38,
+        "ok": 28,
+        "geometry_pass": 23,
+        "median_time_s": 198
+      },
+      {
+        "edges": "8000-20000",
+        "n": 16,
+        "ok": 16,
+        "geometry_pass": 13,
+        "median_time_s": 47
+      },
+      {
+        "edges": "20000-60000",
+        "n": 4,
+        "ok": 3,
+        "geometry_pass": 3,
+        "median_time_s": 93
+      }
+    ],
+    "readings": [
+      "geometry validity does not degrade with edge count: 84%, 82%, 81%, 3/3",
+      "runtime is not the justification: the 8-20k band runs 4x faster than 2.5-4k",
+      "max_primitives (50000) catches the 14 genuinely oversized cases on its own, including the 52785-edge figure; the audit called it dormant, it was shadowed"
+    ],
+    "cost_of_the_gate": "10.6% of the corpus (106 per 1000 in the F1 dry run)"
+  },
+  "decision": {
+    "by": "owner, 2026-09-21, on a 7-figure montage from 2995 to 31307 edges",
+    "outcome": "max_edges: null in config_deploy.yaml and config_deploy_gpu.yaml; max_primitives is the sole budget guard"
+  },
+  "identity_after": {
+    "config_deploy": "b58dc20d61976942",
+    "config_deploy_gpu": "453246905b9a62a6",
+    "implementation": "d90ad439c7426980"
+  }
+}

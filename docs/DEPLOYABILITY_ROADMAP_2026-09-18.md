@@ -1,3 +1,6 @@
+> **Superseded on 2026-09-21 by `DEPLOYABILITY_ROADMAP_2026-09-21.md`.** Kept as the
+> record of what was planned; Section 3 of the successor lists what this version got wrong.
+
 # Roadmap to a Deployable Vectorization Pipeline
 
 Status: proposal, 2026-09-18. Supersedes the "next steps" sections of

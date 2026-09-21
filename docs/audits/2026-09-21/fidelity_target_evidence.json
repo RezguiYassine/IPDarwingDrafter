@@ -1,0 +1,22 @@
+{
+  "decision": "owner, 2026-09-21: the downstream use learns drawing geometry, not dimensioning; arrowheads, dimension lines, leaders and connectors leave the recall target",
+  "first_implementation_was_wrong": {
+    "what": "dropped annotation layers from the single truth set",
+    "effect": "precision fell 0.951 -> 0.715 because every correctly reconstructed arrowhead now counted as invented",
+    "fix": "two truth sets: recall against drawing layers, precision (support) against everything except text"
+  },
+  "before_annotations_in_target": {
+    "recall": 0.8977,
+    "precision": 0.951,
+    "f1": 0.9194
+  },
+  "after_drawing_only_target": {
+    "recall": 0.9565,
+    "precision": 0.951,
+    "f1": 0.9488,
+    "p10_recall": 0.8707,
+    "p10_f1": 0.8954
+  },
+  "check": "precision identical before and after, as it must be when only the recall set changes",
+  "still_reported": "recall_by_type keeps arrowhead 69.4%, dimension 67.3%, leader 70.7% visible in every report; --include-annotations restores the old target"
+}

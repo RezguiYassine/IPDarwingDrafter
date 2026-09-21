@@ -83,4 +83,7 @@ def test_canonical_config_gate_bounds_load():
     assert gate_bound(gates, "max_low_conf_ratio", None, maximum=1.0) is None
     assert gate_bound(gates, "max_primitives", None) == 50000.0
     assert gate_bound(fragmentation, "max_micro_edge_ratio", 0.5, maximum=1.0) is None
-    assert gate_bound(fragmentation, "max_edges", 5000) == 2500.0
+    # Disabled 2026-09-21 on a 106-figure gate-off run: 84% of what it rejected
+    # passed geometry validation. max_primitives is the sole budget guard.
+    assert gate_bound(fragmentation, "max_edges", 5000) is None
+    assert gate_bound(gates, "max_primitives", None) == 50000.0

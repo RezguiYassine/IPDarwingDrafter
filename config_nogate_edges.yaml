@@ -9,7 +9,7 @@ free2cad:
   weights: models/free2cad_v3_best.pth
 pipeline:
   deployment:
-    strict_models: true
+    strict_models: false
   gpu_devices:
   - 0
   - 1

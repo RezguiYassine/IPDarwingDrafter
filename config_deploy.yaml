@@ -114,7 +114,11 @@ stage1:
 stage2:
   dashed_grouping: false
   fragmentation:
-    max_edges: 2500
+    # Disabled 2026-09-21 on the owner's judgement of a 106-figure gate-off run:
+    # 91 executed, 76 passed geometry validation, and the 8-20k-edge band ran
+    # 4x faster than the 2.5-4k band. max_primitives is the sole budget guard.
+    # docs/audits/2026-09-21/max_edges_evidence.json
+    max_edges: null
     max_micro_edge_ratio: null
     max_short_edge_ratio: null
     max_unclaimed_noncycle_pixels: 100000
