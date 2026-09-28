@@ -1,0 +1,49 @@
+{
+  "policy": "perspective_is_drawing",
+  "n": 2181,
+  "cv_accuracy": 0.7913801008711601,
+  "precision_at_threshold": [
+    {
+      "threshold": 0.5,
+      "coverage": 0.6808803301237965,
+      "precision": 0.8787878787878788,
+      "n": 1485
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 0.6331957817514902,
+      "precision": 0.8928312816799421,
+      "n": 1381
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 0.5997248968363136,
+      "precision": 0.8990825688073395,
+      "n": 1308
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.5405777166437414,
+      "precision": 0.904156064461408,
+      "n": 1179
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.494268684089867,
+      "precision": 0.9146567717996289,
+      "n": 1078
+    },
+    {
+      "threshold": 0.98,
+      "coverage": 0.42090784044016505,
+      "precision": 0.9226579520697168,
+      "n": 918
+    },
+    {
+      "threshold": 0.99,
+      "coverage": 0.3493810178817056,
+      "precision": 0.9396325459317585,
+      "n": 762
+    }
+  ]
+}

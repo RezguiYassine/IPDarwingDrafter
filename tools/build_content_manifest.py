@@ -28,8 +28,17 @@ from pathlib import Path
 from tools import content_routing
 
 
-def build(session: Path, decided_by: str, authority: str) -> dict:
+def build(session: Path, decided_by: str, authority: str,
+          overlay: Path | None = None) -> dict:
     state = json.loads((session / "session.json").read_text())
+    # A revisit overlay overturns decisions from the first pass without
+    # editing it, so the original judgement stays on the record.
+    overturned = set()
+    if overlay:
+        document = json.loads(Path(overlay).read_text())
+        if document.get("schema") != "ap3-revisit-overlay-v1":
+            raise SystemExit(f"not a revisit overlay: {overlay}")
+        overturned = set(document.get("overturned_to_accept") or ())
     queue = {f"{item['patent']}/{Path(item['filename']).stem}": item
              for item in state["queue"]}
     decided_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -37,6 +46,9 @@ def build(session: Path, decided_by: str, authority: str) -> dict:
     for key, decision in sorted(state["decisions"].items()):
         if decision["status"] not in {"accept", "reject"}:
             continue
+        if key in overturned:
+            decision = {**decision, "status": "accept",
+                        "revisit": "overturned_from_" + (decision.get("reason") or "reject")}
         item = queue.get(key)
         if item is None:
             missing.append(key)
@@ -55,6 +67,7 @@ def build(session: Path, decided_by: str, authority: str) -> dict:
             "routing": "in_scope" if decision["status"] == "accept" else "out_of_scope",
             "content_class": decision.get("prior_class") or None,
             "reason": decision.get("reason") or None,
+            "revisit": decision.get("revisit"),
             "decided_by": decided_by,
             "decided_at": decided_at,
         })
@@ -81,21 +94,26 @@ def main() -> int:
                     help="who made the decisions; recorded on every entry")
     ap.add_argument("--authority", default="human_curation",
                     help="deciding authority recorded in the manifest header")
+    ap.add_argument("--overlay", type=Path,
+                    help="a revisit overlay whose overturned decisions are applied")
     args = ap.parse_args()
 
-    document = build(args.session, args.decided_by, args.authority)
+    document = build(args.session, args.decided_by, args.authority, args.overlay)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(".tmp")
     temporary.write_text(json.dumps(document, indent=2) + "\n")
     temporary.replace(args.output)
 
     counts = collections.Counter(d["routing"] for d in document["decisions"])
+    revisited = sum(1 for d in document["decisions"] if d.get("revisit"))
     reasons = collections.Counter(d["reason"] for d in document["decisions"]
                                   if d["routing"] == "out_of_scope")
     print(f"{args.output}")
     print(f"  decisions   : {len(document['decisions'])}")
     print(f"  in_scope    : {counts['in_scope']}")
     print(f"  out_of_scope: {counts['out_of_scope']}  {dict(reasons)}")
+    if revisited:
+        print(f"  overturned  : {revisited} (from a revisit overlay)")
     print(f"  sha256      : {content_routing.file_digest(args.output)}")
     # Fail loudly here rather than at acceptance time.
     content_routing.load_manifest(args.output)

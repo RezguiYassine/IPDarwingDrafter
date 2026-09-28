@@ -1,0 +1,45 @@
+{
+  "schema": "ap3-content-classifier-v1",
+  "version": "1",
+  "session": "output/PatentData/mechanical_labels",
+  "n": 2181,
+  "accuracy": 0.7689133425034388,
+  "by_margin": [
+    {
+      "margin": 0.0,
+      "covered": 1.0,
+      "accuracy": 0.7689133425034388,
+      "n": 2181
+    },
+    {
+      "margin": 0.2,
+      "covered": 0.9037138927097662,
+      "accuracy": 0.7899543378995434,
+      "n": 1971
+    },
+    {
+      "margin": 0.4,
+      "covered": 0.8106373223292068,
+      "accuracy": 0.8071266968325792,
+      "n": 1768
+    },
+    {
+      "margin": 0.6,
+      "covered": 0.6973865199449794,
+      "accuracy": 0.8330046022353714,
+      "n": 1521
+    },
+    {
+      "margin": 0.8,
+      "covered": 0.5327831270059605,
+      "accuracy": 0.878657487091222,
+      "n": 1162
+    },
+    {
+      "margin": 0.9,
+      "covered": 0.39110499770747365,
+      "accuracy": 0.895662368112544,
+      "n": 853
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "H2_demotion_at_scale": {
+    "figures": 921,
+    "labels_total": 18675,
+    "demoted": 3919,
+    "overall_rate": 0.20985274431057563,
+    "curated_cohort_rate": 0.2088650100738751,
+    "per_figure_rate": {
+      "median": 0.13043478260869565,
+      "p90": 0.6666666666666666,
+      "figures_over_50pct": 133
+    },
+    "verdict": "consistent with the curated cohort"
+  },
+  "H3_unidentified_population": {
+    "figures_scanned": 300,
+    "unidentified_marks": 3022,
+    "note": "montage written for visual check; caption fragments should be under 3%"
+  },
+  "I3_stage2_gated": {
+    "n": 49,
+    "fragmented": 21,
+    "isolation_only": 48,
+    "sample": [
+      {
+        "figure": "EP2514550B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2514550B1/EP2514550B1_F0001.tif",
+        "edges": 1146.0,
+        "median_len": 8.8,
+        "micro": 0.152,
+        "isolation": 0.492
+      },
+      {
+        "figure": "EP2527197B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2527197B1/EP2527197B1_F0001.tif",
+        "edges": 2919.0,
+        "median_len": 9.4,
+        "micro": 0.107,
+        "isolation": 0.431
+      },
+      {
+        "figure": "EP2613089B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2613089B1/EP2613089B1_F0001.tif",
+        "edges": 1032.0,
+        "median_len": 8.8,
+        "micro": 0.264,
+        "isolation": 0.568
+      },
+      {
+        "figure": "EP2691292B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2691292B1/EP2691292B1_F0001.tif",
+        "edges": 3145.0,
+        "median_len": 7.8,
+        "micro": 0.385,
+        "isolation": 0.571
+      },
+      {
+        "figure": "EP2154382B1/F0002",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2154382B1/EP2154382B1_F0002.tif",
+        "edges": 5601.0,
+        "median_len": 2.0,
+        "micro": 0.651,
+        "isolation": 0.762
+      },
+      {
+        "figure": "EP2778042B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2778042B1/EP2778042B1_F0001.tif",
+        "edges": 1470.0,
+        "median_len": 6.2,
+        "micro": 0.461,
+        "isolation": 0.505
+      },
+      {
+        "figure": "EP2857348B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2857348B1/EP2857348B1_F0001.tif",
+        "edges": 250.0,
+        "median_len": 181.0,
+        "micro": 0.138,
+        "isolation": 0.302
+      },
+      {
+        "figure": "EP2896489B1/F0001",
+        "path": "/home/safe/Desktop/yassine/Vectorization/data/PatentData/ReorganisedData/EP2896489B1/EP2896489B1_F0001.tif",
+        "edges": 1797.0,
+        "median_len": 7.0,
+        "micro": 0.358,
+        "isolation": 0.429
+      }
+    ]
+  }
+}

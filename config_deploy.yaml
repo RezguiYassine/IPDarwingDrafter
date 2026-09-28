@@ -13,11 +13,12 @@ pipeline:
   log_level: INFO
   quality_gates:
     enabled: true
-    gate_policy_version: 2026-09-15.1
-    max_low_conf_ratio: null
-    max_low_conf_ratio_after_hachure: null
+    # max_low_conf_ratio and its hachure-relaxed twin were removed on
+    # 2026-09-28: Stage-3 confidence correlates 0.05 with true F1 and is
+    # 0.854 vs 0.868 between the worst and best fifty sheets. A dead gate
+    # left in the file invites someone to switch it back on.
+    gate_policy_version: 2026-09-28.1
     max_primitives: 50000
-    min_hachure_edges_for_low_conf_relax: 20
     stop_on_stage1: true
     stop_on_stage2: true
   resume: true

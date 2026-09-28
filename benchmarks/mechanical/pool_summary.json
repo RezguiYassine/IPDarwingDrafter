@@ -1,0 +1,30 @@
+{
+  "sections_kept": "BF",
+  "patents_considered": 15606,
+  "first_section_counts": {
+    "A": 2513,
+    "B": 2765,
+    "C": 1102,
+    "D": 175,
+    "E": 501,
+    "F": 1889,
+    "G": 2894,
+    "H": 3767
+  },
+  "pool_size": 4654,
+  "schema": "ap3-ipc-pool-v1",
+  "version": "1",
+  "curated_check": {
+    "kept": {
+      "accept": 45,
+      "reject": 10
+    },
+    "dropped": {
+      "reject": 48,
+      "accept": 55
+    },
+    "precision_of_pool": 0.8181818181818182,
+    "recall_of_drawings": 0.45,
+    "note": "precision is the drawing rate a labeller would meet inside the pool; recall is the share of real drawings the rule keeps"
+  }
+}

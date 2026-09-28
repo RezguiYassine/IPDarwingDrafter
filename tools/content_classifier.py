@@ -66,25 +66,39 @@ def embed(paths: list[Path], device: str = "cuda:0", batch: int = 32) -> np.ndar
     return np.vstack(out) if out else np.zeros((0, 512), np.float32)
 
 
-def load_labels(session: Path) -> tuple[list[Path], np.ndarray, list[str]]:
-    """Curated decisions: accept -> in scope, reject -> out of scope."""
-    decisions = {}
-    for row in csv.DictReader(open(session / "curation_decisions.csv")):
-        if row["status"] in {"accept", "reject"}:
-            decisions[(row["patent"], row["sketch_id"])] = row["status"] == "accept"
-    paths, labels, keys = [], [], []
-    manifest = json.loads((session / "content_decisions.json").read_text())
-    for entry in manifest["decisions"]:
-        key = (entry["patent_id"], entry["sketch_id"])
-        if key not in decisions:
+def load_labels(session: Path, *, perspective_is_drawing: bool = False
+                ) -> tuple[list[Path], np.ndarray, list[str], list[str]]:
+    """Read a curate_pilot session: accept -> in scope, reject -> out of scope.
+
+    Works from session.json, which carries every figure's path, so it reads
+    both the original curated set and later sessions without a separate
+    content manifest.
+
+    `perspective_is_drawing` reclassifies the shaded_render_or_photo rejects
+    as in scope. On the mechanical session those are not photographs but
+    perspective and isometric line art -- motorcycles, aircraft, exploded
+    assemblies -- with an ink fraction of 0.045 against 0.052 for accepted
+    drawings. Whether they belong in the corpus is a policy choice, so both
+    readings can be trained and compared rather than one being assumed.
+    """
+    state = json.loads((session / "session.json").read_text())
+    by_key = {f"{item['patent']}/{Path(item['filename']).stem}": item for item in state["queue"]}
+    paths, labels, keys, reasons = [], [], [], []
+    for key, decision in state["decisions"].items():
+        if decision["status"] not in {"accept", "reject"}:
             continue
-        source = Path(entry["source_path"])
-        if not source.is_file():
+        item = by_key.get(key)
+        if item is None or not Path(item["path"]).is_file():
             continue
-        paths.append(source)
-        labels.append(decisions[key])
-        keys.append(f"{key[0]}/{key[1]}")
-    return paths, np.array(labels, bool), keys
+        reason = decision.get("reason") or ""
+        in_scope = decision["status"] == "accept"
+        if perspective_is_drawing and reason == "shaded_render_or_photo":
+            in_scope = True
+        paths.append(Path(item["path"]))
+        labels.append(in_scope)
+        keys.append(key)
+        reasons.append(reason)
+    return paths, np.array(labels, bool), keys, reasons
 
 
 def _fit(features: np.ndarray, labels: np.ndarray, seed: int = 0):
@@ -131,9 +145,19 @@ def main() -> int:
     ap.add_argument("--model", type=Path, default=Path("models/content_classifier_v1.npz"))
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--evidence", type=Path)
+    ap.add_argument("--extra-session", type=Path, action="append", default=[],
+                    help="additional curate_pilot session directories to train on")
+    ap.add_argument("--perspective-is-drawing", action="store_true",
+                    help="treat shaded_render_or_photo rejects as in scope")
     args = ap.parse_args()
 
-    paths, labels, keys = load_labels(args.session)
+    paths, labels, keys, _ = load_labels(args.session,
+                                         perspective_is_drawing=args.perspective_is_drawing)
+    for extra in args.extra_session:
+        p2, l2, k2, _ = load_labels(extra, perspective_is_drawing=args.perspective_is_drawing)
+        paths += p2
+        labels = np.concatenate([labels, l2])
+        keys += k2
     print(f"labelled figures: {len(paths)}  in scope {int(labels.sum())}  "
           f"out of scope {int((~labels).sum())}")
     features = embed(paths, args.device)

@@ -22,7 +22,7 @@ import stage4_export  # noqa: E402
 
 SCHEMA = "ap3-source-geometry-v1"
 VALIDATOR = "source_supported_geometry"
-VERSION = "4"
+VERSION = "5"
 
 
 @dataclass(frozen=True)
@@ -440,7 +440,16 @@ def validate(graph, document, skeleton=None, policy=POLICY):
             y, x = np.nonzero(skeleton)
             raster = np.column_stack([x, y]) * scale
             model = np.vstack(models)
-            precision = _distances(cKDTree(raster).query(model)[0], policy)
+            precision_distances = cKDTree(raster).query(model)[0]
+            # Same treatment the recall side received: a lone stray sample is
+            # not geometry drawn off the skeleton, a connected run of them is.
+            off = model[precision_distances > policy.tolerance]
+            stray = np.zeros(skeleton.shape, bool)
+            if len(off):
+                columns = np.clip(np.rint(off[:, 0] / scale).astype(int), 0, skeleton.shape[1] - 1)
+                rows = np.clip(np.rint(off[:, 1] / scale).astype(int), 0, skeleton.shape[0] - 1)
+                stray[rows, columns] = True
+            precision = _distances(precision_distances, policy, mask=stray)
             raster_checks = [_distance_check(precision, "geometry_output_off_skeleton", policy)]
             raster_metrics = {"model_to_skeleton": precision}
             if len(models) == len(primitives):
