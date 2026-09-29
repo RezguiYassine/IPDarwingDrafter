@@ -14,7 +14,7 @@ from tools import content_routing, geometry_validation
 
 
 SCHEMA = "ap3-acceptance-v1"
-POLICY_VERSION = "2026-09-19.1"
+POLICY_VERSION = "2026-09-29.1"
 REQUIRED_CHECKS = {"execution", "stage_flags", "deployment", "artifacts", "exports",
                    "references", "hachures", "content", "geometry"}
 ROW_FIELDS = ("patent_id", "sketch_id", "input_path", "status", "error",
@@ -122,7 +122,7 @@ def _check_references(references: dict, document: dict, bind) -> dict:
         for key in ("id", "text", "position", "bbox", "crop_bbox", "ref_class", "confidence"):
             if reference.get(key) != annotation.get(key):
                 return _check("error", "reference_annotation_mismatch")
-        leaders = [{k: leader.get(k) for k in ("p1", "p2", "leader_to")}
+        leaders = [{k: leader.get(k) for k in ("p1", "p2", "leader_to", "path")}
                    for leader in reference.get("leader_lines", []) if leader.get("removed", True)]
         if leaders != annotation.get("leader_lines", []):
             return _check("error", "reference_leader_mismatch")

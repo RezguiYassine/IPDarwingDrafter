@@ -531,11 +531,20 @@ def _export_svg(data: dict, out_path: Path,
                 p1, p2 = leader.get("p1"), leader.get("p2")
                 if not p1 or not p2:
                     raise ValueError("Missing reference leader endpoints")
-                geometry.add(dwg.line(
-                    start=(float(p1[0]), float(p1[1])),
-                    end=(float(p2[0]), float(p2[1])),
-                    stroke="black", stroke_width=0.7,
-                ))
+                path = leader.get("path")
+                if path and len(path) >= 2:
+                    # The leader as drawn, bends included; a chord here would
+                    # sit beside the curve the drawing actually shows.
+                    geometry.add(dwg.polyline(
+                        points=[(float(x), float(y)) for x, y in path],
+                        stroke="black", stroke_width=0.7, fill="none",
+                    ))
+                else:
+                    geometry.add(dwg.line(
+                        start=(float(p1[0]), float(p1[1])),
+                        end=(float(p2[0]), float(p2[1])),
+                        stroke="black", stroke_width=0.7,
+                    ))
                 item["leaders_written"] += 1
             if not leader_lines and "leader_to" in ann:
                 x, y = ann["position"]
@@ -818,11 +827,18 @@ def _add_bezugszeichen(msp, ann: dict, image_h: float) -> None:
         p1, p2 = leader.get("p1"), leader.get("p2")
         if not p1 or not p2:
             raise ValueError("Missing reference leader endpoints")
-        msp.add_line(
-            _flip_y_point(p1, image_h),
-            _flip_y_point(p2, image_h),
-            dxfattribs={"layer": "LEADER"},
-        )
+        path = leader.get("path")
+        if path and len(path) >= 2:
+            msp.add_lwpolyline(
+                [_flip_y_point(point, image_h) for point in path],
+                dxfattribs={"layer": "LEADER"},
+            )
+        else:
+            msp.add_line(
+                _flip_y_point(p1, image_h),
+                _flip_y_point(p2, image_h),
+                dxfattribs={"layer": "LEADER"},
+            )
 
     if not leader_lines and "leader_to" in ann:
         tip = _flip_y_point(ann["leader_to"], image_h)
@@ -968,7 +984,7 @@ def _export_dxf_patent(data: dict, out_path: Path, audit: Optional[dict] = None)
             logger.warning(f"DXF patent: failed annotation {ann}: {exc}")
         entities = [entity for entity in msp[before:] if entity.is_alive]
         capture_entities(item, entities, svg=False, prefix="annotation")
-        item["leaders_written"] = sum(e.dxftype() == "LINE" for e in entities)
+        item["leaders_written"] = sum(e.dxftype() in ("LINE", "LWPOLYLINE") for e in entities)
         if any(e.dxftype() == "MTEXT" for e in entities):
             item["label"] = "text"
         finish_annotation(item, ann)

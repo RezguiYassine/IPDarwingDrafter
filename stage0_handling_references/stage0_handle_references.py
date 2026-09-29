@@ -848,6 +848,8 @@ def _build_reference_doc(
                 "segment_distance": _json_num(leader.get("segment_distance", 0.0)),
                 "match_type": leader.get("match_type", "endpoint"),
                 "removed": bool(leader.get("removed", True)),
+                "path": ([[_json_num(v) for v in point] for point in leader["path"]]
+                         if leader.get("path") else None),
             })
         references.append({
             "id": ref_id,
@@ -897,6 +899,42 @@ def _build_reference_doc(
     }
 
 
+def _simplify_path(points: list, epsilon: float = 1.0) -> list[list[float]]:
+    """Douglas-Peucker a traced skeleton path down to the vertices that matter.
+
+    A straight leader collapses to its two endpoints, so storing the path costs
+    nothing where the chord was already right; a curved one keeps the bends
+    the chord threw away.
+    """
+    array = np.asarray(points, np.float32).reshape(-1, 1, 2)
+    if len(array) <= 2:
+        return [[round(float(x), 1), round(float(y), 1)] for x, y in array.reshape(-1, 2)]
+    simplified = cv2.approxPolyDP(array, epsilon, False).reshape(-1, 2)
+    return [[round(float(x), 1), round(float(y), 1)] for x, y in simplified]
+
+
+def _trim_path_end(points: list, trim: float) -> list:
+    """Shorten a polyline by `trim` pixels measured back from its last point.
+
+    The chord mask trims its tip so the removal stops short of the feature the
+    leader points at; the path mask must stop at the same place.
+    """
+    if trim <= 0 or len(points) < 2:
+        return [list(point) for point in points]
+    out = [list(point) for point in points]
+    remaining = float(trim)
+    while len(out) >= 2 and remaining > 0:
+        (ax, ay), (bx, by) = out[-2], out[-1]
+        segment = math.hypot(bx - ax, by - ay)
+        if segment > remaining:
+            ratio = (segment - remaining) / segment
+            out[-1] = [ax + (bx - ax) * ratio, ay + (by - ay) * ratio]
+            return out
+        remaining -= segment
+        out.pop()
+    return out
+
+
 def _build_removal_mask(
     image_shape: tuple[int, int],
     labels: list[dict[str, Any]],
@@ -913,6 +951,24 @@ def _build_removal_mask(
         if not include_leaders:
             continue
         for leader in label.get("leader_lines", []):
+            path = leader.get("path")
+            if path and len(path) >= 2:
+                # Mask the ink the leader actually follows. A straight chord
+                # between the endpoints misses a curved leader, the curve
+                # survives into Stage 2, and Stage 4 then draws a straight
+                # leader beside it -- the ghost line of the release-1 audit.
+                trim = 0.0 if leader.get("mask_full_segment", False) else float(
+                    cfg.get("leader_tip_trim", 0) or 0)
+                trimmed = _trim_path_end(path, trim)
+                if len(trimmed) >= 2:
+                    cv2.polylines(
+                        mask,
+                        [np.round(np.asarray(trimmed, float)).astype(np.int32).reshape(-1, 1, 2)],
+                        isClosed=False, color=255,
+                        thickness=int(cfg["leader_mask_thickness"]),
+                        lineType=cv2.LINE_AA,
+                    )
+                continue
             if leader.get("mask_full_segment", False):
                 start_raw = leader["p1"]
                 tip_raw = leader["p2"]
@@ -1345,8 +1401,11 @@ def _trace_ocr_leaders(gray: np.ndarray, labels: list[dict[str, Any]],
             p = best[0]
             p1 = [float(p[0][0] + x0), float(p[0][1] + y0)]
             p2 = [float(p[-1][0] + x0), float(p[-1][1] + y0)]
+            # The walk above followed the leader's ink, bends included. Keep
+            # it: the endpoints alone describe only the chord.
+            traced = _simplify_path([(q[0] + x0, q[1] + y0) for q in p])
             lab.setdefault("leader_lines", []).append({
-                "p1": p1, "p2": p2,
+                "p1": p1, "p2": p2, "path": traced,
                 "label_endpoint": p1, "leader_to": p2,
                 "length": float(best[1]),
                 "angle_deg": _angle_deg(tuple(p1), tuple(p2)),
@@ -2121,6 +2180,7 @@ def annotations_from_reference_json(references_json_path: Path) -> list[dict[str
                     "p1": leader.get("p1"),
                     "p2": leader.get("p2"),
                     "leader_to": leader.get("leader_to"),
+                    "path": leader.get("path"),
                 }
                 for leader in leaders
             ],

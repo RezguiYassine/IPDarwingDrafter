@@ -1,0 +1,83 @@
+{
+ "schema": "ap3-evidence-v1",
+ "date": "2026-09-29",
+ "phase": "L (L1-L3)",
+ "question": "Does masking and reinjecting the traced path remove curved leaders and their ghosts, without costing acceptance?",
+ "sample": "benchmarks/mechanical/leader_validation_250.csv -- the first 250 reference documents of release 1, sorted",
+ "runs": {
+  "release_1": "output/RELEASE_2026-09-28",
+  "phase_L": "output/PhaseL_validation (config_release_2026-09-28.yaml, GPU 1 only)"
+ },
+ "instrument": "tools/leader_audit.py: each leader's true path re-derived from source ink (shortest skeleton path between its recorded ends); ink_left = share of that path still ink after removal; geometry_along = share of it with vector geometry within 3 px",
+ "release_1": {
+  "leaders": 2565,
+  "curved_share": 0.339,
+  "curved": {
+   "n": 869,
+   "ink_left_median": 0.674,
+   "ink_left_mean": 0.653,
+   "leaders_with_over_half_left": 717,
+   "ghost_median": 0.724,
+   "leaders_with_ghost": 743
+  },
+  "straight": {
+   "n": 1402,
+   "ink_left_median": 0.033,
+   "ink_left_mean": 0.053,
+   "leaders_with_over_half_left": 6,
+   "ghost_median": 0.037,
+   "leaders_with_ghost": 24
+  },
+  "leaders_with_ghost_all": 865,
+  "with_stored_path": 0
+ },
+ "phase_L": {
+  "leaders": 2572,
+  "curved_share": 0.34,
+  "curved": {
+   "n": 874,
+   "ink_left_median": 0.013,
+   "ink_left_mean": 0.015,
+   "leaders_with_over_half_left": 0,
+   "ghost_median": 0.013,
+   "leaders_with_ghost": 0
+  },
+  "straight": {
+   "n": 1408,
+   "ink_left_median": 0.027,
+   "ink_left_mean": 0.034,
+   "leaders_with_over_half_left": 2,
+   "ghost_median": 0.029,
+   "leaders_with_ghost": 2
+  },
+  "leaders_with_ghost_all": 3,
+  "with_stored_path": 2572
+ },
+ "exit_criteria": {
+  "R1 ink left on curved leaders <= 10%": {
+   "release_1_mean": 0.653,
+   "phase_L_mean": 0.015,
+   "met": true
+  },
+  "R2 ghost strokes beside a leader -> 0": {
+   "release_1_leaders_with_ghost": 865,
+   "phase_L_leaders_with_ghost": 3,
+   "met_for_curved_leaders": true,
+   "note": "the 3 remaining flags are false leaders, not ghosts -- see below"
+  }
+ },
+ "acceptance": {
+  "figures": 250,
+  "identical_status_and_reason_codes_to_release_1": 250,
+  "accepted": 236,
+  "rejected": 11,
+  "review": 3
+ },
+ "false_leaders_found": {
+  "finding": "The three leaders still flagged are traces Stage 0 accepted along drawing ink. Phase L did not change which leaders are traced; it changed the damage: the mask now follows the trace instead of cutting a straight band.",
+  "EP1802892B1/F0002": "trace follows a hatched circle's arc; the arc is removed",
+  "EP2349903B1/F0001": "trace runs inside a solid black wedge; the mask carves slits into it",
+  "EP2558387B1/F0001": "trace runs inside a bold band; the mask carves slits into it",
+  "next": "a width guard -- a leader is thin ink; a trace through ink much wider than a leader is refused -- would catch two of three. The arc case needs the wandering check L4 already calls for. Both must be measured against the full leader population before shipping."
+ }
+}
