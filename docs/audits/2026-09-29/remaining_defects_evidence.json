@@ -1,0 +1,143 @@
+{
+  "date": "2026-09-29",
+  "source": "owner's K2 audit of 100 released figures (releases/2026-09-28/k2_geometry_audit.csv) plus measurements over the 1,269-figure release",
+  "audit_flags": {
+    "thick_strokes": 12,
+    "hatch_style": 2,
+    "usable": 85,
+    "unusable": 0
+  },
+  "taxonomy_of_the_12_thick_figures": {
+    "method": "source | reconstruction montage, read by eye",
+    "solid_filled_regions": {
+      "n": 4,
+      "figures": [
+        "EP3502473A1",
+        "EP3502474A1",
+        "EP3501903A1",
+        "EP3098437B1"
+      ],
+      "what": "section fill, filled handle, solid-black section hatching; skeletonized into a scribble"
+    },
+    "fine_shading_strokes": {
+      "n": 3,
+      "figures": [
+        "EP3501910A1",
+        "EP3299198B1",
+        "EP3347244B1"
+      ],
+      "what": "dense short parallel strokes shading a perspective render; vectorized as a mass"
+    },
+    "thick_outlines_proper": {
+      "n": 3,
+      "figures": [
+        "EP3305527B1",
+        "EP3492222A1",
+        "EP3495168A1"
+      ],
+      "what": "bold frame or cable; skeleton yields a thin line or a double edge -- tolerable"
+    },
+    "note": "the two 'hatch style' audit figures are wide diagonal bands (EP3492282A1, EP2889159B1); a solid section fill is a band at 100% duty, so issues 1 and 2 are one family"
+  },
+  "corpus_sizing_proxies": {
+    "method": "distance transform and component shape over all 1,269 released figures; proxies, not detectors",
+    "filled_blob_ge_5000px": {
+      "n": 26,
+      "share": 0.02
+    },
+    "filled_blob_ge_2000px": {
+      "n": 54,
+      "share": 0.043
+    },
+    "ink_share_ge_10px_wide_over_10pct": {
+      "n": 34,
+      "share": 0.027
+    },
+    "bold_bands_ge_15": {
+      "n": 39,
+      "share": 0.031
+    },
+    "bold_bands_ge_5": {
+      "n": 318,
+      "share": 0.251,
+      "note": "too loose; ordinary drawings carry a few thick short strokes"
+    },
+    "parallel_thin_strokes_ge_40": {
+      "n": 37,
+      "share": 0.029
+    },
+    "reading": "each sub-defect sits at 2-4%; with overlaps that matches the audit's 12%"
+  },
+  "hatch_detector_on_the_styles": {
+    "metric": "HatchUNet predicted-hatch share of ink, threshold 0.7",
+    "bold_band_figures_ge15": {
+      "n": 12,
+      "median": 0.054,
+      "max": 0.809
+    },
+    "shading_figures_ge40": {
+      "n": 12,
+      "median": 0.093,
+      "max": 0.679
+    },
+    "audit_hatch_figures": {
+      "n": 2,
+      "median": 0.344,
+      "max": 0.439
+    },
+    "control_ordinary_figures": {
+      "n": 12,
+      "median": 0.285,
+      "max": 0.698,
+      "note": "controls carry normal thin hatching the detector correctly finds"
+    },
+    "reading": "blind on most bold-band and shading figures (5-9% vs 28% on ordinary hatch); on the two audit figures it fired substantially yet the bands still exported as outlines"
+  },
+  "removal_side_failure": {
+    "EP2889159B1": {
+      "s2_edges": 790,
+      "hachure_edges_removed": 27708,
+      "hatch_primitives": 881
+    },
+    "EP3492282A1": {
+      "s2_edges": 264,
+      "hachure_edges_removed": 325,
+      "hatch_primitives": 29
+    },
+    "reading": "detection and removal both fired; the remover is built for thin line strokes and a wide band's boundary is not one, so the band survives as an outline. There is no filled-region primitive anywhere in Stage 3 or 4 -- the only fill in the SVG writer is text."
+  },
+  "ghost_leaders": {
+    "removed_leaders_measured": 2611,
+    "straight_chord_ge_90pct_on_ink": {
+      "share": 0.538,
+      "ink_left_after_removal_median": 0.0
+    },
+    "curved_chord_lt_60pct_on_ink": {
+      "share": 0.349,
+      "ink_left_after_removal_median": 0.75
+    },
+    "mechanism": "_trace_ocr_leaders walks the skeleton path, then stores only p1/p2; _build_removal_mask draws cv2.line(p1,p2) -- a straight chord; Stage 4 add_line(p1,p2). The curve escapes the chord mask, Stage 2 vectorizes the surviving ink, Stage 4 reinjects a straight leader beside it.",
+    "straightness_cut": {
+      "ocr_leader_straightness": 0.8,
+      "effect": "leaders curved beyond it are not traced at all: no ghost, but the leader ink stays as geometry and the numeral is recorded without a leader"
+    },
+    "identified_labels_without_a_leader": {
+      "n": 5268,
+      "of": 15144,
+      "share": 0.348,
+      "note": "mixes numerals that genuinely have no leader with those whose leader was too curved; not separable without inspection"
+    }
+  },
+  "tooling_for_the_fix": {
+    "hatch_ground_truth": "output/PatentData/hatch_gt: 268 *_mask.json figures, freehand polygons",
+    "labeller": "tools/hatch_mask_label.py draws true hatch areas directly, so it captures styles the detector misses; tools/hatch_label.py only judges detector proposals and would not",
+    "trainer": "tools/hatch_train_cnn.py --gt <dir>; shipped model was lr 3e-4, pos_weight 3.0, test IoU 0.816 on the original styles",
+    "existing_primitives": "polygon exists (unfilled); DXF native hatch type exists; no fill attribute"
+  },
+  "owner_decisions_2026_09_29": {
+    "filled_regions": "filled polygon: SVG fill, DXF SOLID hatch",
+    "shading_strokes": "remove like hatching; detector retrained on the style",
+    "curved_leaders": "reinject as the traced path, a polyline",
+    "labelling": "owner will label ~40 figures by hatch style with hatch_mask_label"
+  }
+}
