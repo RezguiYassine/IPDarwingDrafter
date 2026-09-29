@@ -146,3 +146,15 @@ If you want to re-train any of these models on new data, see the `research/` sub
 
 - Stage 1: [stage1_preprocessing/research/](../stage1_preprocessing/research/README.md)
 - Stage 3: [stage3_primitivesfitting/research/](../stage3_primitivesfitting/research/README.md)
+
+## Release 2026-09-28
+
+The first training corpus, 1,269 drawings, was produced under this identity.
+Changing any model below, or any file in `deployment.IMPLEMENTATION_FILES`,
+invalidates every record in it. See `docs/RELEASE_2026-09-28.md`.
+
+| | sha256 |
+| --- | --- |
+| config `config_release_2026-09-28.yaml` | `b0d50767e9a01a4129eec3273cf920b4812d829f7247be09016756d39d454bc5` |
+| implementation | `f8403d3ea69e7b5acf2cdb9302af90e9c186037876ac4a5193ab4f4330a338a8` |
+| weight manifest | `e7fdb035a6e222dbc7b135be8754a4bd7c0c2b051143e947ef039c9c5bf09af5` |

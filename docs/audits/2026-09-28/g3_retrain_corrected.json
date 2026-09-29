@@ -1,0 +1,51 @@
+{
+  "labels": 2181,
+  "in_scope": 1565,
+  "cv_accuracy": 0.7725813846859239,
+  "precision_at_threshold": [
+    {
+      "threshold": 0.5,
+      "coverage": 0.6130215497478221,
+      "precision": 0.8997756170531039,
+      "n": 1337
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 0.5644199908298946,
+      "precision": 0.9138911454102355,
+      "n": 1231
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 0.53232462173315,
+      "precision": 0.9164513350559862,
+      "n": 1161
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.46859238881247134,
+      "precision": 0.9246575342465754,
+      "n": 1022
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.41173773498395233,
+      "precision": 0.9320712694877505,
+      "n": 898
+    },
+    {
+      "threshold": 0.98,
+      "coverage": 0.33929390187987163,
+      "precision": 0.9391891891891891,
+      "n": 740
+    },
+    {
+      "threshold": 0.99,
+      "coverage": 0.28885832187070154,
+      "precision": 0.9396825396825397,
+      "n": 630
+    }
+  ],
+  "acceptance_met": false,
+  "note": "trained on labels corrected by the 2026-09-28 revisit, in which 465 of 475 shaded_render_or_photo rejections were overturned"
+}

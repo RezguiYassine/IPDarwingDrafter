@@ -618,6 +618,22 @@ def _content_reason(feats: dict[str, Any]) -> str | None:
 
 
 def _curation_reason(row: dict[str, Any], args: argparse.Namespace) -> str:
+    """Legacy selection, predating the acceptance contract.
+
+    Everything below duplicates a decision the contract now owns, and in
+    places contradicts it: `filter_label` and the `_content_reason` shape
+    heuristics are the old content filter that content routing replaced with
+    an explicit, versioned, hash-bound human decision; the edge, micro-ratio
+    and confidence bounds were recalibrated or deleted after ground truth
+    showed confidence correlates 0.05 with true fidelity; and the 10-second
+    default rejects every figure of a pipeline whose median is 24 seconds.
+
+    `--trust-acceptance` skips all of it and selects on the contract alone,
+    which is what a release should do. The path is kept for older runs whose
+    records predate the contract.
+    """
+    if args.trust_acceptance:
+        return "keep"
     status = row.get("status")
     if status != "ok":
         return f"pipeline_{status}"
@@ -736,6 +752,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-short-edge-ratio", type=float, default=0.70)
     p.add_argument("--max-low-conf-ratio", type=float, default=0.22)
     p.add_argument("--min-mean-confidence", type=float, default=0.67)
+    p.add_argument("--trust-acceptance", action="store_true",
+                   help="select on the acceptance contract alone, skipping the legacy "
+                        "content filter and threshold bounds that predate it")
     p.add_argument("--keep-ambiguous-filter", action="store_true",
                    help="Keep rows whose original filter reason was sparse_ambiguous_drawing.")
     p.add_argument(
