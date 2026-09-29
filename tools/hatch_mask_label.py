@@ -47,6 +47,8 @@ Keys (in the image window):
     r                reset all shapes on this drawing
     f / home         fit-to-view (reset zoom/pan only, shapes untouched)
     g                toggle the faint guide overlay of the detector's candidate regions
+    1 / 2 / 3 / 4    style of the shapes drawn next: thin hatching, bold bands,
+                     fine shading, solid fill (shown in the title; default thin)
     n / d            done with this drawing -- save + next (0 shapes = no hatch here)
     q                save + quit entirely
 """
