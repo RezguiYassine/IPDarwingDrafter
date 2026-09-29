@@ -74,8 +74,14 @@ _DEFAULT_TIF_ROOT = "data/PatentData/ReorganisedData"
 _DEFAULT_SELECTED_TIF_ROOT = None   # when --selected-file is used the tif path is inside the JSON
 _INSTRUCTIONS = (
     "click: vertex/circle | scroll: zoom | mid/right-drag: pan | space: mode | f: fit | "
-    "enter: close | z: undo | r: reset | g: guides | n/d: done | q: save+quit"
+    "enter: close | z: undo | r: reset | g: guides | 1-4: style | n/d: done | q: save+quit"
 )
+# Every closed shape carries the style that was current when it was closed.
+# Saved as a "styles" list parallel to "polygons", so training code that reads
+# only "polygons" is unaffected while per-style recall becomes measurable --
+# the shipped detector was only ever scored on thin regular hatching.
+_STYLES = {"1": "thin", "2": "bold", "3": "shading", "4": "solid"}
+_STYLE_COLOURS = {"thin": "lime", "bold": "orange", "shading": "magenta", "solid": "deepskyblue"}
 _SNAP_RADIUS = 10     # px, in original image coords
 _SCROLL_ZOOM = 1.2
 _CIRCLE_SIDES = 64
@@ -207,8 +213,10 @@ class _Session:
         self.show_guides = bool(self.guides)
         self.mode = "polygon"  # or "circle"
         self.polygons = []   # list of list[(x,y)]
+        self.polygon_styles = []   # parallel to polygons
         self.current = []    # list[(x,y)]
-        self.circles = []    # list of {"center": (x,y), "radius": r}
+        self.circles = []    # list of {"center": (x,y), "radius": r, "style": s}
+        self.style = "thin"
         self._circle_pending_center = None
         self._dragging_circle_idx = None
         self._drag_offset = None
@@ -218,6 +226,16 @@ class _Session:
         self._pan_start_display = None
         self._pan_start_xlim = None
         self._pan_start_ylim = None
+
+    def _close_polygon(self):
+        self.polygons.append(self.current)
+        self.polygon_styles.append(self.style)
+        self.current = []
+
+    def shape_styles(self):
+        """Styles in the same order the save path concatenates shapes:
+        polygons first, then circles."""
+        return list(self.polygon_styles) + [c.get("style", "thin") for c in self.circles]
 
     def _circle_at(self, x, y):
         """Index of the topmost (most recently drawn) circle containing (x,y), if any."""
@@ -276,13 +294,15 @@ class _Session:
                 xs = [p[0] for p in poly] + [poly[0][0]]
                 ys = [p[1] for p in poly] + [poly[0][1]]
                 self.ax.plot(xs, ys, "--", color="cyan", linewidth=1.5, alpha=0.6)
-        for poly in self.polygons:
+        for poly, style in zip(self.polygons, self.polygon_styles):
             xs = [p[0] for p in poly] + [poly[0][0]]
             ys = [p[1] for p in poly] + [poly[0][1]]
-            self.ax.plot(xs, ys, "-o", color="lime", linewidth=2, markersize=3)
+            self.ax.plot(xs, ys, "-o", color=_STYLE_COLOURS.get(style, "lime"),
+                         linewidth=2, markersize=3)
         for c in self.circles:
             self.ax.add_patch(plt.Circle(c["center"], c["radius"], fill=False,
-                                          color="lime", linewidth=2))
+                                          color=_STYLE_COLOURS.get(c.get("style"), "lime"),
+                                          linewidth=2))
         if self.current:
             xs = [p[0] for p in self.current]
             ys = [p[1] for p in self.current]
@@ -302,7 +322,8 @@ class _Session:
             g_tag = f"  guides:{'on' if self.show_guides else 'off'}"
         else:
             g_tag = ""
-        self.ax.set_title(f"{title}\nmode:{self.mode}  {n_lab} hatch area(s) marked{g_tag}  "
+        self.ax.set_title(f"{title}\nmode:{self.mode}  style:{self.style.upper()}  "
+                          f"{n_lab} hatch area(s) marked{g_tag}  "
                            f"|  {_INSTRUCTIONS}", fontsize=9)
         self.ax.figure.canvas.draw_idle()
 
@@ -320,7 +341,8 @@ class _Session:
                     r = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
                     self._circle_pending_center = None
                     if r >= _MIN_CIRCLE_RADIUS:
-                        self.circles.append({"center": (cx, cy), "radius": r})
+                        self.circles.append({"center": (cx, cy), "radius": r,
+                                             "style": self.style})
                     else:
                         print("  circle too small, discarded")
                     self.redraw(self._img, self._title)
@@ -389,8 +411,7 @@ class _Session:
             if self.mode != "polygon":
                 pass
             elif len(self.current) >= 3:
-                self.polygons.append(self.current)
-                self.current = []
+                self._close_polygon()
             else:
                 print("  need >=3 points to close a polygon")
         elif event.key in (" ", "space"):
@@ -410,9 +431,11 @@ class _Session:
                 self.circles.pop()
             elif self.polygons:
                 self.polygons.pop()
+                self.polygon_styles.pop()
         elif event.key == "r":
             self.current = []
             self.polygons = []
+            self.polygon_styles = []
             self.circles = []
             self._circle_pending_center = None
         elif event.key in ("f", "home"):
@@ -420,9 +443,12 @@ class _Session:
             return
         elif event.key == "g":
             self.show_guides = not self.show_guides
+        elif event.key in _STYLES:
+            self.style = _STYLES[event.key]
+            print(f"  style: {self.style}")
         elif event.key in ("n", "d"):
             if len(self.current) >= 3:
-                self.polygons.append(self.current)
+                self._close_polygon()
             elif self.current:
                 print("  discarding unfinished polygon (<3 points)")
             self.current = []
@@ -430,7 +456,7 @@ class _Session:
             self.done = True
         elif event.key == "q":
             if len(self.current) >= 3:
-                self.polygons.append(self.current)
+                self._close_polygon()
             self.current = []
             self._circle_pending_center = None
             self.done = True
@@ -587,7 +613,8 @@ def main():
                      for poly in all_shapes]
             json.dump({"patent": patent, "sketch": sketch, "subdrawing_index": 0,
                        "crop_box": [0, 0, int(W), int(H)],
-                       "reviewed": True, "polygons": polys},
+                       "reviewed": True, "polygons": polys,
+                       "styles": sess.shape_styles()},
                       open(out_path, "w"), indent=2)
             n_done += 1
             print(f"  saved {stem}: {len(polys)} hatch area(s) -> {out_path}")
@@ -638,7 +665,8 @@ def main():
                          for poly in all_shapes]
                 json.dump({"patent": patent, "sketch": sketch, "subdrawing_index": di,
                            "crop_box": [int(x0), int(y0), int(x1), int(y1)],
-                           "reviewed": True, "polygons": polys},
+                           "reviewed": True, "polygons": polys,
+                           "styles": sess.shape_styles()},
                           open(out_path, "w"), indent=2)
                 n_done += 1
                 print(f"  saved {stem}: {len(polys)} hatch area(s) -> {out_path}")
