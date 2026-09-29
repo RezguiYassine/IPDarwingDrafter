@@ -97,7 +97,7 @@ COLUMNS = [
     "s0_time", "s0_n_labels", "s0_n_leaders",
     "s0_n_iterations", "s0_removed_ink_ratio",
     "s0_active_removal", "s0_flagged",
-    "s1_time", "s1_quality", "s1_model_used", "s1_flagged",
+    "s1_time", "s1_quality", "s1_model_used", "s1_flagged", "s1_n_regions",
     "s2_time", "s2_keypoint_src", "s2_n_nodes", "s2_n_edges",
     "s2_n_closed_edges", "s2_n_hachure_edges_removed", "s2_median_edge_len",
     "s2_micro_edge_ratio", "s2_short_edge_ratio",
@@ -131,6 +131,7 @@ EXTRA_COLUMN_TYPES = {
     "s0_removed_ink_ratio": "REAL",
     "s0_active_removal": "INTEGER",
     "s0_flagged": "INTEGER",
+    "s1_n_regions": "INTEGER",
 }
 
 

@@ -61,6 +61,7 @@ from pathlib import Path
 from typing import Optional
 
 import ezdxf
+from ezdxf.lldxf import const
 import svgwrite
 
 if __package__:
@@ -108,6 +109,7 @@ ISO128_LAYERS = {
     "hachure":      {"linetype": "CONTINUOUS", "lineweight": 18, "color": 7},  # 0.18 mm
     "text":         {"linetype": "CONTINUOUS", "lineweight": 25, "color": 7},
     "leader":       {"linetype": "CONTINUOUS", "lineweight": 18, "color": 7},
+    "fill":         {"linetype": "CONTINUOUS", "lineweight": 13, "color": 7},  # solid areas
 }
 
 DEFAULT_STYLE = "visible"   # primitives without an explicit style go here
@@ -372,6 +374,12 @@ def _svg_add_hatch(dwg, target, prim: dict, sw: float, uid: int) -> None:
     target.add(g)
 
 
+def _svg_fill_d(rings: list) -> str:
+    """Outer ring and holes as one path; the even-odd rule keeps holes paper."""
+    return " ".join("M " + " L ".join(f"{float(x):.2f} {float(y):.2f}" for x, y in ring) + " Z"
+                    for ring in rings)
+
+
 def _export_svg(data: dict, out_path: Path,
                 default_sw: Optional[float] = None, audit: Optional[dict] = None) -> int:
     """
@@ -496,6 +504,13 @@ def _export_svg(data: dict, out_path: Path,
 
             elif ptype == "hatch":
                 _svg_add_hatch(dwg, geometry, prim, sw, n_written)
+
+            elif ptype == "filled_region":
+                # Rings pass through boundary pixel centres; a 1 px stroke
+                # restores the half pixel out to the ink's true edge.
+                geometry.add(dwg.path(d=_svg_fill_d(prim["rings"]), fill="black",
+                                      fill_rule="evenodd", stroke="black",
+                                      stroke_width=1.0, stroke_linejoin="round"))
 
             elif ptype == "hatch_strokes":
                 d = " ".join("M " + " L ".join(f"{x:.6f} {y:.6f}" for x, y in stroke)
@@ -681,6 +696,16 @@ def _dxf_add_hatch(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None)
                                angle=-float(angles[0]))
 
 
+def _dxf_add_fill(msp, prim: dict, H: float, dxfattribs: Optional[dict] = None) -> None:
+    """A filled region as a native solid HATCH: outer ring, holes as islands."""
+    hatch = msp.add_hatch(color=7, dxfattribs=dict(dxfattribs or {}))
+    hatch.set_solid_fill(color=7, style=0)      # normal style: odd parity, holes stay open
+    for index, ring in enumerate(prim["rings"]):
+        hatch.paths.add_polyline_path(
+            [_flip_y_point(point, H) for point in ring], is_closed=True,
+            flags=const.BOUNDARY_PATH_EXTERNAL if index == 0 else const.BOUNDARY_PATH_DEFAULT)
+
+
 def _export_dxf_basic(data: dict, out_path: Path, audit: Optional[dict] = None) -> int:
     """
     Single-layer DXF for AutoCAD/SolidWorks/KiCad import.
@@ -760,6 +785,9 @@ def _export_dxf_basic(data: dict, out_path: Path, audit: Optional[dict] = None) 
 
             elif ptype == "hatch":
                 _dxf_add_hatch(msp, prim, H)
+
+            elif ptype == "filled_region":
+                _dxf_add_fill(msp, prim, H)
 
             elif ptype == "hatch_strokes":
                 strokes = [[_flip_y_point(p, H) for p in stroke] for stroke in prim["strokes"]]
@@ -949,6 +977,9 @@ def _export_dxf_patent(data: dict, out_path: Path, audit: Optional[dict] = None)
 
             elif ptype == "hatch":
                 _dxf_add_hatch(msp, prim, H, {"layer": "HACHURE"})
+
+            elif ptype == "filled_region":
+                _dxf_add_fill(msp, prim, H, {"layer": "FILL"})
 
             elif ptype == "hatch_strokes":
                 strokes = [[_flip_y_point(p, H) for p in stroke] for stroke in prim["strokes"]]

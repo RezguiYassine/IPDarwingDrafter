@@ -72,6 +72,12 @@ def validate_primitive(primitive: dict) -> None:
                 or len(set(flat)) != len(flat)
                 or sorted(flat) != sorted(primitive.get("source_hachure_indices", []))):
             raise ValueError("Incomplete or repeated explicit hatch ownership")
+    elif kind == "filled_region":
+        rings = primitive.get("rings") or []
+        if primitive.get("fill") != "solid" or not rings:
+            raise ValueError("A filled region needs a solid fill and an outer ring")
+        for ring in rings:
+            points(ring, 3)
     elif kind == "hatch":
         points(primitive.get("boundary") or [], 3)
         spacing = float(primitive.get("spacing", 0))

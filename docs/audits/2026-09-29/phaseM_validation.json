@@ -1,0 +1,304 @@
+{
+ "schema": "ap3-evidence-v1",
+ "date": "2026-09-29",
+ "phase": "M (M1-M4)",
+ "question": "Do filled regions export as fills, pass validation, and leave every other figure as it was?",
+ "sample": "benchmarks/mechanical/filled_region_validation.csv -- the Phase L 250 plus the 13 other release figures with regions",
+ "runs": {
+  "phase_M": "output/PhaseM_validation (config_dev_2026-09-29.yaml at launch: filled_regions only; GPU 1)",
+  "baseline": "output/PhaseL_validation (the 250); output/RELEASE_2026-09-28 (the 13)"
+ },
+ "acceptance": {
+  "figures": 263,
+  "identical_status_and_reasons": 262,
+  "improved": [
+   {
+    "figure": "EP2326901B1/F0001",
+    "baseline": "phase_L",
+    "from": [
+     "review",
+     [
+      "geometry_hatch_pattern_unverified",
+      "geometry_raster_coverage_incomplete"
+     ]
+    ],
+    "to": [
+     "accepted",
+     []
+    ],
+    "regions": 1
+   }
+  ],
+  "regressed": []
+ },
+ "regions": {
+  "figures_with_fills": 19,
+  "accepted": 19,
+  "regions_check_pass": 19,
+  "min_on_ink": 0.9996301091178103,
+  "min_coverage": 1.0,
+  "unrepresented_pixels_total": 0,
+  "thinned_region_pixels_total": 0,
+  "per_figure": [
+   {
+    "figure": "EP2172647B1/F0002",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 731,
+    "s2_edges_baseline": 767,
+    "regions_check": "pass",
+    "routed_pixels": 303195,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2326901B1/F0001",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 977,
+    "s2_edges_baseline": 988,
+    "regions_check": "pass",
+    "routed_pixels": 28282,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2537626B1/F0002",
+    "regions": 3,
+    "acceptance": "accepted",
+    "s2_edges": 876,
+    "s2_edges_baseline": 872,
+    "regions_check": "pass",
+    "routed_pixels": 46218,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2659162B1/F0001",
+    "regions": 3,
+    "acceptance": "accepted",
+    "s2_edges": 972,
+    "s2_edges_baseline": 1083,
+    "regions_check": "pass",
+    "routed_pixels": 35982,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2726318B1/F0002",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 799,
+    "s2_edges_baseline": 817,
+    "regions_check": "pass",
+    "routed_pixels": 6182,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2991839B1/F0001",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 50,
+    "s2_edges_baseline": 57,
+    "regions_check": "pass",
+    "routed_pixels": 101717,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2907579B1/F0001",
+    "regions": 9,
+    "acceptance": "accepted",
+    "s2_edges": 414,
+    "s2_edges_baseline": 478,
+    "regions_check": "pass",
+    "routed_pixels": 95573,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3098437B1/F0002",
+    "regions": 4,
+    "acceptance": "accepted",
+    "s2_edges": 236,
+    "s2_edges_baseline": 404,
+    "regions_check": "pass",
+    "routed_pixels": 100781,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3305527B1/F0001",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 127,
+    "s2_edges_baseline": 142,
+    "regions_check": "pass",
+    "routed_pixels": 14413,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3492282A1/F0001",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 251,
+    "s2_edges_baseline": 264,
+    "regions_check": "pass",
+    "routed_pixels": 5310,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3492731A1/A0001",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 1108,
+    "s2_edges_baseline": 1210,
+    "regions_check": "pass",
+    "routed_pixels": 10759,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 0.9996301091178103,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3495311A1/F0001",
+    "regions": 5,
+    "acceptance": "accepted",
+    "s2_edges": 630,
+    "s2_edges_baseline": 726,
+    "regions_check": "pass",
+    "routed_pixels": 31453,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3501794A1/F0001",
+    "regions": 4,
+    "acceptance": "accepted",
+    "s2_edges": 245,
+    "s2_edges_baseline": 183,
+    "regions_check": "pass",
+    "routed_pixels": 130669,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP2803446B1/F0001",
+    "regions": 2,
+    "acceptance": "accepted",
+    "s2_edges": 2594,
+    "s2_edges_baseline": 2672,
+    "regions_check": "pass",
+    "routed_pixels": 18575,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3501963A1/A0001",
+    "regions": 2,
+    "acceptance": "accepted",
+    "s2_edges": 303,
+    "s2_edges_baseline": 356,
+    "regions_check": "pass",
+    "routed_pixels": 73523,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3501733A1/A0001",
+    "regions": 1,
+    "acceptance": "accepted",
+    "s2_edges": 719,
+    "s2_edges_baseline": 619,
+    "regions_check": "pass",
+    "routed_pixels": 6174,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3077179B1/F0001",
+    "regions": 2,
+    "acceptance": "accepted",
+    "s2_edges": 1287,
+    "s2_edges_baseline": 1454,
+    "regions_check": "pass",
+    "routed_pixels": 100425,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3501910A1/A0001",
+    "regions": 4,
+    "acceptance": "accepted",
+    "s2_edges": 1614,
+    "s2_edges_baseline": 1861,
+    "regions_check": "pass",
+    "routed_pixels": 60720,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   },
+   {
+    "figure": "EP3269534B1/F0002",
+    "regions": 4,
+    "acceptance": "accepted",
+    "s2_edges": 1857,
+    "s2_edges_baseline": 1945,
+    "regions_check": "pass",
+    "routed_pixels": 85581,
+    "unrepresented_pixels": 0,
+    "thinned_region_pixels": 0,
+    "min_on_ink": 1.0,
+    "min_coverage": 1.0
+   }
+  ]
+ },
+ "visual_review": {
+  "renders": "docs/audits/2026-09-29/phaseM_renders/regions_{0..3}.png -- source | phase M | before, round each figure's largest region",
+  "verdict": "every fill renders where the source is black and no fill renders as a scribble; holes (label boxes, cut-outs) stay paper",
+  "partial": {
+   "EP2726318B1/F0002": "a dithered dark rectangle: its solid part fills, its dithered top stays a dot mesh",
+   "EP3492731A1/A0001": "a dark shaded hub: solid patches fill, the textured rest stays mesh",
+   "EP2659162B1/F0001": "a black rod with noisy edges: filled; the noisy surround stays as before"
+  },
+  "partial_note": "the unfilled remainder in each is dithered shading -- Phase N's, by decision 2"
+ },
+ "dxf_render_check": "a fill with a hole rendered through ezdxf's drawing add-on in both DXF modes: fill drawn, hole open, outside open",
+ "exit_criterion_R3": "met for solid regions: 19 of 19 figures with fills accepted (18 release figures + EP2326901B1, previously review); 0 of 85 usable audit figures carry a fill (M1 negative control)"
+}

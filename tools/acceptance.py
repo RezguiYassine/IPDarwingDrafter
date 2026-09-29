@@ -14,7 +14,7 @@ from tools import content_routing, geometry_validation
 
 
 SCHEMA = "ap3-acceptance-v1"
-POLICY_VERSION = "2026-09-29.1"
+POLICY_VERSION = "2026-09-29.2"
 REQUIRED_CHECKS = {"execution", "stage_flags", "deployment", "artifacts", "exports",
                    "references", "hachures", "content", "geometry"}
 ROW_FIELDS = ("patent_id", "sketch_id", "input_path", "status", "error",
@@ -215,6 +215,13 @@ def record(row: dict, output_dir: Path, deployment_identity: dict | None,
                 "reference_free": output_dir / "references" / f"{sketch}_norefs.png",
                 "reference_mask": output_dir / "references" / f"{sketch}_references_mask.png",
             })
+        # Stage 1 writes region evidence whenever filled regions are enabled;
+        # once it exists it is bound like every other artifact, and a figure
+        # whose primitives carry fills cannot validate without it.
+        regions = output_dir / "cleaned" / f"{sketch}_regions.json"
+        if regions.is_file():
+            locations.update(regions=regions,
+                             regions_mask=output_dir / "cleaned" / f"{sketch}_regions_mask.png")
         for name, path in locations.items():
             bind(name, path)
         if not missing:
@@ -223,8 +230,13 @@ def record(row: dict, output_dir: Path, deployment_identity: dict | None,
                     return json.loads(Path(artifacts[name]["path"]).read_text())
                 document, primitives, graph = read("export_input"), read("primitives"), read("graph")
                 geometry_path = output_dir / "geometry" / f"{sketch}_geometry_report.json"
+                region_evidence = ({"regions_path": locations["regions"],
+                                    "regions_mask_path": locations["regions_mask"],
+                                    "cleaned_path": locations["cleaned"]}
+                                   if "regions" in locations else {})
                 geometry_report = geometry_validation.run(
                     locations["graph"], locations["primitives"], locations["skeleton"], geometry_path,
+                    **region_evidence,
                 )
                 bind("geometry_report", geometry_path)
                 checks["geometry"] = geometry_validation.acceptance_check(geometry_report)
@@ -277,6 +289,20 @@ def record(row: dict, output_dir: Path, deployment_identity: dict | None,
     return result, path
 
 
+def _region_inputs_bound(inputs: dict, artifacts: dict) -> bool:
+    """Region evidence the record binds is the evidence geometry was judged on.
+
+    Either side naming the region document or its mask obliges both to name
+    the same file. The Stage 1 raster is bound on every record, but it is a
+    geometry input only when regions were validated.
+    """
+    for name in geometry_validation.REGION_INPUTS:
+        involved = name in inputs or (name != "cleaned" and name in artifacts)
+        if involved and inputs.get(name) != artifacts.get(name):
+            return False
+    return True
+
+
 def eligibility_reason(row: dict, run_output: Path, selected_identity: dict | None) -> str | None:
     """Verify the sealed acceptance record before allowing a training manifest row."""
     if not selected_identity:
@@ -312,7 +338,8 @@ def eligibility_reason(row: dict, run_output: Path, selected_identity: dict | No
                 or geometry.get("version") != geometry_validation.VERSION
                 or geometry_validation.acceptance_check(geometry) != report["checks"]["geometry"]
                 or any(geometry["inputs"][name] != report["artifacts"][name]
-                       for name in ("graph", "primitives", "skeleton"))):
+                       for name in ("graph", "primitives", "skeleton"))
+                or not _region_inputs_bound(geometry["inputs"], report["artifacts"])):
             return "acceptance_geometry_unverified"
         if "content_report" in report["artifacts"]:
             content = json.loads(Path(report["artifacts"]["content_report"]["path"]).read_text())

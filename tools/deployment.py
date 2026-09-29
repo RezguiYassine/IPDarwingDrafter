@@ -19,6 +19,7 @@ MODEL_MANIFEST = ROOT / "models/deployment_manifest.json"
 IMPLEMENTATION_FILES = (
     "stage0_handling_references/stage0_handle_references.py",
     "stage1_preprocessing/stage1_preprocess.py",
+    "stage1_preprocessing/filled_regions.py",
     "stage2_strokeextraction/stage2_stroke_extract.py",
     "stage3_primitivesfitting/stage3_primitive_fit.py",
     "stage4_export/stage4_export.py",

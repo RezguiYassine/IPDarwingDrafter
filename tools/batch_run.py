@@ -106,7 +106,7 @@ _WORKER_CONTENT_MANIFEST: dict | None = None
 _PREPROCESSING_ROW_FIELDS = (
     "s0_time", "s0_n_labels", "s0_n_leaders", "s0_n_iterations",
     "s0_removed_ink_ratio", "s0_active_removal", "s0_flagged",
-    "s1_time", "s1_quality", "s1_model_used", "s1_flagged",
+    "s1_time", "s1_quality", "s1_model_used", "s1_flagged", "s1_n_regions",
 )
 
 
@@ -297,6 +297,31 @@ def _copy_reused_preprocessing(
     ):
         shutil.copy2(source, target)
 
+    # The reused skeleton was thinned with or without filled regions taken
+    # out; reusing it under different region settings would pair a skeleton
+    # with evidence it was not made from.
+    regions = stage1_preprocess.filled_regions
+    region_cfg = regions.settings(_WORKER_CFG)
+    source_regions = source_cleaned / f"{sketch_id}_regions.json"
+    target_regions = None
+    n_regions = 0
+    if region_cfg["enabled"]:
+        if not source_regions.is_file():
+            raise FileNotFoundError(f"reused preprocessing has no filled-region evidence: {source_regions}")
+        region_doc = json.loads(source_regions.read_text())
+        expected = {key: region_cfg[key] for key in regions.DEFAULTS if key != "enabled"}
+        if region_doc.get("schema") != regions.SCHEMA or region_doc.get("settings") != expected:
+            raise RuntimeError(f"reused filled-region evidence has other settings: {source_regions}")
+        source_region_mask = Path(region_doc["routed_mask"]["path"])
+        target_region_mask = target_cleaned / source_region_mask.name
+        shutil.copy2(source_region_mask, target_region_mask)
+        region_doc["routed_mask"]["path"] = str(target_region_mask.resolve())
+        target_regions = target_cleaned / source_regions.name
+        target_regions.write_text(json.dumps(region_doc, indent=1) + "\n")
+        n_regions = len(region_doc["regions"])
+    elif source_regions.is_file():
+        raise RuntimeError(f"reused preprocessing removed filled regions, which are disabled: {source_regions}")
+
     with open(source_ref_json) as fh:
         reference_doc = json.load(fh)
     reference_doc["mask_path"] = str(target_mask)
@@ -335,6 +360,8 @@ def _copy_reused_preprocessing(
         processing_time_s=float(source_row["s1_time"] or 0.0),
         model_used=str(source_row["s1_model_used"] or "unknown"),
         flagged=bool(source_row["s1_flagged"]),
+        regions_path=target_regions,
+        n_regions=n_regions,
     )
     return s0, s1
 
@@ -429,6 +456,7 @@ def _run_stages(job: tuple[str, str, str, str]) -> dict:
             "s1_quality":    s1.skeleton_quality,
             "s1_model_used": s1.model_used,
             "s1_flagged":    int(s1.flagged),
+            "s1_n_regions":  getattr(s1, "n_regions", 0),
         })
     except _ReusedPreprocessingFailure as exc:
         source_row = exc.source_row
@@ -509,15 +537,17 @@ def _run_stages(job: tuple[str, str, str, str]) -> dict:
             sketch_id=sketch_id, config=_WORKER_CFG,
             # stroke_width intentionally omitted: patent SVG output uses ISO 128
             # lineweights, not the original scan's ink thickness.
+            regions_path=getattr(s1, "regions_path", None),
         )
         with open(s3.primitives_path) as fh:
             prim_doc = json.load(fh)
         conf_thresh = _WORKER_CFG.get("stage3", {}).get("confidence_threshold", 0.60)
         prims = prim_doc.get("primitives", [])
+        # Fills are traced, not fitted, and carry no fit confidence.
         quality_prims = [
             p for p in prims
             if p.get("style") != "hachure"
-            and p.get("source") != "removed_hachure"
+            and p.get("source") not in {"removed_hachure", "stage1_region"}
         ]
         prim_confs = [
             float(p.get("confidence", 0.0))

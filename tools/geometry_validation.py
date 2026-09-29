@@ -18,11 +18,14 @@ from scipy.spatial import cKDTree
 # namespace package that would shadow their stage4_export module later.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage4_export"))
 import stage4_export  # noqa: E402
+from stage1_preprocessing import filled_regions  # noqa: E402
 
 
 SCHEMA = "ap3-source-geometry-v1"
 VALIDATOR = "source_supported_geometry"
-VERSION = "5"
+# 6: filled regions, validated against Stage 1's region evidence and the ink
+# rather than against a skeleton they were deliberately taken out of.
+VERSION = "6"
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,10 @@ class Policy:
     max_samples_per_primitive: int = 200_000
     max_samples_per_drawing: int = 2_000_000
     max_source_pixels: int = 2_000_000
+    # Filled regions. The ring traces boundary pixel centres and is simplified
+    # at 1 px, so coverage is judged within one pixel of the polygon.
+    region_min_on_ink: float = 0.97
+    region_min_coverage: float = 0.99
 
 
 POLICY = Policy()
@@ -88,9 +95,12 @@ def sample_primitive(primitive, scale=1.0, policy=POLICY):
     budget = policy.max_samples_per_primitive
     kind = primitive["type"]
     connector = 0.0
-    if kind == "hatch_strokes":
+    if kind in {"hatch_strokes", "filled_region"}:
+        # A region is sampled along its rings: its boundary is its geometry.
+        lines = (primitive["strokes"] if kind == "hatch_strokes"
+                 else [list(ring) + [ring[0]] for ring in primitive["rings"]])
         pieces = []
-        for stroke in primitive["strokes"]:
+        for stroke in lines:
             part = _resample(stroke, step, budget) * scale
             budget -= len(part)
             pieces.append(part)
@@ -341,8 +351,84 @@ def _stage2_coverage_check(graph, skeleton, scale, policy=POLICY):
         return _outcome("error", "geometry_stage2_coverage_invalid", detail=str(exc))
 
 
-def validate(graph, document, skeleton=None, policy=POLICY):
-    """Validate owned traces and full Stage 1 coverage; never refit or remove ink."""
+def _region_raster(rings, shape):
+    raster = np.zeros(shape, np.uint8)
+    cv2.fillPoly(raster, [np.rint(np.asarray(ring, float)).astype(np.int32).reshape(-1, 1, 2)
+                          for ring in rings], 1)          # even-odd: holes stay empty
+    return raster
+
+
+def _check_regions(primitives, evidence, skeleton, policy):
+    """Hold each filled region to Stage 1's evidence and to the ink itself.
+
+    A region was taken out of the skeleton on purpose, so the skeleton cannot
+    judge it. Three things can: the fill must lie on ink, it must cover every
+    ink pixel Stage 1 removed, and none of that ink may also have been thinned
+    -- the scribble this primitive exists to replace.
+    """
+    if evidence is None:
+        failure = _outcome("error", "geometry_region_evidence_missing")
+        return failure, [dict(failure) for _ in primitives]
+    document, routed, ink = evidence["document"], evidence["routed"], evidence["ink"]
+    shape = tuple(document["image_shape"])
+    if (document.get("schema") != filled_regions.SCHEMA or routed.shape != shape
+            or ink.shape != shape or (skeleton is not None and skeleton.shape != shape)):
+        raise ValueError("Region evidence frame or schema mismatch")
+    if filled_regions.mask_digest(routed) != document["routed_mask"]["sha256"]:
+        raise ValueError("Routed-ink mask does not match the Stage 1 regions document")
+    if (routed & ~ink).any():
+        raise ValueError("Stage 1 routed pixels that are not ink")
+    declared = document["regions"]
+    owners = [p.get("source_region_index") for p in primitives]
+    if (any(type(i) is not int or not 0 <= i < len(declared) for i in owners)
+            or sorted(owners) != list(range(len(declared)))):
+        failure = _outcome("error", "geometry_region_ownership_incomplete")
+        return failure, [dict(failure) for _ in primitives]
+
+    kernel = np.ones((3, 3), np.uint8)
+    near_ink = cv2.dilate(ink.astype(np.uint8), kernel) > 0
+    _, components = cv2.connectedComponents(routed.astype(np.uint8), connectivity=8)
+    union = np.zeros(shape, bool)
+    results = []
+    for primitive, owner in zip(primitives, owners):
+        if primitive["rings"] != declared[owner]["rings"]:
+            results.append(_outcome("error", "geometry_region_changed_from_evidence"))
+            continue
+        raster = _region_raster(primitive["rings"], shape)
+        filled = raster > 0
+        union |= filled
+        owned = np.isin(components, np.unique(components[filled & routed]).tolist()) & routed
+        reach = cv2.dilate(raster, kernel) > 0
+        metrics = {"area_px": int(filled.sum()),
+                   "on_ink": float((filled & near_ink).sum() / max(1, filled.sum())),
+                   "coverage": float((owned & reach).sum() / max(1, owned.sum()))}
+        reasons = []
+        if metrics["on_ink"] < policy.region_min_on_ink:
+            reasons.append("geometry_region_off_ink")
+        if not owned.any() or metrics["coverage"] < policy.region_min_coverage:
+            reasons.append("geometry_region_ink_unrepresented")
+        results.append({**_outcome("fail" if reasons else "pass", *reasons), "metrics": metrics})
+
+    stray = routed & ~(cv2.dilate(union.astype(np.uint8), kernel) > 0)
+    thinned = int((skeleton & routed).sum()) if skeleton is not None else None
+    reasons = []
+    if largest_pixel_run(stray) > policy.max_unsupported_run_pixels:
+        reasons.append("geometry_region_ink_unrepresented")
+    if thinned:
+        reasons.append("geometry_region_double_representation")
+    overall = _outcome("fail" if reasons else "pass", *reasons,
+                       regions=len(declared), routed_pixels=int(routed.sum()),
+                       unrepresented_pixels=int(stray.sum()), thinned_region_pixels=thinned)
+    return {**_combine([overall] + results), **{k: v for k, v in overall.items()
+                                               if k not in ("status", "reason_codes")}}, results
+
+
+def validate(graph, document, skeleton=None, policy=POLICY, regions=None):
+    """Validate owned traces and full Stage 1 coverage; never refit or remove ink.
+
+    `regions` is Stage 1's filled-region evidence -- its document, the routed
+    ink mask and the ink -- and is required whenever the figure has regions.
+    """
     report = {"schema": SCHEMA, "validator": VALIDATOR, "version": VERSION,
               "parameters": asdict(policy), "coordinate_frame": "stage2_pixels",
               "checks": {}, "primitives": []}
@@ -367,7 +453,14 @@ def validate(graph, document, skeleton=None, policy=POLICY):
         checks["stage2_coverage"] = _stage2_coverage_check(graph, skeleton, scale, policy)
         models = []
         sampled_count = 0
+        fills = [index for index, primitive in enumerate(primitives)
+                 if primitive.get("type") == "filled_region"]
         for index, primitive in enumerate(primitives):
+            if primitive.get("type") == "filled_region":
+                items.append({"index": index, "type": "filled_region", "edge_id": None,
+                              "source_collection": "stage1_regions",
+                              "source_indices": [primitive.get("source_region_index")]})
+                continue
             is_hatch = primitive.get("style") == "hachure"
             item = {"index": index, "type": primitive.get("type"), "edge_id": primitive.get("edge_id"),
                     "source_collection": "removed_hachures" if is_hatch else "edges"}
@@ -415,6 +508,16 @@ def validate(graph, document, skeleton=None, policy=POLICY):
             except (KeyError, TypeError, ValueError, OverflowError) as exc:
                 item.update(_outcome("error", "geometry_invalid_primitive_or_source", detail=str(exc)))
             items.append(item)
+        if fills or regions is not None:
+            try:
+                checks["regions"], results = _check_regions(
+                    [primitives[i] for i in fills], regions, skeleton, policy)
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                checks["regions"] = _outcome("error", "geometry_region_evidence_invalid",
+                                             detail=str(exc))
+                results = [_outcome("error", "geometry_region_evidence_invalid")] * len(fills)
+            for index, result in zip(fills, results):
+                items[index].update(result)
         missing = sorted(set(ids) - set(ownership))
         repeated = [key for key, count in ownership.items() if count != 1]
         hatch_missing = sorted(set(range(len(hatches))) - set(hatch_ownership))
@@ -452,7 +555,8 @@ def validate(graph, document, skeleton=None, policy=POLICY):
             precision = _distances(precision_distances, policy, mask=stray)
             raster_checks = [_distance_check(precision, "geometry_output_off_skeleton", policy)]
             raster_metrics = {"model_to_skeleton": precision}
-            if len(models) == len(primitives):
+            # Fills are judged against the ink above, not against the skeleton.
+            if len(models) == len(primitives) - len(fills):
                 recall_distances = cKDTree(model).query(raster)[0]
                 uncovered = np.zeros(skeleton.shape, bool)
                 uncovered[y[recall_distances > policy.tolerance],
@@ -480,13 +584,30 @@ def acceptance_check(report):
     return {key: report[key] for key in ("status", "reason_codes", "validator", "version")}
 
 
-def run(graph_path: Path, primitives_path: Path, skeleton_path: Path, output_path: Path):
+REGION_INPUTS = ("regions", "regions_mask", "cleaned")
+
+
+def run(graph_path: Path, primitives_path: Path, skeleton_path: Path, output_path: Path,
+        *, regions_path: Path | None = None, regions_mask_path: Path | None = None,
+        cleaned_path: Path | None = None):
     inputs = {"graph": graph_path, "primitives": primitives_path, "skeleton": skeleton_path}
-    hashes = {key: {"path": str(path.resolve()), "sha256": file_digest(path)} for key, path in inputs.items()}
+    if regions_path is not None:
+        inputs.update(regions=regions_path, regions_mask=regions_mask_path, cleaned=cleaned_path)
+    hashes = {key: {"path": str(Path(path).resolve()), "sha256": file_digest(path)}
+              for key, path in inputs.items()}
     skeleton = cv2.imread(str(skeleton_path), cv2.IMREAD_GRAYSCALE)
     if skeleton is None:
         raise ValueError(f"Cannot decode source skeleton: {skeleton_path}")
-    report = validate(json.loads(graph_path.read_text()), json.loads(primitives_path.read_text()), skeleton > 0)
+    evidence = None
+    if regions_path is not None:
+        routed = cv2.imread(str(regions_mask_path), cv2.IMREAD_GRAYSCALE)
+        cleaned = cv2.imread(str(cleaned_path), cv2.IMREAD_GRAYSCALE)
+        if routed is None or cleaned is None:
+            raise ValueError("Cannot decode the region mask or the Stage 1 raster")
+        evidence = {"document": json.loads(Path(regions_path).read_text()),
+                    "routed": routed > 0, "ink": cleaned > 127}
+    report = validate(json.loads(graph_path.read_text()), json.loads(primitives_path.read_text()),
+                      skeleton > 0, regions=evidence)
     report["inputs"] = hashes
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_suffix(".tmp")

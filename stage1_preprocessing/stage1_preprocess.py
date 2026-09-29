@@ -32,6 +32,11 @@ import numpy as np
 from skimage.morphology import skeletonize, remove_small_objects
 from skimage.measure import label
 
+try:
+    from stage1_preprocessing import filled_regions
+except ImportError:          # run as a script from its own directory
+    import filled_regions
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +52,8 @@ class Stage1Result:
     model_used: str             # "sketchcleannet" | "classical"
     flagged: bool               # True if skeleton_quality < threshold
     mean_stroke_width: float = 1.0  # estimated original stroke width in pixels
+    regions_path: Optional[Path] = None  # filled regions taken out of the skeleton
+    n_regions: int = 0
 
 
 # ─── SketchCleanNet model wrapper ────────────────────────────────────────────
@@ -531,6 +538,26 @@ def run(
     else:
         skeleton_input = cleaned_img
 
+    # ── Filled regions ───────────────────────────────────────────────────────
+    # A fill thinned to its medial axis is a scribble. Areas are handed on as
+    # polygons and taken out of the thinner's input; the cleaned raster keeps
+    # them, so ink routing still sees every pixel. Bold strokes are recorded
+    # and left to the skeleton.
+    regions_path = None
+    n_regions = 0
+    region_cfg = filled_regions.settings(config)
+    if region_cfg["enabled"]:
+        regions = filled_regions.detect(skeleton_input > 0, region_cfg)
+        routed = filled_regions.routed_mask(regions, skeleton_input.shape)
+        regions_path = cleaned_dir / f"{sketch_id}_regions.json"
+        filled_regions.write(regions, routed, region_cfg, regions_path,
+                             cleaned_dir / f"{sketch_id}_regions_mask.png")
+        n_regions = sum(region.kind == "area" for region in regions)
+        if routed.any():
+            skeleton_input = np.where(routed, 0, skeleton_input).astype(np.uint8)
+            logger.info(f"[{sketch_id}] {n_regions} filled region(s), "
+                        f"{int(routed.sum())} ink px routed to polygons")
+
     # ── Thin to 1px skeleton ──────────────────────────────────────────────────
     skeleton = _thin_to_skeleton(skeleton_input)
     cv2.imwrite(str(skeleton_path), skeleton)
@@ -564,6 +591,8 @@ def run(
         model_used        = model_used,
         flagged           = flagged,
         mean_stroke_width = stroke_width,
+        regions_path      = regions_path,
+        n_regions         = n_regions,
     )
 
 

@@ -104,6 +104,11 @@ stage0:
   use_ocr: true
   use_reference_vocabulary: true
 stage1:
+  # Phase M (roadmap rev. 3, 2026-09-29): wide, solid, compact ink is exported
+  # as a filled polygon and kept out of the skeleton. Defaults are the measured
+  # operating point (docs/audits/2026-09-29/m1_region_detector.json).
+  filled_regions:
+    enabled: true
   classical:
     adaptive_C: 10
     adaptive_block: 35

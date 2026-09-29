@@ -1690,8 +1690,29 @@ def fit_hachure_layer(graph: dict, coord_scale: float = 1.0) -> tuple[list[dict]
 # PUBLIC STAGE FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════
 
+REGIONS_SCHEMA = "ap3-stage1-regions-v1"
+
+
+def region_primitives(regions_path: Path, image_size: list | None) -> list[dict]:
+    """Stage 1's filled regions, one `filled_region` primitive each.
+
+    Nothing is fitted: the rings are Stage 1's traced outline, carried over
+    unchanged so the validator can hold the export to the exact evidence.
+    """
+    document = json.loads(Path(regions_path).read_text())
+    if document.get("schema") != REGIONS_SCHEMA:
+        raise ValueError(f"Not a Stage 1 regions document: {regions_path}")
+    if image_size is not None and document["image_shape"] != [image_size[1], image_size[0]]:
+        raise ValueError("Stage 1 regions and the stroke graph disagree on image size")
+    return [{"type": "filled_region", "fill": "solid", "style": "fill",
+             "rings": region["rings"], "source": "stage1_region",
+             "source_region_index": index}
+            for index, region in enumerate(document["regions"])]
+
+
 def run(graph_path: Path, output_dir: Path, sketch_id: str,
-        config: dict, stroke_width: float = None) -> Stage3Result:
+        config: dict, stroke_width: float = None,
+        regions_path: Path | None = None) -> Stage3Result:
     """
     Fit primitives to all edges in one stroke graph.
 
@@ -1714,6 +1735,9 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         Estimated original stroke width in pixels (from Stage 1). When
         provided it is embedded in the JSON so Stage 4 can produce an SVG
         whose stroke-width matches the source sketch.
+    regions_path : Path | None
+        Stage 1's filled-region document. Its regions lead the primitive list
+        as `filled_region` primitives, so strokes draw over them.
     """
     t_start = time.perf_counter()
 
@@ -1843,7 +1867,8 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
         for edge in edges
     ]
     hachure_primitives, hachure_coverage = fit_hachure_layer(graph, coord_scale)
-    primitives = main_primitives + hachure_primitives
+    fills = region_primitives(regions_path, image_size) if regions_path else []
+    primitives = fills + main_primitives + hachure_primitives
 
     confidences = [p.get("confidence", 0.0) for p in main_primitives]
     mean_conf   = float(np.mean(confidences)) if confidences else 0.0
@@ -1881,6 +1906,7 @@ def run(graph_path: Path, output_dir: Path, sketch_id: str,
     doc["quality_metrics"] = {
         "n_main_primitives": len(main_primitives),
         "n_hachure_primitives": len(hachure_primitives),
+        "n_region_primitives": len(fills),
         "hachure_coverage": hachure_coverage,
         "main_mean_confidence": mean_conf,
         "confidence_threshold": conf_thresh,
